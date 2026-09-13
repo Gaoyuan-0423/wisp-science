@@ -252,6 +252,18 @@ pub enum AgentEvent {
         presentation_kind: String,
         payload: serde_json::Value,
     },
+    AppContextUpdate {
+        frame_id: String,
+        context_id: String,
+        instance_id: String,
+        app_name: String,
+        #[serde(default)]
+        update_mode: String,
+        state: String,
+        summary: String,
+        #[serde(default)]
+        structured_preview: Option<String>,
+    },
     Usage {
         frame_id: String,
         input: u64,
@@ -445,8 +457,22 @@ pub enum ChatItem {
         model: Option<String>,
     },
     Review(ReviewReport),
+    /// A non-agent, persisted notice that an MCP App updated the live model
+    /// context. This is deliberately separate from user/assistant messages:
+    /// updating App context never starts a turn.
+    AppContextNotice(AppContextNotice),
     Plan(PlanCard),
     Question(QuestionCard),
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppContextNotice {
+    pub context_id: String,
+    pub app_name: String,
+    pub state: String,
+    pub summary: String,
+    pub structured_preview: Option<String>,
 }
 
 #[derive(Deserialize, Clone, PartialEq, Eq)]
@@ -644,6 +670,15 @@ impl ChatItem {
             Self::Review(report) => (5u8, report).hash(&mut h),
             Self::Plan(plan) => (7u8, plan).hash(&mut h),
             Self::Question(question) => (12u8, question).hash(&mut h),
+            Self::AppContextNotice(notice) => (
+                16u8,
+                &notice.context_id,
+                &notice.app_name,
+                &notice.state,
+                &notice.summary,
+                &notice.structured_preview,
+            )
+                .hash(&mut h),
         }
         h.finish()
     }
@@ -2514,6 +2549,13 @@ impl LoadedItem {
                 .unwrap_or_else(|_| ChatItem::Assistant {
                     text: self.text,
                     model: None,
+                    resources: self.resources,
+                }),
+            "app_context" => serde_json::from_str(&self.text)
+                .map(ChatItem::AppContextNotice)
+                .unwrap_or_else(|_| ChatItem::Assistant {
+                    text: self.text,
+                    model: self.model_name,
                     resources: self.resources,
                 }),
             "acp_tool" => ChatItem::AcpTool {

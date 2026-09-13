@@ -12678,6 +12678,62 @@ test("MCP App opens as a persistent center tab and delivers tool data", async ({
       structuredContent: { recordId: "pet-28a", length: 5369 },
     },
   });
+  const sendCountBeforeContextNotice = (await invokeArgsList(page, "send_message")).length;
+  await page.evaluate(({ frameId }) => {
+    (window as any).__tauriEmit("agent", {
+      kind: "AppContextUpdate",
+      frame_id: frameId,
+      context_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      instance_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      app_name: "Motif test app",
+      update_mode: "replace",
+      state: "active",
+      summary: "Active record: pET-28a(+)",
+      structured_preview: JSON.stringify({ recordId: "pet-28a", length: 5369 }),
+    });
+  }, { frameId });
+  const contextNotice = page.getByTestId("mcp-app-context-attachment");
+  await expect(contextNotice).toContainText("Motif test app");
+  await expect(contextNotice.locator(".composer-reference-card")).toHaveAttribute(
+    "title",
+    "Active record: pET-28a(+)",
+  );
+  await expect(contextNotice).toContainText("MCP App context");
+  await expect.poll(() => invokeArgsList(page, "send_message")).toHaveLength(sendCountBeforeContextNotice);
+  await contextNotice.getByRole("button", { name: "Remove attachment" }).click();
+  await expect(page.getByTestId("mcp-app-context-attachment")).toHaveCount(0);
+  await expect.poll(() => lastInvokeArgs(page, "update_mcp_app_context")).toMatchObject({ context: {} });
+
+  await page.evaluate(({ frameId }) => {
+    (window as any).__tauriEmit("agent", {
+      kind: "AppContextUpdate",
+      frame_id: frameId,
+      context_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      instance_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      app_name: "Motif test app",
+      update_mode: "replace",
+      state: "replaced",
+      summary: "Active record: pBR322",
+      structured_preview: null,
+    });
+  }, { frameId });
+  await expect(page.getByTestId("mcp-app-context-attachment")).toHaveCount(1);
+  await expect(page.getByTestId("mcp-app-context-attachment")).toContainText("Motif test app");
+  await page.evaluate(({ frameId }) => {
+    (window as any).__tauriEmit("agent", {
+      kind: "AppContextUpdate",
+      frame_id: frameId,
+      context_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      instance_id: `mcp-app:${frameId}:ui://motif/workbench.html`,
+      app_name: "Motif test app",
+      update_mode: "clear",
+      state: "cleared",
+      summary: "",
+      structured_preview: null,
+    });
+  }, { frameId });
+  await expect(page.getByTestId("mcp-app-context-attachment")).toHaveCount(0);
+
   const frame = page.locator('iframe[title="Motif test app"]');
   await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
   const appTab = page.locator('.center-tab[data-center-path^="mcp-app:"]');

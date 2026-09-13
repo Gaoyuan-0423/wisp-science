@@ -467,9 +467,13 @@ fn App() -> impl IntoView {
     // Configured model profiles + the composer's bottom-right picker state.
     let models = create_rw_signal::<Vec<ModelProfile>>(vec![]);
     let active_session = create_rw_signal::<Option<String>>(None);
+    let mcp_app_context = create_rw_signal::<Option<AppContextNotice>>(None);
     create_effect(move |_| {
         active_session.get();
         chat_find_open.set(false);
+        // Context updates are scoped to the conversation that received them;
+        // never carry an attachment into another session or a new chat.
+        mcp_app_context.set(None);
     });
     // The stopping banner belongs to the session where Stop was clicked, and
     // only while that session is still running. Switching conversations must
@@ -1808,6 +1812,9 @@ fn App() -> impl IntoView {
     // model and one chip list. Uploads remain separate because they have async
     // progress/error state; selected catalog items are already durable records.
     let composer_references = create_rw_signal::<Vec<ComposerReferenceChip>>(vec![]);
+    // The latest MCP App context is a pending composer attachment, not a
+    // transcript message. The user can remove it before sending the next
+    // ordinary turn, just like a file attachment.
     // Quoted selections retain their source path. The persisted message still
     // carries ordinary text, but the agent now knows which workspace file a
     // "change this" request must edit.
@@ -2985,6 +2992,30 @@ fn App() -> impl IntoView {
                     show_mcp_app.call((frame_id, payload, true));
                 }
             }
+            AgentEvent::AppContextUpdate {
+                frame_id,
+                context_id,
+                app_name,
+                state,
+                summary,
+                structured_preview,
+                ..
+            } => {
+                if active_cb.get_untracked().as_deref() != Some(frame_id.as_str()) {
+                    return;
+                }
+                if state == "cleared" {
+                    mcp_app_context.set(None);
+                } else {
+                    mcp_app_context.set(Some(AppContextNotice {
+                        context_id,
+                        app_name,
+                        state,
+                        summary,
+                        structured_preview,
+                    }));
+                }
+            }
             AgentEvent::Usage {
                 frame_id,
                 input,
@@ -3895,6 +3926,7 @@ fn App() -> impl IntoView {
         }
         let message = input.get();
         let saved_attachments = attachments.get();
+        let saved_mcp_app_context = mcp_app_context.get();
         let refs = composer_references.get();
         let quotes = composer_quotes.get();
         let paths = attachment_paths(&saved_attachments);
@@ -3921,7 +3953,12 @@ fn App() -> impl IntoView {
                 ComposerReferenceArg::Context { .. } | ComposerReferenceArg::Runtime { .. }
             )
         });
-        if message.trim().is_empty() && paths.is_empty() && refs.is_empty() && quotes.is_empty() {
+        if message.trim().is_empty()
+            && paths.is_empty()
+            && refs.is_empty()
+            && quotes.is_empty()
+            && saved_mcp_app_context.is_none()
+        {
             return;
         }
         let active = active_session.get();
@@ -3969,6 +4006,7 @@ fn App() -> impl IntoView {
             queue_seq.set(qid);
             input.set(String::new());
             attachments.set(vec![]);
+            mcp_app_context.set(None);
             motif_selection.set(None);
             composer_references.set(vec![]);
             composer_quotes.set(vec![]);
@@ -3994,6 +4032,7 @@ fn App() -> impl IntoView {
                 })
                 .unwrap();
                 if let Err(error) = invoke_checked("enqueue_turn", args).await {
+                    mcp_app_context.set(saved_mcp_app_context.clone());
                     route_items(active_session, items, transcripts, &session, |rows| {
                         remove_optimistic_send_rows(rows, &enqueue_msg);
                     });
@@ -4018,6 +4057,7 @@ fn App() -> impl IntoView {
         };
         input.set(String::new());
         attachments.set(vec![]);
+        mcp_app_context.set(None);
         motif_selection.set(None);
         composer_references.set(vec![]);
         composer_quotes.set(vec![]);
@@ -4037,6 +4077,7 @@ fn App() -> impl IntoView {
                     Err(error) => {
                         input.set(message);
                         attachments.set(saved_attachments);
+                        mcp_app_context.set(saved_mcp_app_context.clone());
                         composer_references.set(refs);
                         composer_quotes.set(quotes);
                         feedback_context.set(attached_feedback.clone());
@@ -4052,6 +4093,7 @@ fn App() -> impl IntoView {
                     Err(error) => {
                         input.set(message);
                         attachments.set(saved_attachments);
+                        mcp_app_context.set(saved_mcp_app_context.clone());
                         composer_references.set(refs);
                         composer_quotes.set(quotes);
                         feedback_context.set(attached_feedback.clone());
@@ -12952,6 +12994,41 @@ fn App() -> impl IntoView {
                                 }
                             }).collect_view()}
                         </div>
+                    })}
+                    {move || mcp_app_context.get().map(|context| {
+                        let context_id = context.context_id.clone();
+                        let app_name = context.app_name.clone();
+                        let app_name_label = app_name.clone();
+                        let summary = context.summary.clone();
+                        view! {
+                            <div class="composer-attachments composer-reference-chips" data-testid="mcp-app-context-attachment">
+                                <div class="composer-attachment-row composer-reference-card mcp-app-context"
+                                    title=summary>
+                                    <span class="composer-attachment-icon">{compose_icon("server")}</span>
+                                    <span class="composer-attachment-copy">
+                                        <span class="composer-attachment ready">{app_name_label}</span>
+                                        <span class="composer-attachment-meta">{move || t(locale.get(), "attachment.mcp_context")}</span>
+                                    </span>
+                                    <button type="button"
+                                        class="composer-attachment-remove"
+                                        title=move || t(locale.get(), "composer.remove_attachment")
+                                        aria-label=move || t(locale.get(), "composer.remove_attachment")
+                                        on:click=move |_| {
+                                            mcp_app_context.set(None);
+                                            let instance_id = context_id.clone();
+                                            let app_name = app_name.clone();
+                                            spawn_local(async move {
+                                                let args = to_value(&serde_json::json!({
+                                                    "instanceId": instance_id,
+                                                    "appName": app_name,
+                                                    "context": {},
+                                                })).unwrap();
+                                                let _ = invoke_checked("update_mcp_app_context", args).await;
+                                            });
+                                        }>{compose_icon("close")}</button>
+                                </div>
+                            </div>
+                        }
                     })}
                     {move || (!composer_quotes.get().is_empty()).then(|| view! {
                         <div class="composer-attachments composer-reference-chips">

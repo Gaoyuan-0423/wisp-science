@@ -186,6 +186,21 @@ enum AgentEvent {
         presentation_kind: String,
         payload: serde_json::Value,
     },
+    /// A persisted, non-agent notice that an MCP App changed the live model
+    /// context. It is shown in the transcript but never published as model
+    /// input and never starts a new turn by itself.
+    AppContextUpdate {
+        frame_id: String,
+        context_id: String,
+        instance_id: String,
+        app_name: String,
+        #[serde(default)]
+        update_mode: String,
+        state: String,
+        summary: String,
+        #[serde(default)]
+        structured_preview: Option<String>,
+    },
     Usage {
         frame_id: String,
         #[serde(default)]
@@ -289,6 +304,7 @@ impl AgentEvent {
             | Self::ToolCall { frame_id, .. }
             | Self::ToolResult { frame_id, .. }
             | Self::ToolPresentation { frame_id, .. }
+            | Self::AppContextUpdate { frame_id, .. }
             | Self::Usage { frame_id, .. }
             | Self::Compaction { frame_id, .. }
             | Self::CompactionStarted { frame_id, .. }
@@ -1690,6 +1706,10 @@ fn events_to_items(events: &[AgentEvent]) -> (Vec<UiItem>, HashMap<i64, usize>) 
                     }
                 }
             }
+            // App context is a pending composer attachment. It is persisted
+            // as a host event for diagnostics, but must never become a chat
+            // transcript row or be restored as an embedded message.
+            AgentEvent::AppContextUpdate { .. } => {}
             AgentEvent::FileChanged { path, .. } => items.push(UiItem {
                 role: "file_changed".into(),
                 text: path.clone(),
@@ -1847,6 +1867,25 @@ async fn append_ui_event(store: &Store, frame_id: &str, seq: &mut i64, event: Ag
     } else {
         *seq += 1;
     }
+}
+
+/// Persist and fan out an App context notice outside an Agent turn. App
+/// context updates are UI/model-context events, not user messages and not
+/// tool calls; keeping this path explicit prevents them from accidentally
+/// starting a turn or entering external channel output.
+async fn persist_and_emit_app_context_update(
+    state: &AppState,
+    app: &AppHandle,
+    frame_id: &str,
+    project_id: Option<&str>,
+    event: AgentEvent,
+) {
+    if should_persist_ui_event(&event) {
+        if let Ok(mut seq) = state.store.next_session_ui_event_seq(frame_id).await {
+            append_ui_event(&state.store, frame_id, &mut seq, event.clone()).await;
+        }
+    }
+    emit_agent_event_in(app, event, project_id);
 }
 
 /// Terminal turn events are emitted after the streaming/persistence workers
@@ -2370,6 +2409,7 @@ pub(crate) fn emit_to_session_surfaces_filtered<T: Clone + Serialize>(
 
 #[tauri::command]
 async fn update_mcp_app_context(
+    app: AppHandle,
     state: State<'_, AppState>,
     instance_id: String,
     app_name: String,
@@ -2379,30 +2419,75 @@ async fn update_mcp_app_context(
     let context = normalize_mcp_app_context(&app_name, context)?;
     if context.is_none() {
         if let Some(runtime) = state.sessions.lock().await.get(&frame_id).cloned() {
-            runtime.set_mcp_app_context(instance_id, None);
+            runtime.set_mcp_app_context(instance_id.clone(), None);
         }
+        persist_and_emit_app_context_update(
+            state.inner(),
+            &app,
+            &frame_id,
+            None,
+            AgentEvent::AppContextUpdate {
+                frame_id: frame_id.clone(),
+                context_id: instance_id.clone(),
+                instance_id,
+                app_name,
+                update_mode: "clear".into(),
+                state: "cleared".into(),
+                summary: String::new(),
+                structured_preview: None,
+            },
+        )
+        .await;
         return Ok(());
     }
-    if state
+    let project_id = state
         .store
         .frame_project_id(&frame_id)
         .await
-        .map_err(|error| error.to_string())?
-        .is_none()
-    {
+        .map_err(|error| error.to_string())?;
+    if project_id.is_none() {
         return Err("MCP App session no longer exists.".into());
     }
     let runtime = {
         let mut sessions = state.sessions.lock().await;
         sessions
-            .entry(frame_id)
+            .entry(frame_id.clone())
             .or_insert_with(|| Arc::new(SessionRuntime::new()))
             .clone()
     };
     if runtime.deleted.load(Ordering::SeqCst) {
         return Err("MCP App session was deleted.".into());
     }
-    runtime.set_mcp_app_context(instance_id, context);
+    let context = context.expect("non-empty MCP App context");
+    let summary = context
+        .summary
+        .chars()
+        .take(MAX_MCP_APP_NOTICE_TEXT_BYTES)
+        .collect::<String>();
+    let structured_preview = context.structured_preview.as_ref().map(|value| {
+        value
+            .chars()
+            .take(MAX_MCP_APP_NOTICE_STRUCTURED_BYTES)
+            .collect::<String>()
+    });
+    runtime.set_mcp_app_context(instance_id.clone(), Some(context));
+    persist_and_emit_app_context_update(
+        state.inner(),
+        &app,
+        &frame_id,
+        project_id.as_deref(),
+        AgentEvent::AppContextUpdate {
+            frame_id: frame_id.clone(),
+            context_id: instance_id.clone(),
+            instance_id,
+            app_name,
+            update_mode: "replace".into(),
+            state: "active".into(),
+            summary,
+            structured_preview,
+        },
+    )
+    .await;
     Ok(())
 }
 
@@ -2416,6 +2501,8 @@ const MAX_MCP_APP_RESULT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_MCP_APP_TOOL_NAME_BYTES: usize = 256;
 /// No default execution limit. Explicit deadlines remain available to tests/embedders.
 const MCP_APP_TOOL_CALL_TIMEOUT: Option<std::time::Duration> = None;
+const MAX_MCP_APP_NOTICE_TEXT_BYTES: usize = 4 * 1024;
+const MAX_MCP_APP_NOTICE_STRUCTURED_BYTES: usize = 4 * 1024;
 const MCP_APP_STALE_INSTANCE_ERROR: &str =
     "stale-instance: the MCP App is no longer bound to a live MCP server";
 
@@ -3001,7 +3088,10 @@ impl TauriOutput {
 }
 
 fn emit_agent_event_to_surfaces_in(app: &AppHandle, event: AgentEvent, project_id: Option<&str>) {
-    if !matches!(event, AgentEvent::ToolPresentation { .. }) {
+    if !matches!(
+        event,
+        AgentEvent::ToolPresentation { .. } | AgentEvent::AppContextUpdate { .. }
+    ) {
         channels::publish_agent_event(&event);
     }
     let frame_id = event.frame_id().to_string();
@@ -3026,6 +3116,7 @@ fn should_persist_ui_event(event: &AgentEvent) -> bool {
             | AgentEvent::ToolResult { .. }
             | AgentEvent::FileChanged { .. }
             | AgentEvent::ToolPresentation { .. }
+            | AgentEvent::AppContextUpdate { .. }
             | AgentEvent::Stdout { .. }
             | AgentEvent::Usage { .. }
             | AgentEvent::Compaction { .. }

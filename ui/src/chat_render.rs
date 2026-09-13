@@ -46,6 +46,7 @@ pub(crate) fn class_for(item: &ChatItem) -> &'static str {
         ChatItem::Review(_) => "tool-wrap",
         ChatItem::Plan(_) => "tool-wrap plan-wrap",
         ChatItem::Question(_) => "tool-wrap plan-question-wrap",
+        ChatItem::AppContextNotice(_) => "app-context-notice-row",
     }
 }
 
@@ -1846,6 +1847,10 @@ pub(crate) fn render_item(
                 </button>
             }.into_view()
         }
+        // Legacy persisted context rows are intentionally inert. Current MCP
+        // App context is rendered as a removable composer attachment instead
+        // of being embedded in the conversation transcript.
+        ChatItem::AppContextNotice(_) => view! {}.into_view(),
         ChatItem::Tool { name, .. } if name == "attempt_completion" => view! {}.into_view(),
         ChatItem::Tool {
             name,

@@ -178,6 +178,7 @@ impl DeviceHub {
             AgentEvent::MessageBoundary { .. }
             | AgentEvent::Resources { .. }
             | AgentEvent::ToolPresentation { .. }
+            | AgentEvent::AppContextUpdate { .. }
             | AgentEvent::Usage { .. }
             | AgentEvent::Compaction { .. }
             | AgentEvent::ContextWarning { .. }

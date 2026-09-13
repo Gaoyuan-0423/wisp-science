@@ -148,7 +148,7 @@ test("tutorial directory stays compact and links to independent articles", async
   await expect(page.locator(".tutorial-card h3").first()).toHaveText("快速开始");
   await expect(page.locator(".tutorial-group-title")).toHaveText(["基础入门", "使用技巧", "进阶"]);
   await expect(page.locator("#basics .tutorial-card")).toHaveCount(7);
-  await expect(page.locator("#tips .tutorial-card")).toHaveCount(2);
+  await expect(page.locator("#tips .tutorial-card")).toHaveCount(4);
   await expect(page.locator("#advanced .tutorial-card h3")).toHaveText(["Wisp 命令行", "ACP配置"]);
   await page.screenshot({ path: test.info().outputPath("tutorials-desktop.png") });
   for (const width of [1440, 1280, 1120, 1101, 1100, 980, 390, 320]) {
@@ -238,6 +238,10 @@ test("article links, previous and next navigation, and browser back stay within 
   await expect(page.locator("h1")).toHaveText("Wisp Science高级：ACP配置");
   await page.locator(".tutorial-previous").click();
   await expect(page.locator("h1")).toHaveText("Wisp 命令行");
+  await page.locator(".tutorial-previous").click();
+  await expect(page.locator("h1")).toContainText("快捷动作");
+  await page.locator(".tutorial-previous").click();
+  await expect(page.locator("h1")).toContainText("专家");
   await page.locator(".tutorial-previous").click();
   await expect(page.locator("h1")).toContainText("研究历程");
   await page.locator(".tutorial-previous").click();

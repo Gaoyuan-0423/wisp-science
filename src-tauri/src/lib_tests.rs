@@ -434,6 +434,56 @@ fn mcp_app_context_is_latest_only_and_session_scoped() {
 }
 
 #[test]
+fn mcp_app_context_notice_projects_text_and_structured_preview() {
+    let context = super::normalize_mcp_app_context(
+        "  Motif   for   Claude  ",
+        serde_json::json!({
+            "content": [
+                {"type": "text", "text": "  Active record: pET-28a(+)  "},
+                {"type": "text", "text": "Use it for the next figure."}
+            ],
+            "structuredContent": {"recordId": "pet-28a", "length": 5369}
+        }),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(context.app_name, "Motif for Claude");
+    assert_eq!(
+        context.summary,
+        "Active record: pET-28a(+)\n\nUse it for the next figure."
+    );
+    let preview: serde_json::Value =
+        serde_json::from_str(context.structured_preview.as_deref().unwrap()).unwrap();
+    assert_eq!(preview["recordId"], "pet-28a");
+    assert_eq!(preview["length"], 5369);
+    assert!(context.body.contains("Structured state:"));
+}
+
+#[test]
+fn mcp_app_context_notice_redacts_generic_sensitive_preview_fields() {
+    let context = super::normalize_mcp_app_context(
+        "Motif",
+        serde_json::json!({
+            "content": [{"type": "text", "text": "safe"}],
+            "structuredContent": {
+                "recordId": "pet-28a",
+                "apiKey": "do-not-display",
+                "nested": {"access_token": "also-hidden", "label": "visible"}
+            }
+        }),
+    )
+    .unwrap()
+    .unwrap();
+    let preview = context.structured_preview.unwrap();
+    assert!(preview.contains("pet-28a"));
+    assert!(preview.contains("visible"));
+    assert!(!preview.contains("do-not-display"));
+    assert!(!preview.contains("also-hidden"));
+    assert!(context.body.contains("do-not-display"));
+}
+
+#[test]
 fn mcp_app_context_rejects_unsupported_and_oversized_payloads() {
     let unsupported = super::normalize_mcp_app_context(
         "Motif",
@@ -1168,6 +1218,23 @@ fn mcp_app_presentations_are_persisted_for_session_restore() {
         frame_id: "f".into(),
         path: "temporary.txt".into(),
     }));
+}
+
+#[test]
+fn mcp_app_context_updates_are_persisted_but_not_embedded_in_chat_items() {
+    let event = AgentEvent::AppContextUpdate {
+        frame_id: "frame-1".into(),
+        context_id: "mcp-app:session-1:ui://motif/workbench.html".into(),
+        instance_id: "mcp-app:session-1:ui://motif/workbench.html".into(),
+        app_name: "Motif".into(),
+        update_mode: "replace".into(),
+        state: "active".into(),
+        summary: "Active record: pET-28a(+)".into(),
+        structured_preview: Some(r#"{"recordId":"pet-28a"}"#.into()),
+    };
+    assert!(should_persist_ui_event(&event));
+    let (items, _) = events_to_items(&[event]);
+    assert!(items.is_empty());
 }
 
 #[test]

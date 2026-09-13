@@ -158,6 +158,10 @@ impl SessionRuntime {
 pub(crate) struct McpAppContext {
     pub(crate) app_name: String,
     pub(crate) body: String,
+    /// Text-only projection used by the transcript notice. The full body is
+    /// still retained separately for the next Agent turn.
+    pub(crate) summary: String,
+    pub(crate) structured_preview: Option<String>,
 }
 
 pub(crate) fn mcp_app_frame_id(instance_id: &str) -> Result<&str, String> {
@@ -212,7 +216,7 @@ pub(crate) fn normalize_mcp_app_context(
     let object = context
         .as_object()
         .ok_or_else(|| "MCP App model context must be an object.".to_string())?;
-    let mut parts = Vec::new();
+    let mut text_parts = Vec::new();
     if let Some(content) = object.get("content").filter(|value| !value.is_null()) {
         let blocks = content
             .as_array()
@@ -230,26 +234,29 @@ pub(crate) fn normalize_mcp_app_context(
                 .ok_or_else(|| "MCP App text context is missing its text value.".to_string())?
                 .trim();
             if !text.is_empty() {
-                parts.push(text.to_string());
+                text_parts.push(text.to_string());
             }
         }
     }
-    if let Some(structured) = object
+    let structured_for_model = if let Some(structured) = object
         .get("structuredContent")
         .filter(|value| !value.is_null())
     {
         let structured = structured
             .as_object()
             .ok_or_else(|| "MCP App structuredContent must be an object.".to_string())?;
-        if !structured.is_empty() {
-            parts.push(format!(
-                "Structured state: {}",
+        if structured.is_empty() {
+            None
+        } else {
+            Some(
                 serde_json::to_string(structured)
-                    .map_err(|error| format!("Invalid MCP App structured state: {error}"))?
-            ));
+                    .map_err(|error| format!("Invalid MCP App structured state: {error}"))?,
+            )
         }
-    }
-    if parts.is_empty() {
+    } else {
+        None
+    };
+    if text_parts.is_empty() && structured_for_model.is_none() {
         return Ok(None);
     }
     let app_name = app_name.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -258,10 +265,56 @@ pub(crate) fn normalize_mcp_app_context(
     } else {
         app_name.chars().take(MAX_MCP_APP_NAME_CHARS).collect()
     };
+    let mut parts = text_parts.clone();
+    if let Some(structured) = &structured_for_model {
+        parts.push(format!("Structured state: {structured}"));
+    }
+    let structured_preview = object
+        .get("structuredContent")
+        .filter(|value| !value.is_null())
+        .map(redact_mcp_app_structured_preview)
+        .transpose()?
+        .filter(|value| !value.is_empty());
     Ok(Some(McpAppContext {
         app_name,
         body: parts.join("\n\n"),
+        summary: text_parts.join("\n\n"),
+        structured_preview,
     }))
+}
+
+fn redact_mcp_app_structured_preview(value: &serde_json::Value) -> Result<String, String> {
+    fn redact(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                map.retain(|key, _| {
+                    let key = key.to_ascii_lowercase();
+                    ![
+                        "token",
+                        "secret",
+                        "password",
+                        "api_key",
+                        "apikey",
+                        "authorization",
+                        "credential",
+                        "environment",
+                        "env",
+                        "_meta",
+                    ]
+                    .iter()
+                    .any(|needle| key == *needle || key.contains(needle))
+                });
+                for child in map.values_mut() {
+                    redact(child);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(redact),
+            _ => {}
+        }
+    }
+    let mut safe = value.clone();
+    redact(&mut safe);
+    serde_json::to_string(&safe).map_err(|error| format!("Invalid MCP App preview: {error}"))
 }
 
 #[derive(Clone)]

@@ -128,7 +128,8 @@ pub(crate) fn review_message_ui_index(items: &[ChatItem], message_index: usize) 
             | ChatItem::Usage { .. }
             | ChatItem::Compaction { .. }
             | ChatItem::ReviewTransition { .. }
-            | ChatItem::Review(_) => false,
+            | ChatItem::Review(_)
+            | ChatItem::AppContextNotice(_) => false,
         })
         .nth(message_index)
         .map(|(ui_index, _)| ui_index)

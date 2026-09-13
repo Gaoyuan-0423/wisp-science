@@ -229,6 +229,7 @@ pub(crate) fn turn_activity_after_user(rows: &[ChatItem], user_index: usize) -> 
             | ChatItem::Compaction { .. }
             | ChatItem::ReviewTransition { .. }
             | ChatItem::Review(_)
+            | ChatItem::AppContextNotice(_)
             | ChatItem::Plan(_)
             | ChatItem::Question(_) => true,
             ChatItem::User(_) | ChatItem::QueuedUser { .. } => false,
