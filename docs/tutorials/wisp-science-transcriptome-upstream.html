@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="tutorial-article" data-title-zh="完成转录组上游分析 · 教程 | Wisp Science" data-title-en="Complete an Upstream RNA-seq Analysis · Tutorials | Wisp Science" data-desc-zh="Wisp Science： 完成转录组上游分析" data-desc-en="Wisp Science: Complete an Upstream RNA-seq Analysis">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Wisp Science： 完成转录组上游分析">
+  <title>完成转录组上游分析 · 教程 | Wisp Science</title>
+  <script>
+    (function () {
+      var lang = "zh";
+      try {
+        var q = new URLSearchParams(location.search).get("lang");
+        if (q === "en" || q === "zh") lang = q;
+        else {
+          var s = localStorage.getItem("wisp-pages-lang");
+          if (s === "en" || s === "zh") lang = s;
+        }
+      } catch (e) {}
+      document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+      document.documentElement.dataset.lang = lang;
+    })();
+  </script>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/tutorials.css">
+</head>
+<body class="doc-page tutorial-detail">
+  <header class="site-nav">
+    <div class="container">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Wisp Science</span>
+      </a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="页面导航">
+        <a href="../index.html#features" data-i18n="nav.features">功能</a>
+        <a href="../index.html#usecases" data-i18n="nav.usecases">场景</a>
+        <a href="../index.html#stack" data-i18n="nav.stack">生态</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" aria-current="location" data-i18n="nav.tutorials">教程</a>
+        <a href="../index.html#faq" data-i18n="nav.faq">FAQ</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/README.md" data-i18n="nav.docs">文档</a>
+      </nav>
+      <div class="nav-cta">
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="语言">
+          <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a class="btn btn-primary" href="../index.html#download"><span class="btn-label-full" data-i18n="nav.downloadFull">下载桌面版</span><span class="btn-label-short" data-i18n="nav.downloadShort">下载</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="tutorial-reader container">
+<nav class="tutorial-breadcrumb" aria-label="教程导航" data-i18n-aria="tutorials.readerNav"><a class="tutorial-back" href="../tutorials.html#wisp-science-transcriptome-upstream" data-i18n="tutorials.back">返回教程目录</a></nav>
+<article class="tutorial-article" id="wisp-science-transcriptome-upstream" aria-labelledby="article-title">
+<header><h1 id="article-title" data-text-zh="Wisp Science： 完成转录组上游分析" data-text-en="Wisp Science: Complete an Upstream RNA-seq Analysis">Wisp Science： 完成转录组上游分析</h1>
+<a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-transcriptome-upstream.md" data-href-zh="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-transcriptome-upstream.md" data-href-en="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/en/wisp-science-transcriptome-upstream.md" data-i18n="tutorials.source">查看原文</a></header>
+<div class="tutorial-body lang-zh" lang="zh-CN">
+<p>找到一套公开 RNA-seq 数据以后，怎样把原始测序文件变成可以用于差异表达分析的 Counts 矩阵？</p>
+<p>这篇教程使用 Wisp Science，完成一次从样本整理、FASTQ 准备、质量检查，到基因组比对和基因计数的转录组上游分析。我们以 <strong>GSE153250 中 MCF7 细胞的 ESR1 敲低实验</strong>为例，只保留 siESR1 和 siNT 两组，最后得到基因 Counts、样本分组表和计数汇总。</p>
+<p>下面保留实际使用的英文提示词，可以直接复制到 Wisp 的对话中。</p>
+<h2>1. 准备项目和计算服务器</h2>
+<p>在 Wisp Science 中新建一个项目，例如 <code>ESR1</code>，选择工作区，用于保存分析记录、脚本和取回的结果。模型配置可以参考 <a href="wisp-science-quick-start.html">快速开始</a>。</p>
+<p>本次上游分析在远程 Linux 服务器上执行。先按照 <a href="wisp-science-servers-cli.html">服务器教程</a>，在设置中添加自己的 SSH 服务器，并确认连接可用。</p>
+<p>服务器需要有足够的磁盘空间，容纳下载数据、解压后的 FASTQ、参考基因组和 BAM 等中间文件；STAR 比对还需要与索引规模匹配的内存。本流程不要求 GPU，CPU、内存、磁盘和网络才是主要资源。</p>
+<p>Wisp 开始执行后，应先检查这些工具是否可用：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>工具</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SRA Toolkit：<code>prefetch</code>、<code>fasterq-dump</code></td>
+<td>下载 SRA 数据并转换为 FASTQ</td>
+</tr>
+<tr>
+<td>FastQC</td>
+<td>检查测序质量和接头等情况</td>
+</tr>
+<tr>
+<td>cutadapt</td>
+<td>去除接头、处理低质量末端并过滤过短 reads</td>
+</tr>
+<tr>
+<td>STAR</td>
+<td>将 reads 比对到参考基因组</td>
+</tr>
+<tr>
+<td>samtools</td>
+<td>检查和处理 BAM 文件</td>
+</tr>
+<tr>
+<td>featureCounts</td>
+<td>根据基因注释生成计数</td>
+</tr>
+</tbody>
+</table></div>
+<p>SSH 连通只说明能够访问服务器，不代表软件、参考和磁盘都已经准备好。后续命令必须使用你自己的服务器环境和实际路径。</p>
+<h2>2. 先弄清楚数据里有哪些样本</h2>
+<p>这次选择的数据集是 <strong>GSE153250</strong>。在正式下载前，我们先让 Wisp 按处理分组整理样本：</p>
+<pre><code class="language-text">What specific samples are included in GSE153250? Please organize them by treatment group.
+</code></pre>
+<p>数据集中包括 siNT、siESR1、siGATA3 和 siTET2 四组。我们这次只研究 ESR1 敲低相对于对照的变化，因此保留前两组：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>分组</th>
+<th>样本数</th>
+<th>本次是否保留</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>siNT</td>
+<td>6</td>
+<td>保留，作为对照</td>
+</tr>
+<tr>
+<td>siESR1</td>
+<td>6</td>
+<td>保留，作为 ESR1 敲低组</td>
+</tr>
+<tr>
+<td>siGATA3</td>
+<td>6</td>
+<td>排除</td>
+</tr>
+<tr>
+<td>siTET2</td>
+<td>6</td>
+<td>排除</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果希望先了解从原始测序数据重新处理需要多少下载量，以及要经过哪些步骤，可以继续输入：</p>
+<pre><code class="language-text">If I reanalyze the raw sequencing data, approximately how much data would I need to download, and what steps would be required for the analysis?
+</code></pre>
+<p>这一步要特别区分 <strong>样本</strong> 和 <strong>测序 run</strong>。本数据是单端、50 bp 测序，同一样本拆分在多个 lane/run 中。保留的 12 个样本，每个样本对应 8 个 SRR，因此需要整理 <strong>96 个 SRR</strong>。</p>
+<p>96 个 run 并不意味着 96 个生物学重复。它们应按样本归并，最终 Counts 矩阵对应的是 12 个样本列。下载范围缩小到这两组后，也应重新核算磁盘需求，不能把整个数据集的下载估算直接当成本次实际用量。</p>
+<h2>3. 向 Wisp 提出完整的上游任务</h2>
+<p>服务器配置完成、分析范围明确以后，发送：</p>
+<pre><code class="language-text">Connect to the remote compute host, locate the FASTQ data for GSE153250, keep only the siESR1 and siNT groups, and exclude all other groups. Perform transcriptome upstream analysis to obtain the Counts data.
+</code></pre>
+<p>这段提示词说明了执行地点、数据集、保留分组、排除分组和最终目标。Wisp 随后检查服务器环境，定位已有 FASTQ；对于尚未准备好的数据，再根据样本与 SRR 的对应关系进行下载和整理。</p>
+<p>在这一阶段，重点看它有没有正确保留样本。本次整理出的 GSM 如下：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>siNT</th>
+<th>siESR1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSM4636683</td>
+<td>GSM4636684</td>
+</tr>
+<tr>
+<td>GSM4636687</td>
+<td>GSM4636688</td>
+</tr>
+<tr>
+<td>GSM4636691</td>
+<td>GSM4636692</td>
+</tr>
+<tr>
+<td>GSM4636695</td>
+<td>GSM4636696</td>
+</tr>
+<tr>
+<td>GSM4636699</td>
+<td>GSM4636700</td>
+</tr>
+<tr>
+<td>GSM4636703</td>
+<td>GSM4636704</td>
+</tr>
+</tbody>
+</table></div>
+<p>表格只是并排列出两个分组，不表示同行样本构成配对。每个 GSM 对应的 SRR、处理条件和测序布局都应从元数据核实，并保存为清单，后续合并和计数都以这份映射为依据。</p>
+<h2>4. 下载并确认所有 FASTQ 已经准备好</h2>
+<p>本次通过 SRA Toolkit 下载和转换数据。长时间的下载任务在远程运行，过程中查看运行状态和日志，完成后逐项核对预期 SRR 与实际文件。</p>
+<p>这次下载并非第一次就全部成功：最初 <strong>95/96 个 SRR</strong> 成功，缺失的是 <strong>SRR12090795</strong>，属于 siESR1 组的 GSM4636692。定位失败项并重试后，才补齐全部 96 个文件。</p>
+<p>这是一个很重要的检查点。不能因为大多数文件已经下载，就默认某个样本少一个 lane 也可以继续。应先确认缺失原因，补齐后再生成该样本的最终合并 FASTQ。</p>
+<p>下载结束至少检查以下内容：</p>
+<ul>
+<li>预期的 SRR 是否全部存在，是否有失败或重复项。</li>
+<li>文件是否非空，压缩文件是否完整，FASTQ 记录是否可解析。</li>
+<li>run 与 GSM、处理组的对应关系是否正确。</li>
+<li>当前数据是否确实是单端测序，是否误用了双端文件处理方式。</li>
+</ul>
+<p>对于下载不完整的文件，不能只根据“文件已经存在”就跳过重试。文件存在和文件可用是两件事。</p>
+<h2>5. 合并 lane，完成质量检查与接头处理</h2>
+<p>96 个 run 准备好以后，按同一个 GSM 的映射，将每个样本的 8 个 lane 合并为一个样本级 FASTQ，最终得到 12 个样本输入。</p>
+<p>合并时只合并同一个样本的技术数据，不能把整个 siNT 组或 siESR1 组合成一个文件。合并全部生物学样本会丢失重复之间的信息，影响后续统计分析。</p>
+<p>本次处理顺序是：<strong>合并 lane → FastQC → cutadapt</strong>。</p>
+<p>FastQC 用于检查合并后的测序数据。查看每碱基质量、接头含量、长度分布、GC 和重复情况时，要结合 RNA-seq 数据特征判断。单个告警不能直接等同于样本不可用，例如高表达转录本本身就可能带来较高重复。</p>
+<p>本次使用 FastQC 0.12.1 和 cutadapt 5.0，cutadapt 处理 TruSeq 接头，并设置质量阈值 20、最短保留长度 20 bp。处理后应查看日志中的 reads 保留数、接头去除和过短 reads 丢弃情况。</p>
+<p>这些是当前数据采用的参数，不应照搬到所有实验。自己的数据需要先确认实际文库接头；对于 50 bp 短 reads，也要留意过度修剪造成的信息损失。需要评估处理后质量时，可以补充清洗后质控，与处理前报告一起检查。</p>
+<h2>6. 使用 STAR 比对到参考基因组</h2>
+<p>清洗后的 FASTQ 接下来进入 STAR。本次使用 <strong>STAR 2.7.11b</strong>，比对到 <strong>GRCh38</strong>，生成按坐标排序的 BAM。</p>
+<p>开始比对前，需要核对三件事：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>检查项</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>参考物种与组装版本</td>
+<td>当前数据来自人类，不能误用服务器上其他物种的参考</td>
+</tr>
+<tr>
+<td>FASTA、GTF 与索引的来源</td>
+<td>后续计数需要使用与比对参考匹配的基因注释</td>
+</tr>
+<tr>
+<td>STAR 与索引版本兼容性</td>
+<td>已有索引不一定能被当前 STAR 直接使用</td>
+</tr>
+</tbody>
+</table></div>
+<p>这次服务器上找到了 <code>refdata-gex-GRCh38-2024-A</code> 参考目录，但第一次比对仍然失败，STAR 退出码为 105。继续查看错误日志后，发现使用的 <code>star</code> 索引由 <strong>STAR 2.7.1a</strong> 构建，与当前 <strong>2.7.11b</strong> 不兼容。</p>
+<p>参考目录中还有一个匹配版本的 <code>star_v11b</code> 索引，切换到它以后继续运行。这里定位的是本次日志明确指出的兼容性问题，不能把所有退出码 105 都直接归因于索引版本。</p>
+<p>已经验证有效的合并、质控和修剪结果可以复用，从比对阶段恢复。若不存在可用的兼容索引，则需要评估重建索引或使用匹配版本 STAR，并记录参考与软件版本。</p>
+<p>这次使用了服务器现有的参考包。换成完整 GENCODE 或其他注释时，纳入的基因范围和最终矩阵行数可能变化，因此必须记录具体参考来源，不能只写“使用 GRCh38”。</p>
+<p>比对完成后，应查看各样本 STAR 的 <code>Log.final.out</code>，比较输入 reads、唯一比对、多重比对和未比对情况，并检查 BAM 是否完整可读。没有统一的百分比阈值能够替代这些检查；异常样本应结合质控、物种、参考和文库特征分析原因。</p>
+<h2>7. 使用 featureCounts 生成基因计数</h2>
+<p>BAM 准备好后，用 featureCounts 将比对到基因区域的 reads 归入相应基因。</p>
+<p>本次采用 <strong>featureCounts 2.0.6</strong>，按 exon 区域计数，并按 <code>gene_id</code> 聚合到基因层面；链特异性设置为 <strong>reverse-stranded</strong>。</p>
+<p>链特异性是这一步的关键参数。设置与文库不一致，可能明显降低分配率。自己的实验应依据建库信息或链特异性推断确定方向，不能只因本教程使用 reverse-stranded 就直接采用相同设置。</p>
+<p>同时核对当前输入是单端还是双端，记录多重比对、重叠等计数规则。不同规则会改变计数定义，后续比较必须保持一致。</p>
+<p>featureCounts 的输出包含基因计数与分配汇总。整理矩阵时，应去掉原始输出中的坐标、长度等注释列，保留一列基因 ID 和每个样本的计数，并把 BAM 路径准确映射为样本名。</p>
+<p>最终要得到的是<strong>原始基因 Counts</strong>，而不是 TPM、FPKM 或已经做过对数转换的表达值。</p>
+<h2>8. 检查 Counts 是否可以交给下游分析</h2>
+<p>本次上游分析得到以下三个主要文件：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>文件</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/processed/GSE153250_counts_matrix.tsv</code></td>
+<td>基因 Counts 矩阵</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_sample_groups.txt</code></td>
+<td>样本分组表</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_featureCounts_summary.txt</code></td>
+<td>featureCounts 分配汇总</td>
+</tr>
+</tbody>
+</table></div>
+<p>矩阵包含 <strong>38,606 个基因、12 个样本</strong>。第一列是 <code>Geneid</code>，后面为 <code>siNT_1</code> 至 <code>siNT_6</code>、<code>siESR1_1</code> 至 <code>siESR1_6</code>。不同参考与注释可能产生不同基因数，这个数字是本案例的结果，不是通用验收目标。</p>
+<p>分组文件使用制表符分隔，列名是 <code>sample</code> 和 <code>group</code>。完成前，再确认：</p>
+<ul>
+<li>矩阵样本名与分组表一一对应，排序正确，每组各 6 个样本。</li>
+<li>基因 ID 没有意外重复，计数为非负整数，没有缺失值。</li>
+<li>每个样本的总计数和计数分配情况合理，没有明显偏离而未解释的样本。</li>
+<li>计数汇总中 Assigned 与各类 Unassigned 的情况已经检查。</li>
+<li>分组、GSM、SRR、FASTQ 和 BAM 之间仍能追溯对应关系。</li>
+</ul>
+<p>大型 FASTQ、BAM 和索引可以继续保留在服务器，先把 Counts、分组表、计数汇总及需要的质控报告取回本地项目。还应保留分析脚本、运行日志、软件版本和参考来源，方便定位问题和重新执行。</p>
+<p>遇到运行中断时，可以通过 <a href="wisp-science-trajectory.html">轨迹</a> 检查具体命令和报错，同时查看远程运行状态。本次下载补齐与索引修正都说明：完成上游分析需要逐步验证产物，最后一条“完成”的回答不能代替文件检查。</p>
+<p>现在，我们已经把分散在多个测序 run 中的数据，整理成按生物学样本组织的基因 Counts。下一步就可以带着这张矩阵、样本分组和质控记录，进入 <a href="wisp-science-rnaseq-downstream.html">差异表达、ORA 和 GSEA 的下游分析</a>。</p>
+</div>
+<div class="tutorial-body lang-en" lang="en">
+<p>After finding a public RNA-seq dataset, how do you turn raw sequencing files into a count matrix suitable for differential expression analysis?</p>
+<p>This tutorial uses Wisp Science to organize samples, prepare FASTQ files, check quality, align reads, and count genes. We use <strong>ESR1 knockdown in MCF7 cells from GSE153250</strong>, retaining only siESR1 and siNT samples. The outputs are gene counts, a sample group table, and a counting summary.</p>
+<p>The English prompts below are the actual requests used for these tasks and can be copied directly into a Wisp conversation.</p>
+<h2>1. Prepare the project and compute server</h2>
+<p>Create a Wisp Science project, such as <code>ESR1</code>, and choose a workspace for analysis records, scripts, and retrieved outputs. See <a href="wisp-science-quick-start.html">Quick Start</a> for model configuration.</p>
+<p>This upstream analysis runs on a remote Linux server. Follow the <a href="wisp-science-servers-cli.html">server tutorial</a> to register your own SSH server in Settings and verify connectivity.</p>
+<p>Allow enough disk space for downloads, uncompressed FASTQ files, references, and intermediate BAMs. STAR also needs memory appropriate to the index size. This workflow does not require a GPU; CPU, memory, storage, and networking are the main resources.</p>
+<p>Wisp should first check these tools:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Tool</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SRA Toolkit: <code>prefetch</code>, <code>fasterq-dump</code></td>
+<td>Download SRA data and convert it to FASTQ</td>
+</tr>
+<tr>
+<td>FastQC</td>
+<td>Inspect sequencing quality and adapter content</td>
+</tr>
+<tr>
+<td>cutadapt</td>
+<td>Remove adapters, trim low-quality ends, and discard short reads</td>
+</tr>
+<tr>
+<td>STAR</td>
+<td>Align reads to the reference genome</td>
+</tr>
+<tr>
+<td>samtools</td>
+<td>Inspect and process BAM files</td>
+</tr>
+<tr>
+<td>featureCounts</td>
+<td>Generate counts using gene annotation</td>
+</tr>
+</tbody>
+</table></div>
+<p>SSH connectivity does not establish software, reference, or storage readiness. Execution must use your own environment and verified paths.</p>
+<h2>2. Understand the samples first</h2>
+<p>The selected dataset is <strong>GSE153250</strong>. Before downloading, ask Wisp to organize samples by treatment:</p>
+<pre><code class="language-text">What specific samples are included in GSE153250? Please organize them by treatment group.
+</code></pre>
+<p>The dataset contains siNT, siESR1, siGATA3, and siTET2. We retain the first two groups to study ESR1 knockdown relative to control:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Group</th>
+<th>Samples</th>
+<th>Included here?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>siNT</td>
+<td>6</td>
+<td>Yes, control</td>
+</tr>
+<tr>
+<td>siESR1</td>
+<td>6</td>
+<td>Yes, ESR1 knockdown</td>
+</tr>
+<tr>
+<td>siGATA3</td>
+<td>6</td>
+<td>No</td>
+</tr>
+<tr>
+<td>siTET2</td>
+<td>6</td>
+<td>No</td>
+</tr>
+</tbody>
+</table></div>
+<p>To estimate download size and understand the processing steps, ask:</p>
+<pre><code class="language-text">If I reanalyze the raw sequencing data, approximately how much data would I need to download, and what steps would be required for the analysis?
+</code></pre>
+<p>Distinguish <strong>samples</strong> from <strong>sequencing runs</strong>. These are single-end, 50 bp reads, with each sample split across multiple lanes/runs. The selected 12 samples each have 8 SRR runs, giving <strong>96 SRRs</strong> to organize.</p>
+<p>There are 12 sample columns in the final count matrix, not 96 independent biological replicates. Recalculate storage requirements for the selected groups rather than treating a whole-dataset estimate as the actual requirement for this subset.</p>
+<h2>3. Request the upstream analysis</h2>
+<p>Once the server is configured and the scope is clear, send:</p>
+<pre><code class="language-text">Connect to the remote compute host, locate the FASTQ data for GSE153250, keep only the siESR1 and siNT groups, and exclude all other groups. Perform transcriptome upstream analysis to obtain the Counts data.
+</code></pre>
+<p>The request specifies execution location, dataset, included and excluded groups, and the final output. Wisp inspects the server and locates existing FASTQ files, then downloads and organizes missing inputs using the sample-to-SRR mapping.</p>
+<p>Check that the intended samples are retained. The selected GSM accessions are:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>siNT</th>
+<th>siESR1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSM4636683</td>
+<td>GSM4636684</td>
+</tr>
+<tr>
+<td>GSM4636687</td>
+<td>GSM4636688</td>
+</tr>
+<tr>
+<td>GSM4636691</td>
+<td>GSM4636692</td>
+</tr>
+<tr>
+<td>GSM4636695</td>
+<td>GSM4636696</td>
+</tr>
+<tr>
+<td>GSM4636699</td>
+<td>GSM4636700</td>
+</tr>
+<tr>
+<td>GSM4636703</td>
+<td>GSM4636704</td>
+</tr>
+</tbody>
+</table></div>
+<p>The columns list two groups side by side; rows do not establish pairing. Verify SRR mappings, treatment, and sequencing layout from metadata and save a manifest that drives merging and counting.</p>
+<h2>4. Download and verify all FASTQ inputs</h2>
+<p>SRA Toolkit downloads and converts the data. Long-running download tasks execute remotely; inspect their status and logs, then compare the expected SRRs with actual files.</p>
+<p>The first attempt succeeded for <strong>95 of 96 SRRs</strong>. The missing run, <strong>SRR12090795</strong>, belongs to GSM4636692 in the siESR1 group. Retrying that run completed all 96 files.</p>
+<p>Do not silently proceed with a missing lane just because most files downloaded. Identify the failure and complete the input set before producing that sample's final merged FASTQ.</p>
+<p>After downloading, check:</p>
+<ul>
+<li>Every expected SRR exists, with no unexplained failures or duplicates.</li>
+<li>Files are nonempty, compressed files are intact, and FASTQ records are parseable.</li>
+<li>Run-to-GSM and treatment mappings are correct.</li>
+<li>The data are single-end and have not been processed using a paired-end file layout.</li>
+</ul>
+<p>An existing file is not necessarily a usable file. Incomplete downloads must not be skipped solely because their paths already exist.</p>
+<h2>5. Merge lanes, inspect quality, and trim adapters</h2>
+<p>Merge each sample's 8 lanes according to its GSM mapping, producing 12 sample-level FASTQ inputs.</p>
+<p>Merge technical data from the same sample only. Do not combine all siNT samples or all siESR1 samples into a single file: that would discard biological replicate information needed for later statistics.</p>
+<p>The sequence used here is <strong>lane merging → FastQC → cutadapt</strong>.</p>
+<p>FastQC inspects the merged reads. Interpret per-base quality, adapters, length distribution, GC, and duplication in the context of RNA-seq. A warning alone does not establish sample failure; highly expressed transcripts can contribute to elevated duplication.</p>
+<p>This analysis uses FastQC 0.12.1 and cutadapt 5.0. cutadapt removes TruSeq adapters with quality threshold 20 and minimum retained length 20 bp. Inspect logs for retained reads, adapter removal, and reads discarded for being too short.</p>
+<p>These settings belong to this dataset. Verify the actual library adapters for your own data. With 50 bp reads, excessive trimming can remove substantial information. Post-trimming QC can be added to compare cleaned reads with the original quality reports.</p>
+<h2>6. Align with STAR</h2>
+<p>The cleaned FASTQ files are aligned to <strong>GRCh38</strong> using <strong>STAR 2.7.11b</strong>, producing coordinate-sorted BAM files.</p>
+<p>Before alignment, verify:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Check</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Species and assembly</td>
+<td>Human reads must not use another species' reference found on the server</td>
+</tr>
+<tr>
+<td>FASTA, GTF, and index provenance</td>
+<td>Counting needs annotation compatible with the alignment reference</td>
+</tr>
+<tr>
+<td>STAR/index compatibility</td>
+<td>An existing index may not work with the current STAR version</td>
+</tr>
+</tbody>
+</table></div>
+<p>The server had a <code>refdata-gex-GRCh38-2024-A</code> reference directory, but the first alignment failed with STAR exit code 105. Its error log identified an incompatible <code>star</code> index built by <strong>STAR 2.7.1a</strong>, while the current executable was <strong>2.7.11b</strong>.</p>
+<p>A compatible <code>star_v11b</code> index was available in the reference directory. Switching to it allowed processing to continue. This diagnosis comes from the specific error log; not every exit code 105 necessarily means index incompatibility.</p>
+<p>Verified merging, QC, and trimming outputs can be reused when resuming at alignment. If no compatible index is available, assess rebuilding it or using a matching STAR version, recording software and reference details.</p>
+<p>This analysis uses an existing reference bundle. Using full GENCODE or another annotation can change the included gene set and final row count. Record the exact reference source rather than merely writing “GRCh38.”</p>
+<p>After alignment, inspect each sample's STAR <code>Log.final.out</code>, comparing input reads, unique mappings, multimappers, and unmapped reads. Check BAM integrity and readability. No single mapping-rate cutoff replaces interpretation of QC, species, reference, and library characteristics.</p>
+<h2>7. Generate gene counts with featureCounts</h2>
+<p>With BAMs ready, featureCounts assigns aligned reads to annotated genes.</p>
+<p>This analysis uses <strong>featureCounts 2.0.6</strong>, counting exon regions and aggregating by <code>gene_id</code>, with <strong>reverse-stranded</strong> library settings.</p>
+<p>Strandedness is a critical parameter. A mismatch with the library can reduce assignment substantially. For your own experiment, use library information or strandedness inference to choose the setting rather than copying this example's reverse-stranded configuration.</p>
+<p>Also verify single-end versus paired-end layout and record multimapping and overlapping-feature policies. These choices affect count definitions and must be consistent across samples.</p>
+<p>featureCounts produces counts and an assignment summary. To build the clean matrix, remove coordinate, length, and other annotation columns from the raw output, retaining a gene ID column and one count column per sample. Map BAM paths to sample names explicitly.</p>
+<p>The output is <strong>raw gene counts</strong>, not TPM, FPKM, or log-transformed expression.</p>
+<h2>8. Check readiness for downstream analysis</h2>
+<p>The main outputs are:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/processed/GSE153250_counts_matrix.tsv</code></td>
+<td>Gene count matrix</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_sample_groups.txt</code></td>
+<td>Sample group table</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_featureCounts_summary.txt</code></td>
+<td>featureCounts assignment summary</td>
+</tr>
+</tbody>
+</table></div>
+<p>The matrix contains <strong>38,606 genes and 12 samples</strong>. Its first column is <code>Geneid</code>, followed by <code>siNT_1</code> through <code>siNT_6</code> and <code>siESR1_1</code> through <code>siESR1_6</code>. Different references and annotations may produce different gene counts; this row count is a case result, not a universal acceptance target.</p>
+<p>The tab-separated group file has <code>sample</code> and <code>group</code> headers. Before finishing, verify:</p>
+<ul>
+<li>Matrix names and metadata match one to one, with correct ordering and 6 samples per group.</li>
+<li>There are no accidental duplicate gene IDs, missing values, or negative/noninteger counts.</li>
+<li>Sample totals and assignment patterns have no unexplained outliers.</li>
+<li>Assigned and Unassigned categories in the counting summary have been inspected.</li>
+<li>Groups, GSMs, SRRs, FASTQs, and BAMs remain traceable to each other.</li>
+</ul>
+<p>Large FASTQs, BAMs, and indexes can stay on the server. Retrieve counts, metadata, the counting summary, and necessary QC reports into the local project. Preserve scripts, logs, software versions, and reference provenance for troubleshooting and reruns.</p>
+<p>Use <a href="wisp-science-trajectory.html">Trajectory</a> to inspect commands and errors, alongside remote run status. The download retry and index correction illustrate why outputs need verification at each stage; a final “complete” message does not replace checking files.</p>
+<p>The sequencing runs are now organized into gene counts by biological sample. Continue with this matrix, metadata, and QC records in the <a href="wisp-science-rnaseq-downstream.html">differential expression, ORA, and GSEA tutorial</a>.</p>
+</div>
+</article>
+<nav class="tutorial-pagination" aria-label="相邻教程" data-i18n-aria="tutorials.pagination"><a class="tutorial-previous" href="wisp-science-quick-actions.html"><span data-i18n="tutorials.previous">上一篇</span><strong data-text-zh="快捷动作" data-text-en="Quick Actions">快捷动作</strong></a><a class="tutorial-next" href="wisp-science-rnaseq-downstream.html"><span data-i18n="tutorials.next">下一篇</span><strong data-text-zh="完成转录组下游分析" data-text-en="Complete a Downstream RNA-seq Analysis">完成转录组下游分析</strong></a></nav>
+<div class="tutorial-reader-back"><a class="tutorial-back" href="../tutorials.html#wisp-science-transcriptome-upstream" data-i18n="tutorials.back">返回教程目录</a></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="24" height="24">
+        Wisp Science
+      </a>
+      <nav class="footer-links">
+        <a href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" data-i18n="nav.tutorials">教程</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/releases" data-i18n="footer.releases">版本记录</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/issues" data-i18n="footer.issues">问题反馈</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/LICENSE">AGPL-3.0-only</a>
+      </nav>
+      <p class="footer-copy" data-i18n="footer.copy">© 2026 Wisp Science · 开源科学计算 Agent</p>
+    </div>
+  </footer>
+  <script src="../assets/i18n.js"></script>
+</body>
+</html>

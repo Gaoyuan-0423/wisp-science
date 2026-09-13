@@ -24,7 +24,9 @@ READING_ORDER = [
     "wisp-science-quick-start", "wisp-science-models", "wisp-science-browser",
     "wisp-science-servers-cli", "wisp-science-transfer", "wisp-science-mcp",
     "wisp-science-skills", "wisp-science-trajectory", "wisp-science-research-journey",
-    "wisp-science-specialists", "wisp-science-quick-actions", "wisp-science-cli",
+    "wisp-science-specialists", "wisp-science-quick-actions",
+    "wisp-science-transcriptome-upstream", "wisp-science-rnaseq-downstream",
+    "wisp-science-cli",
     "wisp-science-acp",
 ]
 

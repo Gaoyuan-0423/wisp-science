@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="tutorial-article" data-title-zh="完成转录组下游分析 · 教程 | Wisp Science" data-title-en="Complete a Downstream RNA-seq Analysis · Tutorials | Wisp Science" data-desc-zh="Wisp Science实战：完成转录组下游分析" data-desc-en="Wisp Science Hands-on: Complete a Downstream RNA-seq Analysis">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Wisp Science实战：完成转录组下游分析">
+  <title>完成转录组下游分析 · 教程 | Wisp Science</title>
+  <script>
+    (function () {
+      var lang = "zh";
+      try {
+        var q = new URLSearchParams(location.search).get("lang");
+        if (q === "en" || q === "zh") lang = q;
+        else {
+          var s = localStorage.getItem("wisp-pages-lang");
+          if (s === "en" || s === "zh") lang = s;
+        }
+      } catch (e) {}
+      document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+      document.documentElement.dataset.lang = lang;
+    })();
+  </script>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/tutorials.css">
+</head>
+<body class="doc-page tutorial-detail">
+  <header class="site-nav">
+    <div class="container">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Wisp Science</span>
+      </a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="页面导航">
+        <a href="../index.html#features" data-i18n="nav.features">功能</a>
+        <a href="../index.html#usecases" data-i18n="nav.usecases">场景</a>
+        <a href="../index.html#stack" data-i18n="nav.stack">生态</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" aria-current="location" data-i18n="nav.tutorials">教程</a>
+        <a href="../index.html#faq" data-i18n="nav.faq">FAQ</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/README.md" data-i18n="nav.docs">文档</a>
+      </nav>
+      <div class="nav-cta">
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="语言">
+          <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a class="btn btn-primary" href="../index.html#download"><span class="btn-label-full" data-i18n="nav.downloadFull">下载桌面版</span><span class="btn-label-short" data-i18n="nav.downloadShort">下载</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="tutorial-reader container">
+<nav class="tutorial-breadcrumb" aria-label="教程导航" data-i18n-aria="tutorials.readerNav"><a class="tutorial-back" href="../tutorials.html#wisp-science-rnaseq-downstream" data-i18n="tutorials.back">返回教程目录</a></nav>
+<article class="tutorial-article" id="wisp-science-rnaseq-downstream" aria-labelledby="article-title">
+<header><h1 id="article-title" data-text-zh="Wisp Science实战：完成转录组下游分析" data-text-en="Wisp Science Hands-on: Complete a Downstream RNA-seq Analysis">Wisp Science实战：完成转录组下游分析</h1>
+<a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-rnaseq-downstream.md" data-href-zh="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-rnaseq-downstream.md" data-href-en="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/en/wisp-science-rnaseq-downstream.md" data-i18n="tutorials.source">查看原文</a></header>
+<div class="tutorial-body lang-zh" lang="zh-CN">
+<p>如果我们想知道 ESR1 敲低以后，乳腺癌细胞中的基因表达和信号通路发生了什么变化，应该从哪里开始？</p>
+<p>这一篇，我们用 Wisp Science 完成一次 <strong>MCF7 细胞 ESR1 敲低的转录组分析</strong>：先寻找公开数据，确认样本和分组，再从原始测序数据得到 Counts，随后完成差异表达、功能富集和 GSEA，最后把结果发展成可以检验的研究问题。</p>
+<p>整条流程围绕同一个数据集 <strong>GSE153250</strong> 展开。下面给出实际使用的提示词，保留英文原文，可以直接复制到对话中。</p>
+<h2>一、准备项目与计算环境</h2>
+<p>先按照 <a href="wisp-science-quick-start.html">快速开始</a> 完成模型配置，新建一个项目，例如 <code>ESR1</code>，选择一个用于保存数据、脚本和结果的工作区。</p>
+<p>这次分析把上游测序数据处理和 R 分析放在远程 Linux 服务器上执行，本地项目用于组织对话、查看结果和保存取回的文件。开始前，按 <a href="wisp-science-servers-cli.html">服务器教程</a> 在设置中添加自己的 SSH 服务器，并确认连接可用。</p>
+<p>模型配置决定 Wisp 如何理解任务，服务器配置决定代码在哪里执行。服务器上的 R、STAR、featureCounts 等工具是否可用，需要在执行时检查，不能因为 SSH 连通就认为所有依赖已经准备好。</p>
+<p>如果已经有自己的 Counts 和分组表，可以从第四节开始。Counts 下游分析本身不要求 GPU，也可以在依赖齐全的本地 CPU 环境执行；本文的远程路径适合同时处理原始测序数据的场景。</p>
+<h2>二、先找到适合研究问题的数据</h2>
+<p>我们关注的是 ESR1 及其共调控因子，而不是泛泛地搜索所有乳腺癌 RNA-seq 数据。先向 Wisp 提出一个带有细胞类型、干预方式和优先条件的问题：</p>
+<pre><code class="language-text">Help me find RNA-seq knockdown datasets involving ESR1 and its coregulatory factors in MCF7 cells. Prefer datasets that include multiple knockdown conditions within the same study.
+</code></pre>
+<p>这段提示词限定了三个条件：MCF7 细胞、ESR1 及共调控因子的敲低实验，以及优先选择同一研究中包含多个敲低条件的数据集。</p>
+<p>在候选数据集中，我们选择 <strong>GSE153250</strong>。它包含 siNT、siESR1、siGATA3 和 siTET2 四组，既可以分析 ESR1 敲低，也为后续比较其他调控因子留下空间。</p>
+<p>接下来，先把样本情况问清楚：</p>
+<pre><code class="language-text">What specific samples are included in GSE153250? Please organize them by treatment group.
+</code></pre>
+<p>整理样本以后，还要确认下载到的文件能否直接用于差异分析：</p>
+<pre><code class="language-text">Can this dataset be used directly for differential expression analysis? First, check the file format and any limitations that might affect the analysis.
+</code></pre>
+<p>这里关注的不是文件能否打开，而是它代表什么。DESeq2 的常规基因计数流程需要原始 Counts；TPM、FPKM 或已经取过对数的表达矩阵，不能直接当作原始整数计数使用。</p>
+<p>为了从原始测序数据重新处理，我们继续询问下载规模和分析步骤：</p>
+<pre><code class="language-text">If I reanalyze the raw sequencing data, approximately how much data would I need to download, and what steps would be required for the analysis?
+</code></pre>
+<p>这一步需要区分 <strong>测序 run</strong> 和 <strong>生物学样本</strong>。本数据集中，每个样本分布在多个 lane/run 中；这些是技术数据，需要在上游按样本整理，不能把每个 run 都当成一个独立重复。分组、GSM 与 run 的对应关系应以元数据为准，不能只靠文件名猜测。</p>
+<h2>三、限定分析范围，生成 Counts</h2>
+<p>本次先回答一个明确的问题：<strong>siESR1 相对于 siNT 发生了什么变化？</strong> 因此只保留 ESR1 敲低组和对照组，暂不纳入 siGATA3、siTET2。</p>
+<p>向 Wisp 发送：</p>
+<pre><code class="language-text">Connect to the remote compute host, locate the FASTQ data for GSE153250, keep only the siESR1 and siNT groups, and exclude all other groups. Perform transcriptome upstream analysis to obtain the Counts data.
+</code></pre>
+<p>这段任务把执行地点、数据集、保留分组、排除分组和目标产物都说清楚了。Wisp 随后检查远程环境、定位或准备数据，并完成上游处理。</p>
+<p>这次采用的路线是：按样本合并测序 lane，使用 FastQC 检查质量，经过 cutadapt 处理后，用 STAR 比对至 GRCh38，再用 featureCounts 生成基因层面的计数。</p>
+<p>上游完成后，首先确认三份关键文件：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>文件</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/processed/GSE153250_counts_matrix.tsv</code></td>
+<td>基因 Counts 矩阵</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_sample_groups.txt</code></td>
+<td>样本与分组对应表</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_featureCounts_summary.txt</code></td>
+<td>计数分配情况汇总</td>
+</tr>
+</tbody>
+</table></div>
+<p>不同工作区的目录可能不同，应以本次实际输出为准。进入下游分析时，要让 Wisp 确认这三份文件的位置，而不是沿用另一台机器的绝对路径。</p>
+<p>本次 Counts 矩阵包含 <strong>38,606 个基因、12 个样本</strong>，第一列为 <code>Geneid</code>，使用 Ensembl gene ID。两组样本如下：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>分组</th>
+<th>样本</th>
+<th>分析角色</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>siNT</td>
+<td><code>siNT_1</code> 至 <code>siNT_6</code></td>
+<td>对照组、参考水平</td>
+</tr>
+<tr>
+<td>siESR1</td>
+<td><code>siESR1_1</code> 至 <code>siESR1_6</code></td>
+<td>ESR1 敲低组</td>
+</tr>
+</tbody>
+</table></div>
+<p>分组表是以制表符分隔的文本，列名为 <code>sample</code> 和 <code>group</code>。需要检查矩阵列名与分组表一一对应，且顺序正确；同时检查计数是否为非负整数，有无缺失值、重复基因 ID 或异常样本总计数。</p>
+<p>样本编号相同并不自动意味着配对。若元数据提示批次或配对关系，应将其纳入统计设计；缺少这些信息时，也应把限制记录下来。</p>
+<h2>四、一次提出完整的下游分析任务</h2>
+<p>Counts 准备好以后，我们把差异表达、富集分析和 GSEA 放在同一个任务中：</p>
+<pre><code class="language-text">Based on the upstream Counts data from GSE153250, perform transcriptome downstream analysis: differential expression, enrichment analysis, and GSEA. Download Enrichr libraries for human gene sets as needed and use them as GMT files for enrichment.
+</code></pre>
+<p>这就是本次下游分析使用的完整提示词。它没有要求用户提前写出 R 脚本，而是明确指定分析目标，并说明可以从 Enrichr 获取人类基因集，保存为 GMT 后使用。</p>
+<p>Wisp 接下来需要把任务落实为几个可检查的步骤：确认执行环境和输入，检查 R 包，准备基因集，运行 DEG、ORA 和 GSEA，生成图表，整理方法与结果文件。</p>
+<p>这次分析使用的主要工具包括：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>分析内容</th>
+<th>主要工具</th>
+<th>重点检查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>差异表达</td>
+<td>DESeq2</td>
+<td>原始计数、设计公式、参考组和比较方向</td>
+</tr>
+<tr>
+<td>基因注释</td>
+<td>org.Hs.eg.db</td>
+<td>Ensembl 与 Symbol 的对应关系</td>
+</tr>
+<tr>
+<td>过度代表分析（ORA）</td>
+<td>clusterProfiler</td>
+<td>前景、背景及 GMT 的 ID 类型</td>
+</tr>
+<tr>
+<td>排序基因集富集（GSEA）</td>
+<td>fgsea</td>
+<td>有方向的完整排序、重复基因和基因集大小</td>
+</tr>
+<tr>
+<td>绘图</td>
+<td>ggplot2 等</td>
+<td>图中的数值、阈值、标签和结果表是否一致</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果 Wisp 报告没有可用的 SSH 环境，回到设置检查服务器配置，再继续对话。如果缺少 R 包，应先完成安装并验证能够加载。依赖安装和基因集下载失败，都应该在运行记录中明确呈现。</p>
+<p>Enrichr 中的库可能更新或暂时不可用，GMT 文件要记录库名、来源、获取日期和校验值。本文主要展示 <code>MSigDB_Hallmark_2020</code> 的结果；不需要为了入门分析把所有可见数据库都下载一遍。</p>
+<h2>五、先看差异表达，再检查样本关系</h2>
+<p>本次分析的比较方向是 <strong>siESR1 相对于 siNT</strong>。正的 <code>log2FoldChange</code> 表示敲低组表达更高，负值表示敲低组表达更低。</p>
+<p>差异表达采用以下口径：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>参数</th>
+<th>本次设置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设计公式</td>
+<td><code>~ condition</code>，siNT 为参考水平</td>
+</tr>
+<tr>
+<td>比较</td>
+<td><code>siESR1</code> vs <code>siNT</code></td>
+</tr>
+<tr>
+<td>低表达过滤</td>
+<td>所有样本 Counts 总和 ≥10</td>
+</tr>
+<tr>
+<td>多重检验校正</td>
+<td>BH，<code>alpha=0.05</code></td>
+</tr>
+<tr>
+<td>差异基因筛选</td>
+<td><code>padj &lt; 0.05</code> 且 <code>abs(log2FoldChange) &gt; 0.5</code></td>
+</tr>
+<tr>
+<td>PCA 数据</td>
+<td>DESeq2 VST，<code>blind=FALSE</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>这里的 <code>condition</code> 是脚本中的分组变量，来自样本分组信息。“总和 ≥10”不是“至少六个样本中各有 ≥10 个 Counts”；这个过滤规则用于本次分析，换到其他实验时仍需判断是否合适。</p>
+<p>LFC 阈值是结果筛选条件，不等同于设置 <code>lfcThreshold</code> 进行另一种假设检验。保存结果时，也要说明是否进行了 LFC shrinkage，避免把不同口径的数字放在一起。</p>
+<p>完成分析后，得到以下结果：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>指标</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>过滤后保留基因</td>
+<td>19,885</td>
+</tr>
+<tr>
+<td>上调差异基因</td>
+<td>3,761</td>
+</tr>
+<tr>
+<td>下调差异基因</td>
+<td>4,314</td>
+</tr>
+<tr>
+<td>ESR1 <code>log2FoldChange</code></td>
+<td>约 −3.14</td>
+</tr>
+</tbody>
+</table></div>
+<p>ESR1 自身表达降低，是与敲低处理预期一致的观察。对于全部差异基因，还需要结合效应量、表达水平和后续功能分析来理解。</p>
+<p>接着看 PCA：</p>
+<p><img src="../assets/tutorials/rnaseq-downstream/01-pca.png" alt="GSE153250 PCA：siNT 与 siESR1 样本沿 PC1 分离" loading="lazy" width="1600" height="1372" /></p>
+<p>两组样本沿 PC1 明显分离。图中解释方差以整数显示，<code>PC2: 0%</code> 不代表第二主成分的方差严格等于零。PCA 可以帮助发现样本关系和异常，但不能仅凭分离明显就排除批次效应，也不能因为某个点偏离就自动删除样本。</p>
+<p>火山图和 MA 图则用于查看效应量、显著性与表达水平的关系。无论图画得多漂亮，差异基因数都应该从完整结果表按相同阈值计算；<code>padj</code> 为 NA 的行应保留并解释，在显著性统计中排除不可判定项。</p>
+<h2>六、ORA：哪些功能集合包含更多差异基因？</h2>
+<p>ORA 回答的是：与本次实验可分析的背景相比，差异基因是否更集中地出现在某些功能集合中？</p>
+<p>本次将上调、下调基因分开分析。这样能区分两种方向，避免把相反变化的基因混为一个列表。上调基因的 Hallmark ORA 中，有 <strong>15 个条目满足 <code>p.adjust &lt; 0.05</code></strong>，其中 TNFα/NF-κB 相关基因集值得进一步关注。</p>
+<p>在解释结果以前，先核对两个细节。</p>
+<p>第一，<strong>ID 类型必须一致</strong>。如果 GMT 使用 Gene Symbol，前景和背景也要转换到相同的 ID 空间，不能直接传入 Ensembl 或 Entrez ID。映射失败和一对多映射的处理需要记录。</p>
+<p>第二，<strong>背景应来自本次实验可检测、可检验并能够映射的基因集合</strong>，而不是不加区分地使用所有人类基因。还应保存实际前景与背景列表，说明 NA 的处理，并报告与 GMT 相交后的有效背景规模。</p>
+<p>ORA 中的“富集”表示统计上的过度代表，不等于整条通路已经被实验证明激活，也不表示每个成员基因都同向变化。</p>
+<h2>七、GSEA：查看整组基因的变化方向</h2>
+<p>差异基因筛选依赖阈值，而 GSEA 可以进一步利用完整的、有方向的基因排序，寻找集中在列表顶部或底部的基因集。</p>
+<p>本次 GSEA 使用 DESeq2 的 <strong>Wald stat</strong> 排序，不仅使用显著 DEG。同一个 Symbol 对应多行时，保留绝对统计量最大的一行，然后按有符号 stat 从大到小排列。这个选择可能偏向较强信号，需要在方法中说明；缺失和非有限统计量也应先处理。</p>
+<p>本次主要参数为 <code>minSize=10</code>、<code>maxSize=500</code>、<code>nPermSimple=10000</code>，随机种子为 <code>123</code>。重新分析时，还应记录 fgsea 版本、实际算法及并行配置；只固定随机种子，不能保证跨环境结果完全一致。</p>
+<p>在当前比较方向下，正 NES 表示基因集偏向敲低组较高表达的一端，负 NES 表示偏向敲低组较低表达的一端。</p>
+<p><img src="../assets/tutorials/rnaseq-downstream/02-gsea.png" alt="GSE153250 Hallmark GSEA：按 NES 方向展示部分通路" loading="lazy" width="1600" height="667" /></p>
+<p>这张图展示的是部分条目，并非每个点都满足 <code>padj &lt; 0.05</code>。是否显著，要结合完整结果表判断。</p>
+<p>Hallmark GSEA 共检验 50 个基因集，其中 <strong>25 个满足 <code>padj &lt; 0.05</code></strong>。几个与研究问题有关的结果如下：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>基因集</th>
+<th>NES</th>
+<th>padj</th>
+<th>变化方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Estrogen Response Early</td>
+<td>−2.247</td>
+<td>5.66 × 10⁻¹²</td>
+<td>偏向下调端</td>
+</tr>
+<tr>
+<td>Estrogen Response Late</td>
+<td>−2.208</td>
+<td>2.55 × 10⁻¹¹</td>
+<td>偏向下调端</td>
+</tr>
+<tr>
+<td>TNF-alpha Signaling via NF-kB</td>
+<td>+2.035</td>
+<td>5.10 × 10⁻⁸</td>
+<td>偏向上调端</td>
+</tr>
+<tr>
+<td>E2F Targets</td>
+<td>−1.684</td>
+<td>3.28 × 10⁻⁴</td>
+<td>偏向下调端</td>
+</tr>
+<tr>
+<td>G2-M Checkpoint</td>
+<td>−1.647</td>
+<td>6.12 × 10⁻⁴</td>
+<td>偏向下调端</td>
+</tr>
+</tbody>
+</table></div>
+<p>把单基因和基因集结果连起来看：ESR1 表达降低，雌激素响应相关基因集负向富集，同时出现细胞周期及炎症相关转录程序的变化。这些结果为进一步研究提供了线索。</p>
+<p>但要从“相关基因表达发生变化”走到“某个机制导致了耐药或疾病进展”，还需要检查 leading-edge 基因，结合独立数据和实验验证。一次 MCF7 敲低分析不能直接证明患者获益或治疗方案有效。</p>
+<h2>八、检查产物，让分析可以继续使用</h2>
+<p>分析结束后，不只看对话中的总结，还要打开实际文件。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>目录或文件</th>
+<th>应检查的内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/raw/GSE153250_counts_matrix.tsv</code></td>
+<td>下游分析使用的输入副本</td>
+</tr>
+<tr>
+<td><code>results/tables/DESeq2_full_results.csv</code></td>
+<td>完整差异表达结果及注释</td>
+</tr>
+<tr>
+<td><code>results/tables/ranked_genes.tsv</code></td>
+<td>GSEA 使用的基因排序</td>
+</tr>
+<tr>
+<td><code>results/tables/ORA_up_MSigDB_Hallmark_2020.csv</code></td>
+<td>上调基因 ORA 结果</td>
+</tr>
+<tr>
+<td><code>results/tables/ORA_down_MSigDB_Hallmark_2020.csv</code></td>
+<td>下调基因 ORA 结果</td>
+</tr>
+<tr>
+<td><code>results/tables/GSEA_MSigDB_Hallmark_2020.csv</code></td>
+<td>Hallmark GSEA 完整结果</td>
+</tr>
+<tr>
+<td><code>figures/</code></td>
+<td>PCA、火山图、MA、ORA 和 GSEA 图</td>
+</tr>
+<tr>
+<td><code>analysis/DEG/README.md</code></td>
+<td>差异分析输入、参数和方法</td>
+</tr>
+<tr>
+<td><code>analysis/enrichment/README.md</code></td>
+<td>富集库、背景和 ORA 方法</td>
+</tr>
+<tr>
+<td><code>analysis/GSEA/README.md</code></td>
+<td>排名、参数和 GSEA 方法</td>
+</tr>
+<tr>
+<td><code>results/reports/sessionInfo.txt</code></td>
+<td>R 环境与包版本</td>
+</tr>
+</tbody>
+</table></div>
+<p>把表里的 DEG 数量、ESR1 效应方向和通路统计值，与图和总结逐项核对。GMT 文件、运行脚本、日志和版本信息也要保留；远程计算完成后，应确认需要的表和图已经取回本地。</p>
+<p>这次过程也遇到了绘图修正：统计表已经生成，并不代表全部图都已成功写出。出现类似问题时，可以通过 <a href="wisp-science-trajectory.html">轨迹</a> 查看工具输入与报错，区分计算失败和绘图失败，复用已经验证的结果表继续完成绘图。</p>
+<h2>九、从分析结果走向研究问题</h2>
+<p>有了 Counts、差异表达和通路结果，我们还可以进一步让 Wisp 帮助整理后续研究方向：</p>
+<pre><code class="language-text">Based on the Counts data from our study, along with the differential expression analysis and pathway enrichment analysis results, design 10 research projects. For each project, clearly state the core findings/evidence basis, scientific question, clinical significance, study design, and key highlights/novelty. Use literature retrieval if necessary to support your hypotheses.
+</code></pre>
+<p>这段提示词要求每个项目说明证据基础、科学问题、临床意义、研究设计和创新点，并允许通过文献检索补充依据。</p>
+<p>这次得到的方向包括 TNFα/NF-κB、p53、Notch–EMT、EPHA2、代谢重编程、ECM/FAK、转录调控网络和 GREB1 等。它们适合进一步筛选和讨论，但“生成了十个研究方案”不等于十个机制都得到了验证。</p>
+<p>真正值得继续的方向，应能回答三个问题：它对应哪一行数据或哪组基因？最关键的解释还缺什么证据？什么实验结果能够支持或否定这个假设？</p>
+<p>做完这次分析，你可以把数据集替换成自己的实验，继续使用同样的工作方式：先明确问题和样本，再运行统计分析，最后把图表、方法和判断依据一起留下。</p>
+</div>
+<div class="tutorial-body lang-en" lang="en">
+<p>How can we investigate the changes in gene expression and transcriptional programs after ESR1 knockdown in breast cancer cells?</p>
+<p>In this tutorial, we use Wisp Science to analyze <strong>ESR1 knockdown in MCF7 cells</strong>. We find public data, inspect samples and groups, obtain counts from raw sequencing data, run differential expression, ORA, and GSEA, and turn the findings into testable research questions.</p>
+<p>The workflow follows one dataset, <strong>GSE153250</strong>. The prompts below are the exact English requests used for these tasks and can be copied directly into a conversation.</p>
+<h2>1. Prepare the project and execution environment</h2>
+<p>Follow <a href="wisp-science-quick-start.html">Quick Start</a> to configure a model, then create a project such as <code>ESR1</code> with a workspace for data, scripts, and results.</p>
+<p>For this analysis, upstream sequencing processing and R analysis run on a remote Linux server. The local project organizes conversations and stores retrieved outputs. Register your own SSH server in Settings using the <a href="wisp-science-servers-cli.html">server tutorial</a>, and verify connectivity before starting.</p>
+<p>Model configuration determines how Wisp interprets the task; server configuration determines where code executes. R, STAR, featureCounts, and other tools must be checked in that environment. A working SSH connection does not establish dependency readiness.</p>
+<p>If you already have counts and sample metadata, start at section 4. Downstream count analysis does not require a GPU and can run locally on a CPU with the necessary dependencies. Remote execution is useful here because the workflow also processes raw reads.</p>
+<h2>2. Find data suited to the research question</h2>
+<p>We are interested in ESR1 and its coregulatory factors, so we specify the cell type, perturbation, and preferred study design:</p>
+<pre><code class="language-text">Help me find RNA-seq knockdown datasets involving ESR1 and its coregulatory factors in MCF7 cells. Prefer datasets that include multiple knockdown conditions within the same study.
+</code></pre>
+<p>The request narrows the search to MCF7 cells, knockdown experiments involving ESR1 and its coregulators, and studies containing multiple knockdown conditions.</p>
+<p>From the candidates, we select <strong>GSE153250</strong>, which includes siNT, siESR1, siGATA3, and siTET2. This supports an ESR1-focused comparison and leaves room for later comparisons with other regulators.</p>
+<p>Next, ask for sample details:</p>
+<pre><code class="language-text">What specific samples are included in GSE153250? Please organize them by treatment group.
+</code></pre>
+<p>Then check whether the available files can be used directly for differential expression:</p>
+<pre><code class="language-text">Can this dataset be used directly for differential expression analysis? First, check the file format and any limitations that might affect the analysis.
+</code></pre>
+<p>The question is what the values represent, not simply whether a file can be opened. A conventional DESeq2 gene-count workflow needs raw counts. TPM, FPKM, and log-transformed expression values cannot be substituted for raw integer counts.</p>
+<p>To plan reprocessing from raw sequencing data, ask:</p>
+<pre><code class="language-text">If I reanalyze the raw sequencing data, approximately how much data would I need to download, and what steps would be required for the analysis?
+</code></pre>
+<p>Distinguish sequencing runs from biological samples. In this dataset, multiple lanes/runs belong to each sample and must be organized upstream. They are technical data, not independent biological replicates. Confirm groups, GSM accessions, and run mappings from metadata rather than inferring them from filenames.</p>
+<h2>3. Select groups and generate counts</h2>
+<p>The first comparison is specific: <strong>what changes in siESR1 relative to siNT?</strong> Keep the knockdown and control groups, excluding siGATA3 and siTET2 for this analysis.</p>
+<p>Send:</p>
+<pre><code class="language-text">Connect to the remote compute host, locate the FASTQ data for GSE153250, keep only the siESR1 and siNT groups, and exclude all other groups. Perform transcriptome upstream analysis to obtain the Counts data.
+</code></pre>
+<p>This request identifies the execution environment, dataset, included and excluded groups, and expected output. Wisp checks the server, locates or prepares inputs, and performs upstream processing.</p>
+<p>The analysis merges sequencing lanes by sample, checks quality with FastQC, processes reads with cutadapt, aligns to GRCh38 with STAR, and produces gene counts with featureCounts.</p>
+<p>After upstream processing, check three key outputs:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/processed/GSE153250_counts_matrix.tsv</code></td>
+<td>Gene count matrix</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_sample_groups.txt</code></td>
+<td>Sample-to-group mapping</td>
+</tr>
+<tr>
+<td><code>data/processed/GSE153250_featureCounts_summary.txt</code></td>
+<td>Count assignment summary</td>
+</tr>
+</tbody>
+</table></div>
+<p>Directories may differ between workspaces. Verify actual file locations before downstream analysis rather than reusing another machine's absolute paths.</p>
+<p>The matrix contains <strong>38,606 genes and 12 samples</strong>, with Ensembl gene IDs in the first column, <code>Geneid</code>:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Group</th>
+<th>Samples</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>siNT</td>
+<td><code>siNT_1</code> through <code>siNT_6</code></td>
+<td>Control and reference level</td>
+</tr>
+<tr>
+<td>siESR1</td>
+<td><code>siESR1_1</code> through <code>siESR1_6</code></td>
+<td>ESR1 knockdown</td>
+</tr>
+</tbody>
+</table></div>
+<p>The groups file is tab-separated with <code>sample</code> and <code>group</code> columns. Verify one-to-one matching and correct order between matrix columns and metadata. Check nonnegative integer counts, missing values, duplicate IDs, and unusual library totals.</p>
+<p>Matching numeric suffixes do not establish pairing. Incorporate batch or pairing information when supported by metadata, and document missing information as a limitation.</p>
+<h2>4. Request the downstream analysis</h2>
+<p>With counts ready, request differential expression, enrichment, and GSEA together:</p>
+<pre><code class="language-text">Based on the upstream Counts data from GSE153250, perform transcriptome downstream analysis: differential expression, enrichment analysis, and GSEA. Download Enrichr libraries for human gene sets as needed and use them as GMT files for enrichment.
+</code></pre>
+<p>This is the complete downstream task prompt. It specifies the analytical goals and permits downloading human gene sets from Enrichr as GMT files without requiring the user to write the R script first.</p>
+<p>Wisp needs to turn that request into observable work: verify inputs and execution context, check R packages, prepare gene sets, run DEG/ORA/GSEA, create figures, and organize methods and outputs.</p>
+<p>The main tools used are:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Analysis</th>
+<th>Tool</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Differential expression</td>
+<td>DESeq2</td>
+<td>Raw counts, design, reference, and contrast</td>
+</tr>
+<tr>
+<td>Gene annotation</td>
+<td>org.Hs.eg.db</td>
+<td>Ensembl-to-Symbol mapping</td>
+</tr>
+<tr>
+<td>Overrepresentation analysis</td>
+<td>clusterProfiler</td>
+<td>Foreground, background, and GMT ID space</td>
+</tr>
+<tr>
+<td>Preranked GSEA</td>
+<td>fgsea</td>
+<td>Complete signed ranking, duplicate genes, and set sizes</td>
+</tr>
+<tr>
+<td>Plotting</td>
+<td>ggplot2 and related packages</td>
+<td>Agreement between labels, thresholds, and tables</td>
+</tr>
+</tbody>
+</table></div>
+<p>If no SSH context is available, check the server configuration in Settings before continuing. Install missing R packages and verify that they load. Dependency and gene-set download failures should remain visible in execution records.</p>
+<p>Enrichr libraries can change or become unavailable. Record the library name, source, retrieval date, and checksum for each GMT. This tutorial focuses on <code>MSigDB_Hallmark_2020</code>; downloading every available library is not necessary for a first analysis.</p>
+<h2>5. Inspect differential expression and sample relationships</h2>
+<p>The contrast is <strong>siESR1 relative to siNT</strong>. Positive <code>log2FoldChange</code> means higher expression in knockdown samples; negative values mean lower expression.</p>
+<p>This analysis uses:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Setting</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Design</td>
+<td><code>~ condition</code>, with siNT as reference</td>
+</tr>
+<tr>
+<td>Contrast</td>
+<td><code>siESR1</code> vs <code>siNT</code></td>
+</tr>
+<tr>
+<td>Low-count filter</td>
+<td>Total counts across all samples ≥10</td>
+</tr>
+<tr>
+<td>Multiple-testing correction</td>
+<td>BH, <code>alpha=0.05</code></td>
+</tr>
+<tr>
+<td>DEG selection</td>
+<td><code>padj &lt; 0.05</code> and <code>abs(log2FoldChange) &gt; 0.5</code></td>
+</tr>
+<tr>
+<td>PCA input</td>
+<td>DESeq2 VST, <code>blind=FALSE</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>condition</code> is the script's grouping variable, derived from sample metadata. Total counts ≥10 does not mean at least 10 counts in at least six samples. This is the rule used here; other experiments may warrant a different filter.</p>
+<p>The LFC cutoff selects results and is not equivalent to an <code>lfcThreshold</code> hypothesis test. Record whether LFC shrinkage is used to avoid mixing result definitions.</p>
+<p>The results are:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Metric</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Genes retained after filtering</td>
+<td>19,885</td>
+</tr>
+<tr>
+<td>Upregulated DEGs</td>
+<td>3,761</td>
+</tr>
+<tr>
+<td>Downregulated DEGs</td>
+<td>4,314</td>
+</tr>
+<tr>
+<td>ESR1 <code>log2FoldChange</code></td>
+<td>Approximately −3.14</td>
+</tr>
+</tbody>
+</table></div>
+<p>Lower ESR1 expression is consistent with the knockdown treatment. Interpreting the broader DEG list requires effect sizes, expression levels, and functional analysis.</p>
+<p>Next, inspect PCA:</p>
+<p><img src="../assets/tutorials/en/rnaseq-downstream/01-pca.png" alt="GSE153250 PCA showing siNT and siESR1 separated along PC1" loading="lazy" width="1600" height="1372" /></p>
+<p>The groups separate along PC1. Variance percentages are rounded to integers, so <code>PC2: 0%</code> does not mean exactly zero variance. PCA helps inspect relationships and unusual samples, but separation alone cannot rule out batch effects, and an unusual point should not automatically be removed.</p>
+<p>Volcano and MA plots show relationships between effect size, significance, and expression level. Recalculate DEG totals from the full result table using consistent thresholds. Retain and explain <code>padj=NA</code> rows, excluding indeterminate entries from significance counts.</p>
+<h2>6. ORA: which functional sets contain more differential genes?</h2>
+<p>ORA asks whether differential genes occur more often in a functional set than expected relative to this experiment's analyzable background.</p>
+<p>Analyze upregulated and downregulated genes separately to distinguish directions. The upregulated Hallmark ORA yields <strong>15 terms with <code>p.adjust &lt; 0.05</code></strong>, including a TNFα/NF-κB-related gene set worth closer inspection.</p>
+<p>Check two details before interpreting enrichment.</p>
+<p>First, ID spaces must match. If a GMT uses gene Symbols, foreground and background lists must use compatible Symbols rather than Ensembl or Entrez IDs. Record unmapped genes and one-to-many mapping policies.</p>
+<p>Second, the background should represent genes that this experiment can detect, test, and map, rather than indiscriminately including all human genes. Save foreground and background lists, explain NA handling, and report the effective background after intersection with the GMT.</p>
+<p>Overrepresentation is a statistical association, not experimental proof that a pathway is activated. It also does not mean every member gene changes in the same direction.</p>
+<h2>7. GSEA: inspect coordinated directional changes</h2>
+<p>DEG selection depends on cutoffs. GSEA uses a complete signed gene ranking to find gene sets concentrated at either end of the list.</p>
+<p>This analysis ranks genes using DESeq2 <strong>Wald stat</strong>, not just significant DEGs. For repeated Symbols, retain the row with the largest absolute statistic and sort by signed stat in descending order. This policy can favor stronger signals and belongs in the methods. Handle missing and nonfinite statistics before analysis.</p>
+<p>The main parameters are <code>minSize=10</code>, <code>maxSize=500</code>, <code>nPermSimple=10000</code>, and random seed <code>123</code>. Also record fgsea version, actual algorithm, and parallel configuration. A random seed alone does not guarantee identical results across environments.</p>
+<p>Positive NES indicates enrichment toward higher expression in knockdown samples; negative NES indicates enrichment toward lower expression.</p>
+<p><img src="../assets/tutorials/en/rnaseq-downstream/02-gsea.png" alt="GSE153250 Hallmark GSEA showing selected pathways by NES direction" loading="lazy" width="1600" height="667" /></p>
+<p>The plot shows selected terms, not exclusively terms meeting <code>padj &lt; 0.05</code>. Determine significance from the full result table.</p>
+<p>Hallmark GSEA tests 50 gene sets, with <strong>25 meeting <code>padj &lt; 0.05</code></strong>. Relevant results include:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Gene set</th>
+<th>NES</th>
+<th>padj</th>
+<th>Direction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Estrogen Response Early</td>
+<td>−2.247</td>
+<td>5.66 × 10⁻¹²</td>
+<td>Toward the lower end</td>
+</tr>
+<tr>
+<td>Estrogen Response Late</td>
+<td>−2.208</td>
+<td>2.55 × 10⁻¹¹</td>
+<td>Toward the lower end</td>
+</tr>
+<tr>
+<td>TNF-alpha Signaling via NF-kB</td>
+<td>+2.035</td>
+<td>5.10 × 10⁻⁸</td>
+<td>Toward the higher end</td>
+</tr>
+<tr>
+<td>E2F Targets</td>
+<td>−1.684</td>
+<td>3.28 × 10⁻⁴</td>
+<td>Toward the lower end</td>
+</tr>
+<tr>
+<td>G2-M Checkpoint</td>
+<td>−1.647</td>
+<td>6.12 × 10⁻⁴</td>
+<td>Toward the lower end</td>
+</tr>
+</tbody>
+</table></div>
+<p>Together, lower ESR1 expression, negative estrogen-response enrichment, and changes in cell-cycle and inflammatory transcriptional programs provide leads for further research.</p>
+<p>Moving from expression changes to a mechanism for resistance or disease progression requires inspection of leading-edge genes, independent data, and experiments. One MCF7 knockdown analysis cannot establish patient benefit or treatment efficacy.</p>
+<h2>8. Check the outputs</h2>
+<p>Open the actual files rather than relying solely on the final conversation summary.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Directory or file</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>data/raw/GSE153250_counts_matrix.tsv</code></td>
+<td>Input copy used downstream</td>
+</tr>
+<tr>
+<td><code>results/tables/DESeq2_full_results.csv</code></td>
+<td>Full differential expression results and annotation</td>
+</tr>
+<tr>
+<td><code>results/tables/ranked_genes.tsv</code></td>
+<td>Ranking used for GSEA</td>
+</tr>
+<tr>
+<td><code>results/tables/ORA_up_MSigDB_Hallmark_2020.csv</code></td>
+<td>Upregulated-gene ORA</td>
+</tr>
+<tr>
+<td><code>results/tables/ORA_down_MSigDB_Hallmark_2020.csv</code></td>
+<td>Downregulated-gene ORA</td>
+</tr>
+<tr>
+<td><code>results/tables/GSEA_MSigDB_Hallmark_2020.csv</code></td>
+<td>Full Hallmark GSEA results</td>
+</tr>
+<tr>
+<td><code>figures/</code></td>
+<td>PCA, volcano, MA, ORA, and GSEA plots</td>
+</tr>
+<tr>
+<td><code>analysis/DEG/README.md</code></td>
+<td>DEG inputs, parameters, and methods</td>
+</tr>
+<tr>
+<td><code>analysis/enrichment/README.md</code></td>
+<td>Libraries, background, and ORA methods</td>
+</tr>
+<tr>
+<td><code>analysis/GSEA/README.md</code></td>
+<td>Ranking, parameters, and GSEA methods</td>
+</tr>
+<tr>
+<td><code>results/reports/sessionInfo.txt</code></td>
+<td>R environment and package versions</td>
+</tr>
+</tbody>
+</table></div>
+<p>Cross-check DEG counts, ESR1 direction, and pathway statistics against figures and summaries. Preserve GMT files, scripts, logs, and version information. Retrieve required tables and figures after remote computation finishes.</p>
+<p>This workflow also required plotting corrections: a completed statistical table does not establish that every figure was written successfully. Use <a href="wisp-science-trajectory.html">Trajectory</a> to inspect tool inputs and errors, distinguish statistical from plotting failures, and reuse verified tables to finish plotting.</p>
+<h2>9. Develop research questions from the findings</h2>
+<p>With counts, differential expression, and pathway results available, ask Wisp to propose follow-up projects:</p>
+<pre><code class="language-text">Based on the Counts data from our study, along with the differential expression analysis and pathway enrichment analysis results, design 10 research projects. For each project, clearly state the core findings/evidence basis, scientific question, clinical significance, study design, and key highlights/novelty. Use literature retrieval if necessary to support your hypotheses.
+</code></pre>
+<p>The request asks each project to identify supporting evidence, a scientific question, clinical significance, study design, and novelty, with literature retrieval where needed.</p>
+<p>Directions include TNFα/NF-κB, p53, Notch–EMT, EPHA2, metabolic reprogramming, ECM/FAK, transcriptional networks, and GREB1. They are candidates for discussion and prioritization. Producing ten proposals does not validate ten mechanisms.</p>
+<p>For each promising direction, ask which data row or gene group supports it, which critical evidence is missing, and which experimental outcome would support or refute the hypothesis.</p>
+<p>Apply the same process to your own experiments: define the question and samples, run the analysis, and retain figures, methods, and the evidence behind your interpretation.</p>
+</div>
+</article>
+<nav class="tutorial-pagination" aria-label="相邻教程" data-i18n-aria="tutorials.pagination"><a class="tutorial-previous" href="wisp-science-transcriptome-upstream.html"><span data-i18n="tutorials.previous">上一篇</span><strong data-text-zh="完成转录组上游分析" data-text-en="Complete an Upstream RNA-seq Analysis">完成转录组上游分析</strong></a><a class="tutorial-next" href="wisp-science-cli.html"><span data-i18n="tutorials.next">下一篇</span><strong data-text-zh="Wisp 命令行" data-text-en="Wisp CLI">Wisp 命令行</strong></a></nav>
+<div class="tutorial-reader-back"><a class="tutorial-back" href="../tutorials.html#wisp-science-rnaseq-downstream" data-i18n="tutorials.back">返回教程目录</a></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="24" height="24">
+        Wisp Science
+      </a>
+      <nav class="footer-links">
+        <a href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" data-i18n="nav.tutorials">教程</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/releases" data-i18n="footer.releases">版本记录</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/issues" data-i18n="footer.issues">问题反馈</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/LICENSE">AGPL-3.0-only</a>
+      </nav>
+      <p class="footer-copy" data-i18n="footer.copy">© 2026 Wisp Science · 开源科学计算 Agent</p>
+    </div>
+  </footer>
+  <script src="../assets/i18n.js"></script>
+</body>
+</html>

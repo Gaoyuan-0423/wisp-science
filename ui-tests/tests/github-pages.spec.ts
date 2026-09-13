@@ -149,7 +149,7 @@ test("tutorial directory stays compact and links to independent articles", async
   await expect(page.locator(".tutorial-group-title")).toHaveText(["基础入门", "使用技巧", "进阶"]);
   await expect(page.locator("#basics .tutorial-card")).toHaveCount(7);
   await expect(page.locator("#tips .tutorial-card")).toHaveCount(4);
-  await expect(page.locator("#advanced .tutorial-card h3")).toHaveText(["Wisp 命令行", "ACP配置"]);
+  await expect(page.locator("#advanced .tutorial-card h3")).toHaveText(["完成转录组上游分析", "完成转录组下游分析", "Wisp 命令行", "ACP配置"]);
   await page.screenshot({ path: test.info().outputPath("tutorials-desktop.png") });
   for (const width of [1440, 1280, 1120, 1101, 1100, 980, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -160,7 +160,7 @@ test("tutorial directory stays compact and links to independent articles", async
         lang === "en" ? ["Basics", "Tips", "Advanced"] : ["基础入门", "使用技巧", "进阶"],
       );
       await expect(page.locator("#advanced .tutorial-card h3").first()).toHaveText(
-        lang === "en" ? "Wisp CLI" : "Wisp 命令行",
+        lang === "en" ? "Complete an Upstream RNA-seq Analysis" : "完成转录组上游分析",
       );
       const basics = (await page.locator("#basics").boundingBox())!;
       const tips = (await page.locator("#tips").boundingBox())!;
@@ -192,6 +192,9 @@ for (const name of readdirSync(resolve(repositoryRoot, "docs/wechat")).filter((n
     const title = readRepositoryFile(`docs/wechat/${name}`).split("\n")[0].replace(/^# /, "");
     await expect(page.locator(".tutorial-article")).toHaveCount(1);
     await expect(page.locator("h1")).toHaveText(title);
+    if (id === "wisp-science-rnaseq-downstream" || id === "wisp-science-transcriptome-upstream") {
+      await page.screenshot({ path: test.info().outputPath("rnaseq-desktop-zh.png") });
+    }
     for (const img of await page.locator(".tutorial-body:visible img").all()) {
       await img.scrollIntoViewIfNeeded();
       await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
@@ -203,6 +206,10 @@ for (const name of readdirSync(resolve(repositoryRoot, "docs/wechat")).filter((n
     await expect(page.locator("h1")).toHaveText(englishTitle);
     await expect(page.locator('.tutorial-body[lang="en"]')).toBeVisible();
     await expect(page.locator('.tutorial-body[lang="zh-CN"]')).toBeHidden();
+    if (id === "wisp-science-rnaseq-downstream" || id === "wisp-science-transcriptome-upstream") {
+      await page.locator("h1").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: test.info().outputPath("rnaseq-mobile-en.png") });
+    }
     for (const img of await page.locator(".tutorial-body:visible img").all()) {
       await expect(img).toHaveAttribute("src", /^\.\.\/assets\/tutorials\/en\//);
       await img.scrollIntoViewIfNeeded();
@@ -238,6 +245,10 @@ test("article links, previous and next navigation, and browser back stay within 
   await expect(page.locator("h1")).toHaveText("Wisp Science高级：ACP配置");
   await page.locator(".tutorial-previous").click();
   await expect(page.locator("h1")).toHaveText("Wisp 命令行");
+  await page.locator(".tutorial-previous").click();
+  await expect(page.locator("h1")).toHaveText("Wisp Science实战：完成转录组下游分析");
+  await page.locator(".tutorial-previous").click();
+  await expect(page.locator("h1")).toHaveText("Wisp Science： 完成转录组上游分析");
   await page.locator(".tutorial-previous").click();
   await expect(page.locator("h1")).toContainText("快捷动作");
   await page.locator(".tutorial-previous").click();
