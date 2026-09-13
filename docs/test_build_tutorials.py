@@ -79,8 +79,8 @@ class TutorialBuildTests(unittest.TestCase):
         groups = re.findall(r'<section class="tutorial-group" id="([^"]+)".*?</section>',
                             directory, re.DOTALL)
         self.assertEqual(groups, ["basics", "tips", "advanced"])
-        expected = [build_tutorials.READING_ORDER[:7], build_tutorials.READING_ORDER[7:9],
-                    build_tutorials.READING_ORDER[9:]]
+        expected = [build_tutorials.READING_ORDER[:7], build_tutorials.READING_ORDER[7:11],
+                    build_tutorials.READING_ORDER[11:]]
         for (group, zh, en), article_ids in zip(build_tutorials.TUTORIAL_GROUPS, expected):
             section = re.search(rf'<section class="tutorial-group" id="{group}".*?</section>',
                                 directory, re.DOTALL).group()
@@ -90,7 +90,22 @@ class TutorialBuildTests(unittest.TestCase):
                              article_ids)
             self.assertEqual(section.count('<h3 '), len(article_ids))
         self.assertEqual(re.findall(r'<span class="tutorial-number">(\d+)</span>', directory),
-                         [f"{number:02d}" for number in range(1, 12)])
+                         [f"{number:02d}" for number in range(1, len(build_tutorials.READING_ORDER) + 1)])
+
+    def test_specialists_and_quick_actions_are_adjacent_bilingual_tips(self):
+        pages = build_tutorials.render_tutorials()
+        specialists = pages["tutorials/wisp-science-specialists.html"]
+        actions = pages["tutorials/wisp-science-quick-actions.html"]
+        self.assertIn('class="tutorial-next" href="wisp-science-quick-actions.html"', specialists)
+        self.assertIn('class="tutorial-previous" href="wisp-science-specialists.html"', actions)
+        self.assertIn('data-text-en="Wisp Science Tips: Specialists"', specialists)
+        self.assertIn('data-text-en="Wisp Science Tips: Quick Actions"', actions)
+        self.assertIn('src="../assets/specialists/01-overview.png"', specialists)
+        self.assertIn('src="../assets/tutorials/en/specialists/01-overview.png"', specialists)
+        self.assertIn('width="1612" height="710"', specialists)
+        for language in ["", "en/"]:
+            for screenshot in ["01-settings", "02-create"]:
+                self.assertIn(f'src="../assets/tutorials/{language}quick-actions/{screenshot}.png"', actions)
 
     def test_every_tutorial_has_a_complete_english_source_and_language_metadata(self):
         root = build_tutorials.DOCS / "wechat"

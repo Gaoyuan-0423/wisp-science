@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="tutorial-article" data-title-zh="快捷动作 · 教程 | Wisp Science" data-title-en="Quick Actions · Tutorials | Wisp Science" data-desc-zh="Wisp Science使用技巧：快捷动作" data-desc-en="Wisp Science Tips: Quick Actions">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Wisp Science使用技巧：快捷动作">
+  <title>快捷动作 · 教程 | Wisp Science</title>
+  <script>
+    (function () {
+      var lang = "zh";
+      try {
+        var q = new URLSearchParams(location.search).get("lang");
+        if (q === "en" || q === "zh") lang = q;
+        else {
+          var s = localStorage.getItem("wisp-pages-lang");
+          if (s === "en" || s === "zh") lang = s;
+        }
+      } catch (e) {}
+      document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+      document.documentElement.dataset.lang = lang;
+    })();
+  </script>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/tutorials.css">
+</head>
+<body class="doc-page tutorial-detail">
+  <header class="site-nav">
+    <div class="container">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Wisp Science</span>
+      </a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="页面导航">
+        <a href="../index.html#features" data-i18n="nav.features">功能</a>
+        <a href="../index.html#usecases" data-i18n="nav.usecases">场景</a>
+        <a href="../index.html#stack" data-i18n="nav.stack">生态</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" aria-current="location" data-i18n="nav.tutorials">教程</a>
+        <a href="../index.html#faq" data-i18n="nav.faq">FAQ</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/README.md" data-i18n="nav.docs">文档</a>
+      </nav>
+      <div class="nav-cta">
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="语言">
+          <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a class="btn btn-primary" href="../index.html#download"><span class="btn-label-full" data-i18n="nav.downloadFull">下载桌面版</span><span class="btn-label-short" data-i18n="nav.downloadShort">下载</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="tutorial-reader container">
+<nav class="tutorial-breadcrumb" aria-label="教程导航" data-i18n-aria="tutorials.readerNav"><a class="tutorial-back" href="../tutorials.html#wisp-science-quick-actions" data-i18n="tutorials.back">返回教程目录</a></nav>
+<article class="tutorial-article" id="wisp-science-quick-actions" aria-labelledby="article-title">
+<header><h1 id="article-title" data-text-zh="Wisp Science使用技巧：快捷动作" data-text-en="Wisp Science Tips: Quick Actions">Wisp Science使用技巧：快捷动作</h1>
+<a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-quick-actions.md" data-href-zh="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-quick-actions.md" data-href-en="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/en/wisp-science-quick-actions.md" data-i18n="tutorials.source">查看原文</a></header>
+<div class="tutorial-body lang-zh" lang="zh-CN">
+<p>阅读一段分析结论时，想查一查有没有文献支持；整理研究笔记时，想围绕某个观点做一次讨论。通常要先复制文字，再切到输入框，补上“请针对这段内容……”和一长串要求。</p>
+<p>Wisp Science 的 <strong>快捷动作</strong> 把这种重复操作放到了选中文本旁边：先选中需要处理的内容，再点击相应动作，让这段材料进入后续任务。</p>
+<p>上一篇介绍了 <a href="wisp-science-specialists.html">专家</a>，这一篇介绍快捷动作的入口、内置“文献调研”的用法，以及怎样把已有工作流变成自己的选中文本动作。</p>
+<p><strong>先分清楚：快捷动作是入口，具体工作由技能或工作流完成。</strong></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>组成部分</th>
+<th>负责什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>选中的文本</td>
+<td>这次要研究、讨论或处理的材料</td>
+</tr>
+<tr>
+<td>快捷动作</td>
+<td>在文本旁提供一个可重复使用的操作入口</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>为当前对话提供任务方法，例如文献检索与证据核验</td>
+</tr>
+<tr>
+<td>工作流</td>
+<td>定义多个任务及其依赖、能力和交付要求</td>
+</tr>
+<tr>
+<td>专家</td>
+<td>为任务提供固定角色与工作指令</td>
+</tr>
+</tbody>
+</table></div>
+<p>当前内置的 <strong>文献调研</strong> 会准备当前会话的下一条消息，并附上 <code>literature-review</code> 技能。自定义快捷动作则绑定一个工作流，点击后为它创建专门的会话，并按工作流策略运行或等待审阅。</p>
+<p><strong>第一次使用，从“文献调研”开始。</strong></p>
+<p>假设对话里出现了这样一句需要进一步核验的判断：</p>
+<blockquote>
+<p>这种细胞类型可能参与植物根系的干旱响应。</p>
+</blockquote>
+<p>这只是一个待核验的示例观点。可以按下面的步骤处理：</p>
+<ol>
+<li>在对话正文中选中这段文字。</li>
+<li>在浮动的选中文本工具栏中点击 <strong>文献调研</strong>；也可以选中后打开右键菜单，选择同名动作。</li>
+<li>查看当前输入框：选中文字已经作为引用加入，同时附上 <code>literature-review</code> 技能和可编辑的调研提示词。</li>
+<li>补充研究范围和希望得到的结果，再点击 <strong>发送</strong>。</li>
+</ol>
+<p>例如，在准备好的请求后补充：</p>
+<blockquote>
+<p>研究对象限定为拟南芥根系。请区分直接支持这一观点的实验研究、仅有相关性的观察，以及相反或不支持的证据。优先使用原始研究，核验标题、年份和 DOI，并说明哪些结果还不能支持因果推断。</p>
+</blockquote>
+<p><strong>点击“文献调研”后，还需要发送消息才开始任务。</strong> 这给你留下了补充物种、时间范围、检索重点和输出形式的机会。发送之后，工具调用、进度和最终回复都保存在当前对话中，之后可以结合 <a href="wisp-science-trajectory.html">轨迹</a> 查看实际检索过程。</p>
+<p>文献检索需要可用的模型、检索工具和网络。技能负责指导检索与核验方法；是否真正取得论文记录，要看工具返回的结果。初次尝试时，可以用自己已经熟悉的一个观点，核对返回文献是否确实支持相应结论。</p>
+<p><strong>在文件预览里，也可以围绕一段文字发起任务。</strong></p>
+<p>除了对话正文，非代码文件预览中的可选文本也支持快捷动作。例如，在一份研究笔记里选中“值得进一步验证”的段落，再调用文献调研，便于带着明确问题回查证据。</p>
+<p>对于 R 和 Python 源码，选中后的菜单会保留运行、询问 AI、引用、解释等代码操作。找不到“文献调研”时，先确认自己选中的是正文还是代码。图片中的文字如果无法直接选中，需要先提供可选取的文字内容。</p>
+<p>如果不希望每次选中文本都弹出浮动工具栏，可以在 <strong>设置 → 常规</strong> 中调整 <strong>划选即弹出快捷操作</strong>。关闭浮动入口后，仍可通过右键菜单使用相关操作。</p>
+<p><strong>进入“设置 → 快捷动作”，管理哪些动作出现在菜单里。</strong></p>
+<p><img src="../assets/tutorials/quick-actions/01-settings.png" alt="快捷动作设置页：查看内置文献调研动作、启用状态和工作流入口" loading="lazy" width="1440" height="1000" /></p>
+<p><em>图 1：实际前端配合模拟数据展示的快捷动作设置页。配图用于说明配置入口，没有执行文献检索或调用模型。</em></p>
+<p>在这里可以查看动作名称、描述和关联工作流，通过 <strong>选中文本时显示</strong> 控制是否启用，也可以编辑已有动作。自定义动作还可以删除。</p>
+<p>动作旁的 <strong>打开工作流</strong> 会进入独立的工作流编辑器，查看任务图和相关配置。这里有一个容易混淆的地方：内置“文献调研”虽然可以打开关联的 <strong>Literature evidence review</strong> 模板，但选中文字后点击这个内置动作，仍然是向当前输入框准备一次调研请求。</p>
+<p>如果希望明确执行多节点的文献证据审阅图，可以使用工作流模板本身。查看模板与点击内置快捷动作，是两个不同的入口。</p>
+<p><strong>创建自定义动作，可以先绑定一个已有工作流。</strong></p>
+<p>例如，希望经常围绕笔记中的一个观点开展多角度讨论，可以创建 <strong>讨论这段观点</strong>，绑定工作流库中的 <strong>Roundtable</strong>：</p>
+<ol>
+<li>进入 <strong>设置 → 快捷动作</strong>，点击 <strong>新建动作</strong>。</li>
+<li>在 <strong>动作名称</strong> 中填写“讨论这段观点”。</li>
+<li>在 <strong>工作流</strong> 下拉框中选择 <code>Roundtable</code>。</li>
+<li>在 <strong>描述</strong> 中说明用途，例如“围绕选中观点比较解释，汇总分歧与待验证问题”。</li>
+<li>保持 <strong>选中文本时显示</strong> 开启，点击 <strong>保存</strong>。</li>
+</ol>
+<p><img src="../assets/tutorials/quick-actions/02-create.png" alt="新建快捷动作：填写名称并选择 Roundtable 工作流" loading="lazy" width="1440" height="1000" /></p>
+<p><em>图 2：把“讨论这段观点”绑定到已有的 Roundtable 工作流。动作名称用于选中文本菜单，真正的任务分工由所选工作流决定。</em></p>
+<p>保存后，回到对话或非代码文件预览，选中一段完整观点，再从浮动工具栏或右键菜单选择 <strong>讨论这段观点</strong>。Wisp 会将选中文字与来源信息（可用时）带入工作流上下文，并为这次任务创建专门的会话。</p>
+<p>自定义动作不会像内置“文献调研”那样，先停在当前输入框等待你发送。根据所选工作流的审批策略和实际能力要求，它可能直接开始，也可能生成待审阅的草稿。看到“已创建草稿，请审阅后运行”时，先检查任务内容，再批准运行；看到已启动提示时，就到新会话和 Agents 活动面板查看进度。</p>
+<p><strong>动作的描述用于说明入口，任务要求应写进绑定的工作流。</strong></p>
+<p>例如，将动作描述改成“检查统计方法”，并不会把 <code>Roundtable</code> 的任务图自动改成统计审查流程。希望它每次检查样本量、检验方法和多重比较，就应该打开工作流，在目标和任务指令中写清这些要求，再让动作绑定到这个模板。</p>
+<p>工作流编辑器中可以配置目标、共享上下文、任务节点、依赖关系、技能与能力，以及专家、执行器和模型等。独立任务可以并行，有依赖的任务按前后顺序执行。</p>
+<p>内置工作流以只读模板提供；保存修改后的版本会创建自定义副本。首次使用可以先查看已有模板的节点和目标，再复制调整一处明确需求，无需一开始就设计复杂的多任务图。</p>
+<p>例如，一个“检查研究论证”的小工作流可以分为三个任务：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>任务</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>梳理论点</td>
+<td>列出选中段落中的主要判断，区分事实陈述和推测</td>
+</tr>
+<tr>
+<td>检查证据</td>
+<td>根据提供的材料判断证据支持程度，列出缺失条件</td>
+</tr>
+<tr>
+<td>汇总修改建议</td>
+<td>读取前两个任务的结果，给出保留、弱化表述或补充验证的建议</td>
+</tr>
+</tbody>
+</table></div>
+<p>这是一个供你配置的流程示例，并非额外内置模板。先明确任务输入和输出，再按实际需要选择技能或专家，最后保存并绑定快捷动作。</p>
+<p><strong>让选中的文字自带足够的上下文。</strong></p>
+<p>如果只选中“这个结果很重要”，后续任务很难知道“这个结果”指什么。更合适的选择是包含研究对象、现象和判断的一小段完整文字；需要文献检索时，再补充物种、方法或关注范围。</p>
+<p>对于内置文献调研，可以发送前在输入框补充这些信息。对于自定义动作，应该在触发前选好完整材料，或事先把固定背景与要求写入工作流。不要假定任意动作都会自动读取整篇文件、整个项目或全部历史对话。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>现象</th>
+<th>优先检查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>选中文字后没有浮动工具栏</td>
+<td>是否关闭了“划选即弹出快捷操作”；试试右键菜单</td>
+</tr>
+<tr>
+<td>菜单中没有某个动作</td>
+<td>是否在设置中开启“选中文本时显示”；是否正在选择 R／Python 代码</td>
+</tr>
+<tr>
+<td>点击文献调研后没有开始搜索</td>
+<td>查看输入框是否已准备好引用、技能和提示词，再发送</td>
+</tr>
+<tr>
+<td>自定义动作没有在当前对话回复</td>
+<td>查看是否打开了专门会话，或是否生成了待审阅草稿</td>
+</tr>
+<tr>
+<td>新建动作按钮不可用</td>
+<td>工作流列表是否已加载且至少有一个可选模板</td>
+</tr>
+<tr>
+<td>修改动作描述后，结果仍按旧流程生成</td>
+<td>检查绑定工作流的目标和任务指令，描述不会改写任务图</td>
+</tr>
+<tr>
+<td>提示工作流、能力或执行器不可用</td>
+<td>打开绑定工作流，检查模板和所需配置是否仍存在且可用</td>
+</tr>
+</tbody>
+</table></div>
+<p>先从内置文献调研开始，熟悉“选中文字 → 准备请求 → 补充范围 → 发送”的操作。等某种处理方式需要反复使用，再把它整理成工作流，绑定为自己的快捷动作。</p>
+<blockquote>
+<p>本文依据撰写时的 Wisp Science 实现与项目文档整理。配图采用实际前端与模拟数据，示例观点、任务和提示词仅用于说明操作，不代表已验证的科研结论。</p>
+</blockquote>
+</div>
+<div class="tutorial-body lang-en" lang="en">
+<p>While reading an analysis, you may want to find literature supporting a claim. While organizing notes, you may want to discuss one paragraph from several perspectives. Copying text and rewriting the same instructions each time adds friction.</p>
+<p>Wisp Science <strong>Quick Actions</strong> put reusable actions beside selected text. Select the material, choose an action, and carry it into the next task.</p>
+<p>Following <a href="wisp-science-specialists.html">Specialists</a>, this tutorial covers selection entry points, the built-in <strong>Research literature</strong> action, and binding an existing Workflow to your own action.</p>
+<p><strong>The Quick Action is the entry point; Skills or Workflows define the work.</strong></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Component</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Selected text</td>
+<td>The material to research, discuss, or process</td>
+</tr>
+<tr>
+<td>Quick Action</td>
+<td>A reusable operation available beside that material</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>Task methods for a conversation, such as literature search and verification</td>
+</tr>
+<tr>
+<td>Workflow</td>
+<td>Tasks, dependencies, capabilities, and deliverable requirements</td>
+</tr>
+<tr>
+<td>Specialist</td>
+<td>A standing role and instructions for a task</td>
+</tr>
+</tbody>
+</table></div>
+<p>The built-in <strong>Research literature</strong> action prepares the next message in the current conversation with the <code>literature-review</code> Skill. Custom actions bind a Workflow and create a dedicated conversation, where execution starts or waits for review according to the Workflow policy.</p>
+<p><strong>Start with Research literature.</strong></p>
+<p>Suppose a conversation contains this claim requiring verification:</p>
+<blockquote>
+<p>This cell type may participate in the drought response of plant roots.</p>
+</blockquote>
+<p>This is an example claim, not an established finding. To investigate it:</p>
+<ol>
+<li>Select the passage in the conversation body.</li>
+<li>Choose <strong>Research literature</strong> from the floating selection toolbar or the right-click menu.</li>
+<li>Inspect the current composer: it contains the selected passage as a quote, the <code>literature-review</code> Skill, and an editable research prompt.</li>
+<li>Add scope and output requirements, then click <strong>Send</strong>.</li>
+</ol>
+<p>For example, add:</p>
+<blockquote>
+<p>Limit the question to Arabidopsis roots. Separate direct experimental support, correlational observations, and conflicting or unsupportive evidence. Prefer original research, verify titles, years, and DOIs, and explain where the evidence cannot establish causality.</p>
+</blockquote>
+<p><strong>Choosing Research literature does not start the task until you send the message.</strong> Use that opportunity to specify species, dates, search priorities, and the desired output. After sending, tool activity, progress, and the final reply stay in the current conversation. <a href="wisp-science-trajectory.html">Trajectory</a> lets you inspect the actual search process later.</p>
+<p>Literature retrieval requires a working model, available search tools, and network access. The Skill guides the method; tool results show what was actually retrieved. Try a familiar claim first and check whether cited papers support the associated statements.</p>
+<p><strong>Use selected text in file previews too.</strong></p>
+<p>Quick Actions also work with selectable text in non-code file previews. Select a paragraph in research notes and start a literature review around that specific question.</p>
+<p>R and Python source selections retain code operations such as Run, Ask AI, quote, and explain. If Research literature is absent, check whether you selected prose or code. Text inside an image must first be supplied in a selectable form.</p>
+<p>To stop the floating toolbar appearing on every selection, adjust <strong>Settings → General → Selection quick actions</strong>. The corresponding operations remain available through the right-click menu.</p>
+<p><strong>Manage menu entries in Settings → Quick Actions.</strong></p>
+<p><img src="../assets/tutorials/en/quick-actions/01-settings.png" alt="Quick Actions settings with the built-in Research literature entry, toggle, and Workflow link" loading="lazy" width="1440" height="1000" /></p>
+<p><em>Figure 1: The actual frontend with mocked data. This screenshot demonstrates configuration without running a literature search or calling a model.</em></p>
+<p>The page shows action names, descriptions, and associated Workflows. <strong>Show for selected text</strong> controls availability. Existing actions can be edited; custom ones can also be deleted.</p>
+<p><strong>Open Workflow</strong> enters the standalone Workflow Studio to inspect the task graph and configuration. One detail matters: although Research literature links to the <strong>Literature evidence review</strong> template, invoking that built-in selection action still prepares a research request in the current composer.</p>
+<p>Use the Workflow template itself when you explicitly want the multi-node evidence review graph. Inspecting its template and invoking the built-in Quick Action are separate entry points.</p>
+<p><strong>Create a custom action by binding an existing Workflow.</strong></p>
+<p>For a recurring discussion of claims in your notes, create <strong>Discuss this claim</strong> and bind the library’s <strong>Roundtable</strong> Workflow:</p>
+<ol>
+<li>Open <strong>Settings → Quick Actions → New action</strong>.</li>
+<li>Enter “Discuss this claim” as the <strong>Action name</strong>.</li>
+<li>Select <code>Roundtable</code> in <strong>Workflow</strong>.</li>
+<li>Add a description, such as “Compare interpretations of the selected claim and summarize disagreements and questions to test.”</li>
+<li>Keep <strong>Show for selected text</strong> enabled and click <strong>Save</strong>.</li>
+</ol>
+<p><img src="../assets/tutorials/en/quick-actions/02-create.png" alt="New Quick Action named Discuss this claim and bound to the Roundtable Workflow" loading="lazy" width="1440" height="1000" /></p>
+<p><em>Figure 2: Binding a selection action to an existing Workflow. The action name labels the menu entry; the Workflow defines the task assignments.</em></p>
+<p>Return to a conversation or non-code file preview, select a complete claim, and choose <strong>Discuss this claim</strong> from the floating toolbar or context menu. Wisp adds the selection and available source information to the Workflow context and creates a dedicated conversation.</p>
+<p>A custom action does not pause in the current composer waiting for Send as Research literature does. Depending on the Workflow’s approval policy and resolved capability requirements, it starts or becomes a draft awaiting review. If a draft is created, inspect the tasks before approving execution. If it starts, follow the new conversation and the Agents activity panel.</p>
+<p><strong>The action description explains the entry point; write task requirements into the Workflow.</strong></p>
+<p>Changing an action’s description to “Check statistical methods” does not transform Roundtable into a statistical review graph. To check sample sizes, tests, and multiple comparisons every time, write those requirements into the Workflow goal and task instructions, then bind the action to that template.</p>
+<p>Workflow Studio exposes the goal, shared context, task nodes, dependencies, Skills and capabilities, and Specialist, executor, and model choices. Independent tasks may run in parallel; dependencies establish ordering.</p>
+<p>Built-in Workflows are read-only templates. Saving edits to one creates a custom copy. Start by inspecting an existing template and adjusting one concrete requirement rather than designing a large graph immediately.</p>
+<p>A small “Check research reasoning” Workflow could have three tasks:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Task</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Identify claims</td>
+<td>List the passage’s main judgments and separate factual statements from speculation</td>
+</tr>
+<tr>
+<td>Check evidence</td>
+<td>Assess support from the supplied materials and identify missing conditions</td>
+</tr>
+<tr>
+<td>Synthesize revisions</td>
+<td>Read both preceding results and recommend retaining, qualifying, or testing claims</td>
+</tr>
+</tbody>
+</table></div>
+<p>This is a configuration example, not another built-in template. Define inputs and outputs first, choose Skills or Specialists as needed, then save the Workflow and bind a Quick Action.</p>
+<p><strong>Select enough context for the task to make sense.</strong></p>
+<p>“This result is important” gives a downstream task little to work with. Select a short, complete passage identifying the subject, observation, and interpretation. For literature research, add the species, method, or relevant scope.</p>
+<p>For Research literature, add this context in the composer before sending. For custom actions, select complete material before triggering the action or store recurring background in the Workflow. Do not assume an arbitrary action automatically reads the entire file, project, or conversation history.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Symptom</th>
+<th>First check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No floating selection toolbar</td>
+<td>Check Selection quick actions in General; try the context menu</td>
+</tr>
+<tr>
+<td>An action is missing</td>
+<td>Check Show for selected text and whether you selected R/Python code</td>
+</tr>
+<tr>
+<td>Research literature has not started</td>
+<td>Inspect the prepared quote, Skill, and prompt, then send</td>
+</tr>
+<tr>
+<td>A custom action did not reply in the original conversation</td>
+<td>Look for its dedicated conversation or a draft awaiting review</td>
+</tr>
+<tr>
+<td>New action is unavailable</td>
+<td>Ensure the Workflow list has loaded with at least one template</td>
+</tr>
+<tr>
+<td>Editing the description did not change the results</td>
+<td>Edit the bound Workflow’s goal and task instructions</td>
+</tr>
+<tr>
+<td>A Workflow, capability, or executor is unavailable</td>
+<td>Inspect the bound template and its required configuration</td>
+</tr>
+</tbody>
+</table></div>
+<p>Start with selecting text, preparing a literature request, refining its scope, and sending. When a procedure becomes repetitive, turn it into a Workflow and bind your own Quick Action.</p>
+<blockquote>
+<p>This tutorial reflects the Wisp Science implementation and project documentation at writing time. Screenshots use the actual frontend with mocked data. Example claims, tasks, and prompts illustrate operation and do not represent verified research conclusions.</p>
+</blockquote>
+</div>
+</article>
+<nav class="tutorial-pagination" aria-label="相邻教程" data-i18n-aria="tutorials.pagination"><a class="tutorial-previous" href="wisp-science-specialists.html"><span data-i18n="tutorials.previous">上一篇</span><strong data-text-zh="专家" data-text-en="Specialists">专家</strong></a><a class="tutorial-next" href="wisp-science-cli.html"><span data-i18n="tutorials.next">下一篇</span><strong data-text-zh="Wisp 命令行" data-text-en="Wisp CLI">Wisp 命令行</strong></a></nav>
+<div class="tutorial-reader-back"><a class="tutorial-back" href="../tutorials.html#wisp-science-quick-actions" data-i18n="tutorials.back">返回教程目录</a></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="24" height="24">
+        Wisp Science
+      </a>
+      <nav class="footer-links">
+        <a href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" data-i18n="nav.tutorials">教程</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/releases" data-i18n="footer.releases">版本记录</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/issues" data-i18n="footer.issues">问题反馈</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/LICENSE">AGPL-3.0-only</a>
+      </nav>
+      <p class="footer-copy" data-i18n="footer.copy">© 2026 Wisp Science · 开源科学计算 Agent</p>
+    </div>
+  </footer>
+  <script src="../assets/i18n.js"></script>
+</body>
+</html>
