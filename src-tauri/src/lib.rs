@@ -361,6 +361,16 @@ fn emit_confirm_request(app: &AppHandle, request: &ConfirmRequest, project_id: O
     channels::publish_approval_request(request);
 }
 
+fn emit_confirm_resolved(app: &AppHandle, request: &ConfirmRequest, project_id: &str) {
+    emit_to_session_surfaces(
+        app,
+        &request.frame_id,
+        Some(project_id),
+        "confirm-resolved",
+        request,
+    );
+}
+
 type ConfirmSender = tokio::sync::oneshot::Sender<wisp_tools::ConfirmDecision>;
 type ConfirmReceiver = tokio::sync::oneshot::Receiver<wisp_tools::ConfirmDecision>;
 
@@ -396,6 +406,7 @@ async fn request_image_resize_confirmation(
     state.device_hub.mark_needs_user(frame_id, Some(project_id));
     emit_confirm_request(app, &request, Some(project_id));
     let approved = receive_confirm_decision(rx).await.approved();
+    emit_confirm_resolved(app, &request, project_id);
     state.confirms.lock().unwrap().remove(frame_id);
     state.awaiting_confirm.lock().unwrap().remove(frame_id);
     state.device_hub.resolve_needs_user(frame_id);
@@ -1023,6 +1034,7 @@ struct SessionTranscriptPage {
     branches: Vec<wisp_store::SessionBranchLink>,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch_state: Option<String>,
+    pending_approvals: Vec<wisp_dto::PendingToolApproval>,
 }
 
 #[derive(Serialize)]
@@ -1926,11 +1938,16 @@ fn terminal_ui_events(events: &[String]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+pub(crate) enum SessionUiMessage {
+    Event(AgentEvent),
+    Flush(tokio::sync::oneshot::Sender<()>),
+}
+
 async fn persist_ui_events(
     store: Store,
     frame_id: String,
     mut seq: i64,
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<SessionUiMessage>,
     flush_interval: std::time::Duration,
 ) {
     let mut pending = None;
@@ -1941,12 +1958,18 @@ async fn persist_ui_events(
     loop {
         tokio::select! {
             event = rx.recv() => match event {
-                Some(event) => {
+                Some(SessionUiMessage::Event(event)) => {
                     if let Some(event) = limit_persisted_ui_event(event, &mut persisted_stdout_bytes) {
                         if let Some(event) = merge_pending_ui_event(&mut pending, event) {
                             append_ui_event(&store, &frame_id, &mut seq, event).await;
                         }
                     }
+                }
+                Some(SessionUiMessage::Flush(done)) => {
+                    if let Some(event) = pending.take() {
+                        append_ui_event(&store, &frame_id, &mut seq, event).await;
+                    }
+                    let _ = done.send(());
                 }
                 None => break,
             },
@@ -1979,7 +2002,7 @@ fn is_streaming_delta_event(event: &AgentEvent) -> bool {
 /// and is forwarded immediately, so arrival order is preserved and tool/done
 /// boundaries never lag behind their output.
 async fn coalesce_live_agent_events(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<SessionUiMessage>,
     flush_interval: std::time::Duration,
     mut emit: impl FnMut(AgentEvent),
 ) {
@@ -1990,16 +2013,20 @@ async fn coalesce_live_agent_events(
     loop {
         tokio::select! {
             event = rx.recv() => match event {
-                Some(event) if is_streaming_delta_event(&event) => {
+                Some(SessionUiMessage::Event(event)) if is_streaming_delta_event(&event) => {
                     if let Some(evicted) = merge_pending_ui_event(&mut pending, event) {
                         emit(evicted);
                     }
                 }
-                Some(event) => {
+                Some(SessionUiMessage::Event(event)) => {
                     if let Some(pending) = pending.take() {
                         emit(pending);
                     }
                     emit(event);
+                }
+                Some(SessionUiMessage::Flush(done)) => {
+                    if let Some(pending) = pending.take() { emit(pending); }
+                    let _ = done.send(());
                 }
                 None => break,
             },
@@ -2589,6 +2616,7 @@ async fn request_mcp_app_tool_confirmation(
         }
         owns
     };
+    emit_confirm_resolved(app, &request, project_id);
     if owns_confirmation {
         state.awaiting_confirm.lock().unwrap().remove(frame_id);
         state.device_hub.resolve_needs_user(frame_id);
@@ -2950,11 +2978,11 @@ struct TauriOutput {
     /// session" no longer discards the whole turn. `None` disables it.
     persist: Option<tokio::sync::mpsc::UnboundedSender<Message>>,
     /// Ordered UI events used to rebuild the same transcript layout after a restart.
-    ui_events: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+    ui_events: Option<tokio::sync::mpsc::UnboundedSender<SessionUiMessage>>,
     /// Live-surface sink: events pass through `coalesce_live_agent_events` so a
     /// token/stdout flood cannot saturate the WebView IPC channel. `None`
     /// emits directly (tests).
-    live_events: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+    live_events: Option<tokio::sync::mpsc::UnboundedSender<SessionUiMessage>>,
     message_seq: std::sync::atomic::AtomicI64,
     /// Provenance sink: each tool-execution record the turn produces is sent here
     /// and persisted as an `execution_log` row by a background drain task.
@@ -2984,17 +3012,16 @@ impl TauriOutput {
             .apply_agent_event(&event, Some(&self.project_id));
         if should_persist_ui_event(&event) {
             if let Some(tx) = &self.ui_events {
-                let _ = tx.send(event.clone());
+                let _ = tx.send(SessionUiMessage::Event(event.clone()));
             }
         }
         match &self.live_events {
             Some(tx) => {
-                if let Err(send_error) = tx.send(event) {
-                    emit_agent_event_to_surfaces_in(
-                        &self.app,
-                        send_error.0,
-                        Some(&self.project_id),
-                    );
+                if let Err(send_error) = tx.send(SessionUiMessage::Event(event)) {
+                    let SessionUiMessage::Event(event) = send_error.0 else {
+                        unreachable!()
+                    };
+                    emit_agent_event_to_surfaces_in(&self.app, event, Some(&self.project_id));
                 }
             }
             None => emit_agent_event_to_surfaces_in(&self.app, event, Some(&self.project_id)),
@@ -3043,6 +3070,7 @@ impl TauriOutput {
         // There is deliberately no timeout: lack of approval must never be
         // converted into a denial that lets the same agent turn continue.
         let decision = receive_confirm_decision(rx).await;
+        emit_confirm_resolved(&self.app, &request, &self.project_id);
         self.confirms.lock().unwrap().remove(&self.frame_id);
         self.awaiting_confirm.lock().unwrap().remove(&self.frame_id);
         self.device_hub.resolve_needs_user(&self.frame_id);

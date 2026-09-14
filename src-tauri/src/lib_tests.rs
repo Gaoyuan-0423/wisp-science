@@ -1349,24 +1349,24 @@ async fn live_agent_events_merge_deltas_and_preserve_order() {
 
     let frame_id = "f".to_string();
     for delta in ["a", "b", "c"] {
-        tx.send(AgentEvent::Text {
+        tx.send(super::SessionUiMessage::Event(AgentEvent::Text {
             frame_id: frame_id.clone(),
             delta: delta.into(),
-        })
+        }))
         .unwrap();
     }
-    tx.send(AgentEvent::Stdout {
+    tx.send(super::SessionUiMessage::Event(AgentEvent::Stdout {
         frame_id: frame_id.clone(),
         chunk: "out".into(),
-    })
+    }))
     .unwrap();
     // A non-delta event must flush pending output before itself, keeping
     // the tool boundary behind the stream it terminates.
-    tx.send(AgentEvent::Done {
+    tx.send(super::SessionUiMessage::Event(AgentEvent::Done {
         frame_id,
         stop_reason: None,
         effective_max_iter: None,
-    })
+    }))
     .unwrap();
     drop(tx);
     handle.await.unwrap();
@@ -1400,10 +1400,10 @@ async fn ui_events_are_persisted_before_the_turn_ends() {
         rx,
         std::time::Duration::from_millis(5),
     ));
-    tx.send(AgentEvent::Text {
+    tx.send(super::SessionUiMessage::Event(AgentEvent::Text {
         frame_id: "f".into(),
         delta: "still running".into(),
-    })
+    }))
     .unwrap();
 
     tokio::time::timeout(std::time::Duration::from_secs(1), async {

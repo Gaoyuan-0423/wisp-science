@@ -138,8 +138,10 @@ mod provider_form_tests {
     #[test]
     fn opencode_endpoints_leave_model_selection_to_the_user() {
         for base in [
-            "https://opencode.ai/zen/go", "https://opencode.ai/zen/go/v1/",
-            "https://opencode.ai/zen/v1", "https://opencode.ai.evil.test/zen/go/v1",
+            "https://opencode.ai/zen/go",
+            "https://opencode.ai/zen/go/v1/",
+            "https://opencode.ai/zen/v1",
+            "https://opencode.ai.evil.test/zen/go/v1",
         ] {
             let mut form = new_model_form();
             apply_base_url_suggestions(&mut form, base);

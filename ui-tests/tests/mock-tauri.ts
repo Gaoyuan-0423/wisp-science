@@ -18,7 +18,15 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
   const pptxBase64 = fixtures?.pptxBase64 ?? "";
   const listeners: Record<string, ((e: { payload: unknown }) => void) | undefined> = {};
   const windowListeners: Record<string, ((e: { payload: unknown }) => void) | undefined> = {};
+  const hydrationApprovals = new Map<string, any>();
   const emit = (event: string, payload: unknown) => {
+    const request = payload as any;
+    if (event === "confirm-request") {
+      hydrationApprovals.set(request.frame_id, { ...request, approval_id: request.approval_id ?? `mock-${request.frame_id}` });
+    } else if (event === "confirm-resolved" || (event === "agent" && request.kind === "Done")) {
+      hydrationApprovals.delete(request.frame_id);
+    }
+
     try {
       listeners[event]?.({ payload });
       windowListeners[event]?.({ payload });
@@ -6138,6 +6146,22 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
       }),
     },
   };
+  // Native approvals live in the backend independently of their one-shot event.
+  const baseInvoke = (window as any).__TAURI__.core.invoke;
+  (window as any).__TAURI__.core.invoke = async (cmd: string, args: any) => {
+    const arg = (key: string) => args instanceof Map ? args.get(key) : args?.[key];
+    const result = await baseInvoke(cmd, args);
+    if (cmd === "load_session" && result && !arg("beforeSeq") && !arg("before_seq")) {
+      const request = hydrationApprovals.get(String(arg("id")));
+      return { ...result, pending_approvals: request ? [request] : [] };
+    }
+    if (cmd === "confirm_response") {
+      const request = hydrationApprovals.get(String(arg("sessionId") ?? arg("session_id")));
+      if (request) emit("confirm-resolved", request);
+    }
+    return result;
+  };
+
 }
 
 // Expected assistant reply text for a message sent under `parallelMock`.

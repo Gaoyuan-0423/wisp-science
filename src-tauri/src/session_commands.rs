@@ -1256,11 +1256,9 @@ pub(super) async fn load_session(
     id: String,
     before_seq: Option<i64>,
 ) -> Result<SessionTranscriptPage, String> {
-    let page = state
-        .store
-        .load_session_transcript_page(&id, before_seq, SESSION_TRANSCRIPT_PAGE_TURNS)
-        .await
-        .map_err(|e| format!("{e}"))?;
+    let runtime = state.sessions.lock().await.get(&id).cloned();
+    let page =
+        read_session_transcript_page(&state.store, runtime.as_deref(), &id, before_seq).await?;
     let presentations = if before_seq.is_none() {
         state
             .store
@@ -1337,10 +1335,6 @@ pub(super) async fn load_session(
         state.set_active(window.label(), project);
         state.set_active_frame(window.label(), Some(id.clone()));
         let _ = state.store.mark_frame_seen(&id).await;
-        if let Some(rt) = state.sessions.lock().await.get(&id).cloned() {
-            // latest_seq is COALESCE(MAX(seq),0) from this page load.
-            rt.set_last_seq(page.latest_seq);
-        }
     }
     let mut items = transcript_page_items(&page)?;
     if before_seq.is_none() {
@@ -1354,7 +1348,74 @@ pub(super) async fn load_session(
         presentations,
         branches,
         branch_state,
+        pending_approvals: if before_seq.is_none() {
+            state
+                .confirms
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|pending| {
+                    let request = &pending.request;
+                    wisp_dto::PendingToolApproval {
+                        approval_id: request.approval_id.clone(),
+                        frame_id: request.frame_id.clone(),
+                        message: request.message.clone(),
+                        tool: request.tool.clone(),
+                        preview: request.preview.clone(),
+                    }
+                })
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        },
     })
+}
+
+/// Navigation reads must remain safe while the workflow and Agent are locked.
+async fn read_session_transcript_page(
+    store: &Store,
+    runtime: Option<&SessionRuntime>,
+    id: &str,
+    before_seq: Option<i64>,
+) -> Result<wisp_store::SessionTranscriptPage, String> {
+    if before_seq.is_none() {
+        if let Some(runtime) = runtime {
+            flush_session_events(&runtime.ui_event_writer).await?;
+        }
+    }
+    let page = store
+        .load_session_transcript_page(id, before_seq, SESSION_TRANSCRIPT_PAGE_TURNS)
+        .await
+        .map_err(|error| error.to_string())?;
+    if before_seq.is_none() {
+        if let Some(runtime) = runtime {
+            // Deliver already-buffered live deltas before returning the snapshot
+            // that contains them. The frontend's revision guard then retries.
+            flush_session_events(&runtime.live_event_writer).await?;
+        }
+    }
+    Ok(page)
+}
+
+async fn flush_session_events(
+    writer: &StdMutex<Option<tokio::sync::mpsc::WeakUnboundedSender<SessionUiMessage>>>,
+) -> Result<(), String> {
+    let writer = writer
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|writer| writer.upgrade());
+    if let Some(writer) = writer {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if writer.send(SessionUiMessage::Flush(tx)).is_ok() {
+            tokio::time::timeout(std::time::Duration::from_secs(5), rx)
+                .await
+                .map_err(|_| "Timed out loading the live transcript. Please retry.".to_string())?
+                .map_err(|_| "The live transcript writer stopped. Please retry.".to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// Reload a session's persisted messages and UI events, then fold them into
@@ -1392,11 +1453,8 @@ pub(super) async fn load_session_trajectory(
     folded_session_trajectory(&state.store, &frame_id).await
 }
 
-/// Mark which session this window is viewing without loading it. The UI calls
-/// this instead of `load_session` when switching to a *running* session (it
-/// renders the cached streaming transcript), so uploads still attach to the
-/// viewed session (#194) — `load_session` would clobber the runtime's
-/// `last_seq` with the DB snapshot mid-stream.
+/// Mark which session this window is viewing without loading its transcript.
+/// This command never alters the runtime message cursor.
 #[tauri::command]
 pub(super) async fn set_viewed_session(
     state: State<'_, AppState>,
@@ -1472,5 +1530,91 @@ mod branch_summary_tests {
             "【变更】\nbranch delta"
         );
         assert!(branch_summary_payload("branch delta", Some("draft"), None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod hydration_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn running_snapshot_flushes_deltas_without_locking_agent_or_resetting_cursor() {
+        let root = std::env::temp_dir().join(format!("wisp_hydration_{}", Uuid::new_v4()));
+        let store = Store::open(&root.join("wisp.sqlite")).await.unwrap();
+        store
+            .create_project("p", "Project", &root.to_string_lossy())
+            .await
+            .unwrap();
+        store
+            .create_frame("f", "p", "OPERON", "model")
+            .await
+            .unwrap();
+        store
+            .append_message("f", 1, &wisp_llm::Message::user("question"))
+            .await
+            .unwrap();
+        let runtime = SessionRuntime::new();
+        runtime.set_last_seq(42);
+        let _workflow = runtime.workflow.lock().await;
+        let _agent = runtime.agent.lock().await;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        *runtime.ui_event_writer.lock().unwrap() = Some(tx.downgrade());
+        let (live_tx, live_rx) = tokio::sync::mpsc::unbounded_channel();
+        *runtime.live_event_writer.lock().unwrap() = Some(live_tx.downgrade());
+        let emitted = Arc::new(StdMutex::new(Vec::new()));
+        let sink = emitted.clone();
+        let live_writer = tokio::spawn(coalesce_live_agent_events(
+            live_rx,
+            std::time::Duration::from_secs(3600),
+            move |event| sink.lock().unwrap().push(event),
+        ));
+        let writer = tokio::spawn(persist_ui_events(
+            store.clone(),
+            "f".into(),
+            1,
+            rx,
+            std::time::Duration::from_secs(3600),
+        ));
+        tx.send(SessionUiMessage::Event(AgentEvent::Text {
+            frame_id: "f".into(),
+            delta: "latest live text".into(),
+        }))
+        .unwrap();
+        live_tx
+            .send(SessionUiMessage::Event(AgentEvent::Text {
+                frame_id: "f".into(),
+                delta: "latest live text".into(),
+            }))
+            .unwrap();
+        let page = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_session_transcript_page(&store, Some(&runtime), "f", None),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(page
+            .ui_events
+            .iter()
+            .any(|event| event.contains("latest live text")));
+        assert_eq!(runtime.last_seq(), 42);
+        assert!(matches!(emitted.lock().unwrap().as_slice(),
+            [AgentEvent::Text { delta, .. }] if delta == "latest live text"
+        ));
+        drop(tx);
+        drop(live_tx);
+        tokio::time::timeout(std::time::Duration::from_secs(2), writer)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), live_writer)
+            .await
+            .unwrap()
+            .unwrap();
+        // A weak writer reference must not keep a completed turn alive.
+        read_session_transcript_page(&store, Some(&runtime), "f", None)
+            .await
+            .unwrap();
+        assert_eq!(runtime.last_seq(), 42);
     }
 }
