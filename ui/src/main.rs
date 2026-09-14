@@ -4740,6 +4740,7 @@ fn App() -> impl IntoView {
         if sid.is_empty() {
             return;
         }
+        status.set(String::new());
         let restore = matches!(op, QueueOp::Edit(_));
         let (id, action, message): (u64, &'static str, Option<String>) = match op {
             QueueOp::Cancel(id) | QueueOp::Edit(id) => {
@@ -4797,13 +4798,21 @@ fn App() -> impl IntoView {
         }
         spawn_local(async move {
             let args = to_value(&QueuedTurnActionArgs {
-                session_id: sid,
+                session_id: sid.clone(),
                 id,
                 action,
                 message,
             })
             .unwrap();
-            let _ = invoke("queued_turn_action", args).await;
+            if let Err(error) = invoke_checked("queued_turn_action", args).await {
+                if active_session.get_untracked().as_deref() == Some(sid.as_str()) {
+                    status.set(tf(
+                        locale.get(),
+                        "queue.action_failed",
+                        &[("error", &js_error_text(error))],
+                    ));
+                }
+            }
         });
     });
     let composer_queue_offset = Signal::derive(move || {

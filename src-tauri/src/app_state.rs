@@ -51,6 +51,9 @@ pub(crate) struct SessionRuntime {
     /// FIFO into fresh turns. ponytail: in-memory only — lost on app restart,
     /// same as the optimistic bubbles, which are never persisted either.
     pub(crate) queued: StdMutex<Vec<QueuedItem>>,
+    /// Cut-ins offered to the current loop, with their original payload kept
+    /// until the queue driver observes consumption or starts them first.
+    pub(crate) queued_cutins: StdMutex<Vec<(u64, QueuedItem)>>,
     /// True while a driver task owns draining `queued`. Flipped only under the
     /// `queued` lock so an enqueue can never strand behind a driver that is
     /// about to exit on an empty queue.
@@ -86,6 +89,7 @@ impl SessionRuntime {
             interrupted_turn_start: StdMutex::new(None),
             mcp_app_contexts: StdMutex::new(HashMap::new()),
             queued: StdMutex::new(Vec::new()),
+            queued_cutins: StdMutex::new(Vec::new()),
             draining: AtomicBool::new(false),
         }
     }

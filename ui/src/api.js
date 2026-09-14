@@ -153,17 +153,37 @@ export async function invoke(cmd, args) {
     return null;
   }
   try {
-    return await core.invoke(cmd, args ?? {});
+    return await invoke_strict(cmd, args);
   } catch (err) {
     console.error(`Tauri command failed: ${cmd}`, err);
     return null;
   }
 }
 
+// The optimistic queue card can be clicked before enqueue_turn finishes its
+// backend validation. Preserve that action until this exact item exists;
+// unrelated sessions/items and ordinary invokes must remain independent.
+const pendingEnqueues = new Map();
+
 export async function invoke_strict(cmd, args) {
   const core = tauriCore();
   if (!core) {
     throw missingBridgeError(cmd);
+  }
+  if (cmd === "enqueue_turn" || cmd === "queued_turn_action") {
+    const arg = (key) => args instanceof Map ? args.get(key) : args?.[key];
+    const key = JSON.stringify([arg("sessionId"), arg("id")]);
+    if (cmd === "enqueue_turn") {
+      const pending = Promise.resolve().then(() => core.invoke(cmd, args ?? {}));
+      pendingEnqueues.set(key, pending);
+      try {
+        return await pending;
+      } finally {
+        if (pendingEnqueues.get(key) === pending) pendingEnqueues.delete(key);
+      }
+    }
+    const pending = pendingEnqueues.get(key);
+    if (pending) await pending;
   }
   return core.invoke(cmd, args ?? {});
 }

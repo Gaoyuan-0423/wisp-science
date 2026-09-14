@@ -31,6 +31,23 @@
 - Follow-ups typed while a turn is running sit in a compact card above the composer, not as dashed transcript bubbles.
 - The card shows a count, the parked text, and icon actions. Reorder controls appear only when two or more items are waiting. Cut-in stays a labeled clay pill because it is the distinctive action.
 - Icon-only queue controls keep both `title` and `aria-label`.
+- **Guide now / 立刻引导** in a native API conversation submits the selected
+  follow-up to the current loop at its next safe boundary. The current model
+  request or tool call may finish first; remaining tool calls from its old plan
+  are skipped with paired results, and the next model request receives the
+  guidance. Existing messages and completed tool results remain in history.
+  Guidance received during automatic context compaction is included before the
+  prepared model request is dispatched.
+- Queue actions wait for the selected item's backend enqueue acknowledgement,
+  even when its optimistic card is already visible. An enqueue failure prevents
+  the waiting action from being sent; action failures are shown in the status
+  area instead of silently succeeding.
+- A final text response cannot finish a loop while guidance is already pending.
+  If the turn has ended, errors, or reaches an explicit stop/iteration limit,
+  unconsumed cut-ins take priority over ordinary queued turns. Each message is
+  either injected once or handed off once. In-loop guidance uses the queued
+  text; fallback turns retain the original attachments and references as well.
+  ACP conversations continue to use ordinary queued follow-ups.
 
 ## Composer attachments and references
 

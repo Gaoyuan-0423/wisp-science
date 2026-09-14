@@ -153,6 +153,25 @@ pub fn bound_tool_results_in_history(root: &Path, messages: &mut [Message]) {
 /// its message or it still has to run a normal turn (see `send_message_inner`).
 pub type GuidanceQueue = std::sync::Mutex<Vec<(u64, String)>>;
 
+fn inject_pending_guidance(
+    ctx: &mut ContextManager,
+    output: &dyn Output,
+    guidance: Option<&GuidanceQueue>,
+) -> bool {
+    let Some(queue) = guidance else {
+        return false;
+    };
+    let drained = std::mem::take(&mut *queue.lock().unwrap());
+    let injected = !drained.is_empty();
+    for (_, text) in drained {
+        ctx.append_user(&text);
+        if let Some(message) = ctx.messages.last() {
+            output.on_message(message);
+        }
+    }
+    injected
+}
+
 /// Why an otherwise successful agent loop stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLoopOutcome {
@@ -340,20 +359,10 @@ async fn agent_loop_inner(
         // Guide (#410): fold mid-turn user guidance into the context at the
         // iteration boundary, so this request already sees it. on_message
         // persists the row and emits the User event the UI promotes on.
-        if let Some(queue) = guidance {
-            let drained: Vec<(u64, String)> = std::mem::take(&mut *queue.lock().unwrap());
-            if !drained.is_empty() {
-                // User injection is new information. Re-issuing monitor_run
-                // after a wait_interrupted return is expected progress, not a
-                // stuck loop (#907).
-                recent_observations.clear();
-            }
-            for (_, text) in drained {
-                ctx.append_user(&text);
-                if let Some(m) = ctx.messages.last() {
-                    output.on_message(m);
-                }
-            }
+        if inject_pending_guidance(ctx, output, guidance) {
+            // User injection is new information, including a progress check
+            // that interrupted monitor_run rather than a stuck loop (#907).
+            recent_observations.clear();
         }
         iteration += 1;
         let (schemas, schema_origins) = tools.schemas_with_origins();
@@ -394,6 +403,13 @@ async fn agent_loop_inner(
         };
         let mut overflow_recovery_used = false;
         let comp = loop {
+            // Automatic compaction/overflow recovery can await a provider
+            // after the loop-top drain. Include guidance received during that
+            // preparation in this request, not a later model iteration.
+            if inject_pending_guidance(ctx, output, guidance) {
+                recent_observations.clear();
+                ctx.note_request_boundary(fixed_request_tokens);
+            }
             let messages = ctx.prepare_for_api_with_tools(output, &schemas);
             match stream_with_retry(provider, &messages, &schemas, &mut sink, cancel).await {
                 Ok(comp) => break comp,
@@ -506,7 +522,7 @@ async fn agent_loop_inner(
             context_usage,
         );
 
-        if comp.tool_calls.is_empty() {
+        if comp.tool_calls.is_empty() && !env.guidance_pending() {
             return Ok(AgentLoopOutcome::Completed);
         }
 
@@ -520,6 +536,16 @@ async fn agent_loop_inner(
             if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
                 append_interrupted_tool_results(ctx, tools, output, &comp.tool_calls[index..]);
                 anyhow::bail!(STOPPED_BY_USER);
+            }
+            if env.guidance_pending() {
+                // The completed call is preserved, but the remaining calls
+                // were planned before the user's correction. Pair each one
+                // with a skipped result before requesting a revised plan.
+                append_synthetic_tool_results(
+                    ctx, tools, output, &comp.tool_calls[index..],
+                    "Skipped because new user guidance requires replanning before further tool calls.",
+                );
+                break;
             }
             let name = tc.function.name.clone();
             let args = tc.args_value();
@@ -3054,6 +3080,218 @@ mod tests {
         assert_eq!(extract_calls.load(Ordering::SeqCst), page_count);
         assert!(crate::unpaired_tool_call_ids(&ctx.messages).is_empty());
         std::fs::remove_dir_all(root).ok();
+    }
+
+    struct GuidanceDuringResponseProvider {
+        queue: Arc<GuidanceQueue>,
+        requests: Mutex<Vec<Vec<Message>>>,
+        during_compaction: bool,
+    }
+
+    #[async_trait]
+    impl Provider for GuidanceDuringResponseProvider {
+        fn name(&self) -> &str {
+            "guidance-during-response"
+        }
+        fn model(&self) -> &str {
+            "scripted"
+        }
+        async fn complete(&self, _: &[Message], _: &[ToolSchema]) -> wisp_llm::Result<Completion> {
+            assert!(self.during_compaction);
+            self.queue
+                .lock()
+                .unwrap()
+                .push((1, "Use the revised question instead".into()));
+            Ok(Completion {
+                content: "Objective\nContinue the current conversation after compaction.".into(),
+                ..Completion::default()
+            })
+        }
+        async fn stream(
+            &self,
+            messages: &[Message],
+            _: &[ToolSchema],
+            _: &mut dyn wisp_llm::StreamSink,
+        ) -> wisp_llm::Result<Completion> {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(messages.to_vec());
+            if requests.len() == 1 && !self.during_compaction {
+                // The user clicks Guide now while the provider is replying.
+                self.queue
+                    .lock()
+                    .unwrap()
+                    .push((1, "Use the revised question instead".into()));
+            }
+            Ok(Completion {
+                content: if requests.len() == 1 {
+                    "Old answer"
+                } else {
+                    "Revised answer"
+                }
+                .into(),
+                finish_reason: Some("stop".into()),
+                ..Completion::default()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn guidance_arriving_during_a_final_response_runs_before_turn_completion() {
+        let queue = Arc::new(GuidanceQueue::default());
+        let provider = GuidanceDuringResponseProvider {
+            queue: queue.clone(),
+            requests: Mutex::new(vec![]),
+            during_compaction: false,
+        };
+        let mut ctx = ContextManager::new(100_000);
+        let outcome = agent_loop_with_images(
+            &mut ctx,
+            &provider,
+            None,
+            &Registry::builtins().filtered(&[]),
+            Path::new("."),
+            &NullOutput,
+            "Original question",
+            &[],
+            false,
+            8,
+            None,
+            Some(&queue),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, AgentLoopOutcome::Completed);
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            2,
+            "pending guidance must prevent an early Completed return"
+        );
+        let last = requests[1].last().unwrap();
+        assert_eq!(last.role, Role::User);
+        assert_eq!(last.content.as_text(), "Use the revised question instead");
+        assert!(queue.lock().unwrap().is_empty());
+        assert_eq!(
+            ctx.messages
+                .iter()
+                .filter(|m| m.role == Role::User
+                    && m.content.as_text() == "Use the revised question instead")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn guidance_arriving_during_compaction_precedes_the_first_model_request() {
+        let queue = Arc::new(GuidanceQueue::default());
+        let provider = GuidanceDuringResponseProvider {
+            queue: queue.clone(),
+            requests: Mutex::new(vec![]),
+            during_compaction: true,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "wisp-guidance-compaction-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut ctx = ContextManager::new(1_000);
+        for turn in 0..12 {
+            ctx.append_user(format!("question {turn} {}", "u".repeat(180)));
+            ctx.append_assistant(format!("answer {turn} {}", "a".repeat(180)), vec![], None);
+        }
+        let outcome = agent_loop_with_images(
+            &mut ctx,
+            &provider,
+            None,
+            &Registry::builtins().filtered(&[]),
+            &root,
+            &NullOutput,
+            "continue",
+            &[],
+            false,
+            8,
+            None,
+            Some(&queue),
+        )
+        .await
+        .unwrap();
+        let requests = provider.requests.lock().unwrap();
+        let last = requests[0].last().unwrap();
+        assert_eq!(last.role, Role::User);
+        assert_eq!(last.content.as_text(), "Use the revised question instead");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(outcome, AgentLoopOutcome::Completed);
+        assert!(queue.lock().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn guidance_after_a_tool_skips_stale_batch_calls_and_precedes_the_next_request() {
+        let queue = Arc::new(GuidanceQueue::default());
+        let stale_runs = Arc::new(AtomicUsize::new(0));
+        let mut tools = Registry::builtins().filtered(&[]);
+        tools.add(Box::new(InterruptibleMonitorTool {
+            calls: Arc::new(AtomicUsize::new(0)),
+            queue: queue.clone(),
+            succeed_after: 2,
+        }));
+        tools.add(Box::new(CountingTool {
+            name: "stale_action",
+            runs: stale_runs.clone(),
+        }));
+        let provider = SequenceProvider::new([
+            Completion {
+                tool_calls: vec![
+                    call("wait", "monitor_run", serde_json::json!({})),
+                    call("stale", "stale_action", serde_json::json!({})),
+                ],
+                ..Completion::default()
+            },
+            Completion {
+                content: "Replanned after the progress check".into(),
+                finish_reason: Some("stop".into()),
+                ..Completion::default()
+            },
+        ]);
+        let mut ctx = ContextManager::new(100_000);
+        let outcome = agent_loop_with_images(
+            &mut ctx,
+            &provider,
+            None,
+            &tools,
+            Path::new("."),
+            &NullOutput,
+            "Wait then take an action",
+            &[],
+            false,
+            8,
+            None,
+            Some(&queue),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, AgentLoopOutcome::Completed);
+        assert_eq!(
+            stale_runs.load(Ordering::SeqCst),
+            0,
+            "do not execute a stale plan after receiving guidance"
+        );
+        assert_eq!(provider.stream_calls.load(Ordering::SeqCst), 2);
+        let guidance_index = ctx
+            .messages
+            .iter()
+            .position(|m| m.role == Role::User && m.content.as_text() == "progress check 1")
+            .unwrap();
+        assert_eq!(
+            ctx.messages[guidance_index + 1].content.as_text(),
+            "Replanned after the progress check"
+        );
+        assert!(ctx.messages[..guidance_index]
+            .iter()
+            .any(|m| m.role == Role::Tool
+                && m.tool_call_id.as_deref() == Some("stale")
+                && m.content.as_text().contains("new user guidance")));
+        assert!(crate::unpaired_tool_call_ids(&ctx.messages).is_empty());
     }
 
     struct InterruptibleMonitorTool {

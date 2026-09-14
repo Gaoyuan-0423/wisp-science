@@ -1340,9 +1340,9 @@ pub(crate) fn client_turn_error(turn_started: bool, message: &str) -> String {
     }
 }
 
-/// Queue (#433): drain a session's parked follow-ups FIFO. Each acquires the
-/// workflow lock (fair → runs in enqueue order) and runs as a fresh turn with
-/// the item's *current* text, so edits made while it waited take effect. The
+/// Queue (#433): reconcile cut-ins, then drain ordinary follow-ups FIFO. Each
+/// acquires the workflow lock and runs as a fresh turn with the item's
+/// *current* text, so edits made while it waited take effect. The
 /// `draining` flag is cleared under the `queued` lock so a concurrent enqueue
 /// can never leave an item stranded with no driver.
 pub(crate) fn spawn_queue_driver(
@@ -1354,15 +1354,8 @@ pub(crate) fn spawn_queue_driver(
     tauri::async_runtime::spawn(async move {
         loop {
             let guard = rt.workflow.clone().lock_owned().await;
-            let item = {
-                let mut q = rt.queued.lock().unwrap();
-                match q.is_empty() {
-                    true => {
-                        rt.draining.store(false, Ordering::SeqCst);
-                        break;
-                    }
-                    false => q.remove(0),
-                }
+            let Some(item) = take_next_queued_turn(&rt) else {
+                break;
             };
             let state = app.state::<AppState>();
             if let Err(error) = send_message_inner(
@@ -1442,16 +1435,14 @@ pub(crate) async fn enqueue_turn(
 /// Queue (#433): edit / cancel / cut-in a parked follow-up by id.
 /// - `edit`   → replace the item's text (runs with the latest when it drains).
 /// - `cancel` → drop it from the queue.
-/// - `cutin`  → pull it out and fold it into the *running* turn via the guide
-///   path (#410); if nothing is running it stays queued and runs normally.
-pub(crate) fn begin_queued_cutin(rt: &SessionRuntime, id: u64) -> Option<(u64, QueuedItem)> {
-    let item = {
-        let mut queued = rt.queued.lock().unwrap();
-        queued
-            .iter()
-            .position(|item| item.id == id)
-            .map(|index| queued.remove(index))?
-    };
+/// - `cutin`  → offer it to the current loop, retaining its payload for a
+///   priority handoff if that loop has already ended (or has not started yet).
+pub(crate) fn begin_queued_cutin(rt: &SessionRuntime, id: u64) -> Option<u64> {
+    // All transfers use the same lock order: queued → cut-ins → guidance.
+    let mut queued = rt.queued.lock().unwrap();
+    let index = queued.iter().position(|item| item.id == id)?;
+    let item = queued.remove(index);
+    let mut cutins = rt.queued_cutins.lock().unwrap();
     let guidance_id = rt
         .guidance_seq
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1459,7 +1450,8 @@ pub(crate) fn begin_queued_cutin(rt: &SessionRuntime, id: u64) -> Option<(u64, Q
         .lock()
         .unwrap()
         .push((guidance_id, item.message.clone()));
-    Some((guidance_id, item))
+    cutins.push((guidance_id, item));
+    Some(guidance_id)
 }
 
 /// Reorder within the queue (#433): swap the item with its neighbour (`up`
@@ -1478,20 +1470,27 @@ pub(crate) fn swap_queued_toward(q: &mut Vec<QueuedItem>, id: u64, up: bool) {
     }
 }
 
-pub(crate) fn reclaim_unconsumed_cutin(
-    rt: &SessionRuntime,
-    guidance_id: u64,
-    item: QueuedItem,
-) -> bool {
+/// Called only by the workflow-lock owner, before it starts any queued turn.
+/// Reconcile offered guidance here, not in a later mutex waiter: the FIFO
+/// driver may already be ahead of the cut-in command in the lock's wait list.
+pub(crate) fn take_next_queued_turn(rt: &SessionRuntime) -> Option<QueuedItem> {
+    let mut queued = rt.queued.lock().unwrap();
+    let mut cutins = rt.queued_cutins.lock().unwrap();
     let mut pending = rt.pending_guidance.lock().unwrap();
-    let before = pending.len();
-    pending.retain(|(pending_id, _)| *pending_id != guidance_id);
-    let unconsumed = pending.len() != before;
-    drop(pending);
-    if unconsumed {
-        rt.queued.lock().unwrap().insert(0, item);
+    let mut unconsumed = Vec::new();
+    for (guidance_id, item) in cutins.drain(..) {
+        if let Some(index) = pending.iter().position(|(id, _)| *id == guidance_id) {
+            pending.remove(index);
+            unconsumed.push(item);
+        }
     }
-    unconsumed
+    queued.splice(0..0, unconsumed);
+    if queued.is_empty() {
+        rt.draining.store(false, Ordering::SeqCst);
+        None
+    } else {
+        Some(queued.remove(0))
+    }
 }
 
 #[tauri::command]
@@ -1524,27 +1523,15 @@ pub(crate) async fn queued_turn_action(
             rt.queued.lock().unwrap().retain(|it| it.id != id);
         }
         "cutin" => {
-            let running = state.running_turns.lock().await.contains(&session_id);
-            if running {
-                // ponytail: cut-in folds only text into the turn, matching the
-                // guide path; attachments on a cut-in item are dropped.
-                if let Some((guidance_id, item)) = begin_queued_cutin(&rt, id) {
-                    // Wait until the running turn reaches an iteration boundary
-                    // or ends. If it ended without consuming the guidance, put
-                    // the item back at the front and let the normal driver run it.
-                    let guard = rt.workflow.clone().lock_owned().await;
-                    let unconsumed = reclaim_unconsumed_cutin(&rt, guidance_id, item);
-                    drop(guard);
-                    if unconsumed {
-                        if !rt.draining.swap(true, Ordering::SeqCst) {
-                            spawn_queue_driver(
-                                app,
-                                rt.clone(),
-                                session_id,
-                                window.label().to_string(),
-                            );
-                        }
-                    }
+            if begin_queued_cutin(&rt, id).is_some() {
+                // A running_turns snapshot can be false during prompt setup or
+                // persistence. The loop/driver handoff works in both windows.
+                let spawn = {
+                    let _queued = rt.queued.lock().unwrap();
+                    !rt.draining.swap(true, Ordering::SeqCst)
+                };
+                if spawn {
+                    spawn_queue_driver(app, rt, session_id, window.label().to_string());
                 }
             }
         }
