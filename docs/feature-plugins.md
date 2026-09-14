@@ -86,8 +86,12 @@ content `annotations.audience` that omit `assistant` stay out of the native
 agent's projection. An image does not make a failed result successful.
 
 The native image projection accepts base64 PNG/JPEG/GIF/WebP, at most eight
-images, 5 MiB decoded per image, and 20 MiB decoded per result. This validates
-MIME/base64/size, not pixel-level file integrity. Unsupported or omitted content
+images, 5 MiB of base64-decoded source bytes per image, and 20 MiB per result.
+It validates base64, detects the actual image format and decodes image content
+with resource limits. New images whose width or height exceeds 2048 pixels
+receive a proportional JPEG model-input copy with a resize/detail-loss notice,
+even if the compressed source is below 5 MiB. The raw MCP result is unchanged.
+Unsupported, malformed or omitted content
 produces an explicit notice; it is never silently represented as inspected.
 Resource links are reported without automatically fetching them; embedded
 resource text is retained and binary blobs are not dumped into model text.

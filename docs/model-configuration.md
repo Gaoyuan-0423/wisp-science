@@ -155,11 +155,19 @@ optionally **Use for image analysis**. Image attachments are sent directly to a
 visual input model. When the input model is non-visual, Wisp first calls the
 assigned vision model and passes its text observations to the input model.
 `view_image` and image reads use the assigned vision model in the same way.
-Raster image input supports PNG, JPEG, GIF, and WebP. Files up to 5 MiB are
-sent unchanged. For larger files, Wisp pauses before the model request and asks
+Raster image input supports PNG, JPEG, GIF, and WebP. New attachments and image
+reads are decoded and their actual format is checked before model input. Files
+up to 5 MiB with both sides at most 2048 pixels keep their original bytes.
+Images with a longer side automatically receive a proportional JPEG input copy
+bounded to 2048 pixels, even when the compressed file is small. For files above
+5 MiB, Wisp pauses before the model request and asks
 whether to create a temporary JPEG input copy with a longest edge of 2048
 pixels. The project file is never modified, and the confirmation warns that
-fine details may be lost. Source images above 50 MiB remain rejected.
+fine details may be lost. Automatic resizing also includes a size-change and
+detail-loss notice in the image's model-visible label. Inspect smaller crops
+when fine details matter. Invalid image data is rejected locally. Source images
+above 50 MiB remain rejected. This applies to new image input, not images already
+stored in conversation history.
 
 When switching a populated conversation to a non-visual model, the confirmation
 explains that previously sent images will be omitted from future requests to

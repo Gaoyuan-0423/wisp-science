@@ -102,46 +102,96 @@ fn model_image(
     index: usize,
     image_count: usize,
     total_bytes: &mut usize,
-) -> Result<ImageData, &'static str> {
+) -> Result<ImageData, String> {
     if image_count >= MAX_IMAGES {
-        return Err("image-count limit exceeded");
+        return Err("image-count limit exceeded".into());
     }
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("");
     if !matches!(
         mime,
         "image/png" | "image/jpeg" | "image/gif" | "image/webp"
     ) {
-        return Err("unsupported MIME type");
+        return Err("unsupported MIME type".into());
     }
     let data = block
         .get("data")
         .and_then(Value::as_str)
         .ok_or("missing base64 data")?;
     if data.len() > wisp_tools::image::MAX_BYTES.div_ceil(3) * 4 {
-        return Err("image-size limit exceeded");
+        return Err("image-size limit exceeded".into());
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|_| "invalid base64 data")?;
     if bytes.is_empty() {
-        return Err("empty image");
+        return Err("empty image".into());
     }
     if bytes.len() > wisp_tools::image::MAX_BYTES
         || total_bytes.saturating_add(bytes.len()) > MAX_TOTAL_IMAGE_BYTES
     {
-        return Err("image-size limit exceeded");
+        return Err("image-size limit exceeded".into());
+    }
+    let (bytes, mime, resize_note) = wisp_tools::image::prepare_model_image(&bytes)?;
+    if total_bytes.saturating_add(bytes.len()) > MAX_TOTAL_IMAGE_BYTES {
+        return Err("image-size limit exceeded".into());
     }
     *total_bytes += bytes.len();
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let mut label = format!("MCP image at content[{index}] ({mime})");
+    if let Some(note) = resize_note {
+        label.push_str(&format!(" ({note}; fine details may be lost)"));
+    }
     Ok(ImageData {
         mime: mime.into(),
         data_url: format!("data:{mime};base64,{data}"),
-        label: format!("MCP image at content[{index}] ({mime})"),
+        label,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png_data(width: u32, height: u32) -> String {
+        let image = image::ImageBuffer::from_pixel(width, height, image::Rgb([1u8, 2, 3]));
+        let mut output = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut output, image::ImageFormat::Png)
+            .unwrap();
+        base64::engine::general_purpose::STANDARD.encode(output.into_inner())
+    }
+
+    #[test]
+    fn small_mcp_file_with_oversized_width_is_normalized_and_raw_result_preserved() {
+        let data = png_data(9052, 20);
+        let input = result(vec![
+            json!({"type": "image", "mimeType": "image/png", "data": data}),
+        ]);
+        let output = model_result(&input);
+        assert_eq!(output.images.len(), 1, "{}", output.content);
+        let image = &output.images[0];
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(image.data_url.split_once(',').unwrap().1)
+            .unwrap();
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(decoded.width(), 2048);
+        assert!(decoded.height() <= 2048);
+        assert_eq!(image.mime, "image/jpeg");
+        assert!(output.content.contains("9052x20"));
+        assert!(output.content.contains("fine details may be lost"));
+        assert_eq!(input.content[0]["data"], data);
+    }
+
+    #[test]
+    fn mcp_image_mime_comes_from_decoded_content() {
+        let output = model_result(&result(vec![json!({
+            "type": "image", "mimeType": "image/jpeg", "data": png_data(1, 1)
+        })]));
+        assert_eq!(output.images[0].mime, "image/png");
+        assert!(output.images[0]
+            .data_url
+            .starts_with("data:image/png;base64,"));
+    }
 
     fn result(content: Vec<Value>) -> McpCallResult {
         McpCallResult {
@@ -156,8 +206,8 @@ mod tests {
     fn mixed_result_keeps_text_images_structure_and_error_but_not_private_meta() {
         let mut input = result(vec![
             json!({"type": "text", "text": "TERMINAL: true\nNEXT_ACTION: ask_user"}),
-            json!({"type": "image", "mimeType": "image/png", "data": "aGVsbG8="}),
-            json!({"type": "image", "mimeType": "image/jpeg", "data": "d29ybGQ="}),
+            json!({"type": "image", "mimeType": "image/png", "data": png_data(1, 1)}),
+            json!({"type": "image", "mimeType": "image/png", "data": png_data(2, 1)}),
         ]);
         input.is_error = true;
         let output = model_result(&input);
@@ -166,7 +216,7 @@ mod tests {
         assert!(output.content.contains("NEXT_ACTION: ask_user"));
         assert!(output.content.contains("exact-digest"));
         assert!(!output.content.contains("must-not-reach-model"));
-        assert!(!output.content.contains("aGVsbG8="));
+        assert!(!output.content.contains(&png_data(1, 1)));
     }
 
     #[test]
@@ -208,6 +258,7 @@ mod tests {
     #[test]
     fn invalid_unsupported_and_oversized_images_have_explicit_omission_notices() {
         for block in [
+            json!({"type": "image", "mimeType": "image/png", "data": "aGVsbG8="}),
             json!({"type": "image", "mimeType": "image/png", "data": "bad!"}),
             json!({"type": "image", "mimeType": "image/svg+xml", "data": "YQ=="}),
             json!({"type": "image", "mimeType": "image/png", "data": ""}),
@@ -220,14 +271,14 @@ mod tests {
                 .contains("no visual inspection was performed"));
         }
         let output = model_result(&result(vec![
-            json!({"type": "image", "mimeType": "image/png", "data": "YQ=="});
+            json!({"type": "image", "mimeType": "image/png", "data": png_data(1, 1)});
             9
         ]));
         assert_eq!(output.images.len(), MAX_IMAGES);
         assert!(output.content.contains("image-count limit exceeded"));
         let mut total = MAX_TOTAL_IMAGE_BYTES;
         assert!(model_image(
-            &json!({"type": "image", "mimeType": "image/png", "data": "YQ=="}),
+            &json!({"type": "image", "mimeType": "image/png", "data": png_data(1, 1)}),
             0,
             0,
             &mut total,

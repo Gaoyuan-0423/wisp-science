@@ -39,6 +39,7 @@ path = "tests/mcp_transport.rs"
 harness = false
 
 [dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { workspace = true, features = ["test-util"] }
 axum = { workspace = true }
 futures-util = { workspace = true }
