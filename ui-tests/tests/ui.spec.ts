@@ -12261,7 +12261,7 @@ test("opening a long conversation lands at the latest message and stays stable o
 });
 
 for (const delayedFont of [false, true]) {
-  test(`switching conversations restores each reading position (#849)${delayedFont ? " with delayed fonts" : ""}`, async ({ page }) => {
+  test(`reopening a conversation lands at latest after reading older messages${delayedFont ? " with delayed fonts" : ""}`, async ({ page }) => {
     let releaseFont = () => {};
     if (delayedFont) {
       const fontGate = new Promise<void>((resolve) => { releaseFont = resolve; });
@@ -12290,10 +12290,17 @@ for (const delayedFont of [false, true]) {
     await expect(page.locator(".empty")).toBeVisible();
     await page.locator(".side-item.ses", { hasText: "Long transcript" }).click();
     await expect(page.getByText(/Window page 0 row 19/)).toBeVisible();
-    await expect.poll(() => scroller.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(readingTop - 40);
-    await expect.poll(() => scroller.evaluate((element) => element.scrollTop))
-      .toBeLessThan(readingTop + 40);
+    await expect.poll(() => scroller.evaluate((element) =>
+      element.scrollHeight - element.clientHeight - element.scrollTop,
+    )).toBeLessThan(8);
+    await expect(page.locator("#chat-jump-pill")).not.toHaveClass(/visible/);
+    expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(readingTop + 40);
+
+    // Opening starts at latest, but reading older messages in this session
+    // must still disable follow and keep the jump-to-latest control useful.
+    await scroller.hover();
+    await page.mouse.wheel(0, -320);
+    await expect(page.locator("#chat-jump-pill")).toHaveClass(/visible/);
   });
 }
 

@@ -7,9 +7,10 @@ project/session headers and right-panel tabs remain visible. Shell clipping uses
 from focus and `scrollIntoView`; the body is fixed to the viewport so document
 scrolling cannot move all three headers together.
 
-Conversation jumps scroll the conversation container explicitly. Conversation
-reading positions remain per-session; switching conversations resets the mounted
-right-panel lists to the top so a previous session's deep offset is not reused.
+Conversation jumps scroll the conversation container explicitly. Opening or switching
+conversations starts at the latest message and resets the mounted right-panel
+lists to the top. Scrolling up within the open conversation still preserves the
+current reading position as new content arrives.
 
 Manual check on Windows WebView2 and macOS: open two long conversations with
 many artifacts, scroll each column to the bottom, switch sessions repeatedly,

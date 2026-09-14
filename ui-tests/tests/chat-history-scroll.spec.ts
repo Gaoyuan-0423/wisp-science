@@ -28,10 +28,20 @@ test("a new conversation with a shorter transcript opens at the bottom (#1197)",
     (window as any).scrollHelper.switch_chat_scroll("chat-scroller", "second");
   });
   await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(700);
-  // Returning to a conversation still restores the user's reading bookmark.
+  // Returning also starts at the latest message, even after reading older turns.
   await page.evaluate(() => {
     document.getElementById("chat-thread")!.style.height = "1600px";
     (window as any).scrollHelper.switch_chat_scroll("chat-scroller", "first");
+  });
+  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(1400);
+
+  // A real scroll gesture after opening supersedes the deferred opening snap.
+  await page.evaluate(async () => {
+    (window as any).scrollHelper.switch_chat_scroll("chat-scroller", "first");
+    const el = document.getElementById("chat-scroller")!;
+    el.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+    el.scrollTop = 100;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
   await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(100);
 });
