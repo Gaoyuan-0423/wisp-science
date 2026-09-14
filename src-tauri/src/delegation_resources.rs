@@ -267,6 +267,7 @@ impl ScientificResourceCatalog {
         self.grant(&spec.capabilities, &spec.skill_bindings, specialist(spec))
     }
 
+    #[cfg(test)]
     pub(crate) fn resolve_skill_bindings(
         &self,
         skill_ids: &[String],
