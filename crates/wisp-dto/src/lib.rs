@@ -4194,12 +4194,30 @@ pub struct SkillPortfolioTaskSummary {
     pub depends_on: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillPortfolioRequest {
+    pub request: String,
+    pub model_id: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub source_skill_ids: Vec<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_template_id: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_workflow_id: Option<String>,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PortfolioPlanSummary {
     pub planner_model_id: String,
     pub planner_model_label: String,
     pub rationale: String,
     pub tasks: Vec<SkillPortfolioTaskSummary>,
+    #[serde(default)]
+    pub source_sha256: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]

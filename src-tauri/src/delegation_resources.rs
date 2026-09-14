@@ -196,11 +196,9 @@ impl ScientificResourceCatalog {
     }
 
     pub(crate) fn has_literature(&self) -> bool {
-        !self.literature_skills.is_empty()
-            || self
-                .connectors
-                .iter()
-                .any(|connector| connector.class == ConnectorClass::Literature)
+        self.connectors
+            .iter()
+            .any(|connector| connector.class == ConnectorClass::Literature)
     }
 
     pub(crate) fn has_external(&self) -> bool {
@@ -214,7 +212,13 @@ impl ScientificResourceCatalog {
     }
 
     pub(crate) fn revision(&self) -> String {
-        let bytes = serde_json::to_vec(self).unwrap_or_default();
+        // Source Skills are conversion inputs. Updating their documentation
+        // must not invalidate an independent Workflow's execution authority.
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "contexts":self.context_fingerprints,"connectors":self.connectors,
+            "python":self.python,"r":self.r,
+        }))
+        .unwrap_or_default();
         let hash = bytes.into_iter().fold(0xcbf29ce484222325u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
         });
@@ -300,15 +304,13 @@ impl ScientificResourceCatalog {
         if capabilities
             .iter()
             .any(|capability| capability == "literature_search")
-            && grant.skills.is_empty()
             && !grant
                 .connectors
                 .iter()
                 .any(|id| self.connector_class(id) == Some(ConnectorClass::Literature))
         {
             return Err(
-                "literature_search has no enabled Skill or connector allowed by this Specialist"
-                    .into(),
+                "literature_search has no enabled connector allowed by this Specialist".into(),
             );
         }
         if capabilities
@@ -847,5 +849,31 @@ mod tests {
             execution_context_fingerprint(&first),
             execution_context_fingerprint(&second)
         );
+    }
+    #[test]
+    fn skill_documents_do_not_satisfy_execution_resources_or_change_authority_revision() {
+        let without = ScientificResourceCatalog::fake(&[], &[], &["pubmed"], &[], &[]);
+        let with = ScientificResourceCatalog::fake(
+            &["literature-review"],
+            &["literature-review"],
+            &["pubmed"],
+            &[],
+            &[],
+        );
+        assert_eq!(without.revision(), with.revision());
+        let skill_only = ScientificResourceCatalog::fake(
+            &["literature-review"],
+            &["literature-review"],
+            &[],
+            &[],
+            &[],
+        );
+        assert!(!skill_only.has_literature());
+        let bindings = skill_only
+            .resolve_skill_bindings(&["literature-review".into()], None)
+            .unwrap();
+        assert!(skill_only
+            .validate_task(&["literature_search".into()], &bindings, None)
+            .is_err());
     }
 }

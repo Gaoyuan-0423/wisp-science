@@ -15,6 +15,7 @@ pub mod provenance;
 pub mod session_locks;
 pub mod subagent;
 pub mod system_prompt;
+pub mod workflow_conversion;
 
 pub use agent::{
     agent_loop, agent_loop_continue, bound_tool_results_in_history, AgentLoopOutcome, GuidanceQueue,

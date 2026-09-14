@@ -4335,12 +4335,8 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
   await timeout.fill("0");
   await expect(timeout).toHaveValue("0");
   await expect(inspector.getByTestId("workflow-graph-remove-edge")).toHaveCount(2);
-  const skillPicker = inspector.getByTestId("dynamic-task-skills");
-  await expect(skillPicker.getByTestId("dynamic-task-skill-option")).toHaveCount(0);
-  await skillPicker.getByTestId("dynamic-task-skill-search").fill("literature");
-  await expect(skillPicker.getByTestId("dynamic-task-skill-option")).toHaveCount(1);
-  await expect(skillPicker.getByTestId("dynamic-task-skill-option"))
-    .toContainText("literature-review");
+  await expect(inspector.getByTestId("dynamic-task-skills")).toHaveCount(0);
+
 
   const resizer = studio.getByTestId("workflow-graph-resizer");
   await expect(resizer).toHaveAttribute("role", "separator");
@@ -4457,7 +4453,7 @@ test("Workflow library includes the Wisp-native seven-node method-search DAG", a
     .toHaveValue("prepare_contract");
   await expect(inspector.getByTestId("run-activity-max-candidates")).toHaveValue("20");
   await expect(inspector.getByTestId("dynamic-task-capabilities")).toBeHidden();
-  await expect(inspector.getByTestId("dynamic-task-skills")).toBeHidden();
+  await expect(inspector.getByTestId("dynamic-task-skills")).toHaveCount(0);
   await expect(inspector.getByTestId("dynamic-task-specialist")).toBeHidden();
   await expect(studio.getByTestId("workflow-save")).toHaveText("Save as copy");
 });
@@ -4474,7 +4470,7 @@ test("Skill Portfolio Planner uses the selected model and opens an unbudgeted ed
 
   await studio.getByTestId("portfolio-planner-open").click();
   await expect(page.getByTestId("portfolio-planner-overlay")).toContainText(
-    "Ask a selected model to build an explainable workflow",
+    "Convert source Skill instructions into independent nodes",
   );
   await expect(page.getByTestId("portfolio-tier")).toHaveCount(0);
   await expect(page.getByTestId("portfolio-total")).toHaveCount(0);
@@ -4490,7 +4486,7 @@ test("Skill Portfolio Planner uses the selected model and opens an unbudgeted ed
   });
   const card = page.getByTestId("portfolio-plan-card");
   await expect(card).toContainText("3 tasks · 2 Skills · planned by opus-4.8");
-  await expect(card).toContainText("Task budgets are unset");
+  await expect(card).toContainText("review instructions, tool permissions and output contracts");
   await card.getByTestId("portfolio-edit-studio").click();
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(3);
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(2);
@@ -4510,14 +4506,7 @@ test("Workflow Studio reuses the roundtable generator and saves a Quick Action b
   await studio.getByTestId("roundtable-apply").click();
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(5);
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(6);
-  const skillPicker = studio.getByTestId("workflow-graph-inspector")
-    .getByTestId("dynamic-task-skills");
-  await skillPicker.getByTestId("dynamic-task-skill-search").fill("analysis");
-  await skillPicker.getByTestId("dynamic-task-skill-option")
-    .filter({ hasText: "analysis-workflow" })
-    .click();
-  await expect(skillPicker.getByTestId("dynamic-task-selected-skills"))
-    .toContainText("analysis-workflow · bundled");
+  await expect(studio.getByTestId("dynamic-task-skills")).toHaveCount(0);
   await studio.getByTestId("workflow-save").click();
 
   await expect.poll(() => lastInvokeArgs(page, "save_workflow_template")).toMatchObject({
@@ -4527,7 +4516,7 @@ test("Workflow Studio reuses the roundtable generator and saves a Quick Action b
       proposal: {
         goal: "Choose a website architecture",
         tasks: [
-          { id: "seat_1_opening", depends_on: [], skill_ids: ["analysis-workflow"] },
+          { id: "seat_1_opening", depends_on: [], skill_ids: [] },
           { id: "seat_2_opening", depends_on: [] },
           {
             id: "seat_1_review",
@@ -16718,4 +16707,78 @@ test("Generated folders stay open when another reply updates an existing artifac
   await expect(newReply.locator(".generated-artifact-tree")).not.toBeVisible();
   await page.locator("#chat-scroller").evaluate(el => el.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 })));
   await reply.locator(".message-artifacts").screenshot({ path: test.info().outputPath("generated-folders-after-update.png") });
+});
+
+
+test("independent Workflow conversion selects source methods without creating Skill-bound nodes", async ({ page }) => {
+  await enterApp(page);
+  await openSettingsSection(page, "Workflows");
+  const studio=page.getByTestId("workflow-studio");
+  await studio.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-source-skill").selectOption("analysis-workflow");
+  await page.getByTestId("portfolio-request").fill("Convert this method into independent roles and output contracts");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect.poll(() => lastInvokeArgs(page,"plan_skill_portfolio")).toMatchObject({request:{source_skill_ids:["analysis-workflow"]}});
+  await page.getByTestId("portfolio-edit-studio").click();
+  await expect(studio.getByTestId("dynamic-task-skills")).toHaveCount(0);
+  await expect(studio.getByTestId("workflow-legacy-warning")).toHaveCount(0);
+  await studio.getByTestId("workflow-save").click();
+  await expect.poll(() => lastInvokeArgs(page,"save_workflow_template")).toMatchObject({conversionSourceSha256:"fixture-conversion-source"});
+  const args=await lastInvokeArgs(page,"save_workflow_template");
+  expect(args.template.proposal.tasks.every((task:any) => task.skill_ids.length===0)).toBe(true);
+  expect(args.template.proposal.approval_policy).toBe("review_all");
+});
+
+test("legacy Skill-bound templates require explicit conversion and keep the parent Escape layer open", async ({ page }) => {
+  await enterApp(page,"/?mockLegacyWorkflow=1");
+  await openSettingsSection(page,"Workflows");
+  const studio=page.getByTestId("workflow-studio");
+  await studio.locator('[data-workflow-id="legacy-skill-workflow"]').click();
+  await expect(studio.getByTestId("workflow-legacy-warning")).toBeVisible();
+  await expect(studio.getByTestId("workflow-save")).toBeDisabled();
+  await expect(studio.getByTestId("dynamic-task-skills")).toHaveCount(0);
+  await studio.getByTestId("workflow-reconvert").click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("portfolio-planner-overlay")).toBeHidden();
+  await expect(studio).toBeVisible();
+  await expect(studio.getByTestId("workflow-legacy-warning")).toBeVisible();
+  await studio.getByTestId("workflow-reconvert").click();
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect.poll(() => lastInvokeArgs(page,"plan_skill_portfolio")).toMatchObject({request:{legacy_template_id:"legacy-skill-workflow"}});
+  await page.getByTestId("portfolio-edit-studio").click();
+  await expect(studio.getByTestId("workflow-legacy-warning")).toHaveCount(0);
+  await expect(studio.getByTestId("workflow-name")).toHaveValue("Legacy Skill workflow");
+  await studio.getByTestId("workflow-save").click();
+  await expect.poll(() => lastInvokeArgs(page,"save_workflow_template")).toMatchObject({template:{id:"legacy-skill-workflow",proposal:{approval_policy:"review_all"}}});
+});
+
+test("historical Skill-bound Workflow cannot be approved and offers source conversion", async ({ page }) => {
+  await enterApp(page,"/?mockAgentWorkflow=legacy");
+  await page.getByRole("button",{name:"Toggle panel"}).click();
+  await page.locator(".rightpane").getByRole("button",{name:"Agents",exact:true}).click();
+  const panel=page.getByTestId("agent-workflows");
+  await expect(panel.getByTestId("agent-legacy-warning")).toBeVisible();
+  await expect(panel.getByTestId("agent-approve")).toBeDisabled();
+  await panel.getByTestId("agent-reconvert").click();
+  await expect(page.getByTestId("portfolio-planner-overlay")).toBeVisible();
+  await page.getByTestId("portfolio-generate").click();
+  await expect.poll(() => lastInvokeArgs(page,"plan_skill_portfolio")).toMatchObject({request:{legacy_workflow_id:"workflow-1"}});
+});
+
+test("Workflow child confirmation cleanup cannot dismiss a newer owner request", async ({ page }) => {
+  await enterApp(page,"/?mockSessionModels=1");
+  await page.locator('[data-session-id="s-model-a"]').click();
+  const show=async(id:string,label:string) => emitTauriEvent(page,"confirm-request",{
+    frame_id:"s-model-a",approval_id:id,message:`Workflow node ${label} requests confirmation`,tool:"run_in_context",preview:`echo ${label}`,
+  });
+  await show("child-1","first");
+  await expect(page.getByRole("button",{name:"Deny",exact:true})).toBeVisible();
+  await show("child-2","second");
+  await emitTauriEvent(page,"confirm-resolved",{frame_id:"s-model-a",approval_id:"child-1",tool:"run_in_context",preview:"",message:""});
+  await expect(page.getByTestId("workflow-approval-node")).toHaveText("Workflow node: second");
+  await expect(page.getByLabel("Approval scope")).toHaveCount(0);
+  await emitTauriEvent(page,"confirm-resolved",{frame_id:"s-model-a",approval_id:"child-2",tool:"run_in_context",preview:"",message:""});
+  await expect(page.getByRole("button",{name:"Deny",exact:true})).toHaveCount(0);
 });

@@ -14,6 +14,7 @@ use wisp_tools::{Approval, Registry};
 pub(crate) struct NativeAgentRun {
     pub(crate) result: Result<String, String>,
     pub(crate) usage: AgentUsage,
+    pub(crate) tool_errors: Vec<String>,
 }
 
 #[derive(Default)]
@@ -80,7 +81,7 @@ impl Provider for BudgetedProvider<'_> {
     }
 }
 
-struct NativeOutput {
+struct NativeOutput<'a> {
     allowed_tools: HashSet<String>,
     messages: tokio::sync::mpsc::UnboundedSender<Message>,
     provenance: tokio::sync::mpsc::UnboundedSender<wisp_core::ProvenanceRecord>,
@@ -88,11 +89,47 @@ struct NativeOutput {
     /// sibling subagents and their parent are not foreign to each other when
     /// disambiguating concurrent workspace writes (#911).
     provenance_scope: String,
+    confirmer: Option<Arc<dyn crate::workflow_approval::WorkflowConfirmer>>,
+    cancel: &'a AtomicBool,
+    tool_errors: Mutex<Vec<String>>,
 }
 
-impl Output for NativeOutput {
+impl Output for NativeOutput<'_> {
     fn confirm(&self, _message: &str) -> bool {
         false
+    }
+    fn confirm_async<'a>(&'a self, message: &'a str) -> wisp_core::OutputFuture<'a, bool> {
+        Box::pin(async move { self.confirm_decision_async(message).await.approved() })
+    }
+    fn confirm_decision_async<'a>(
+        &'a self,
+        message: &'a str,
+    ) -> wisp_core::OutputFuture<'a, wisp_tools::ConfirmDecision> {
+        Box::pin(async move {
+            let Some(confirmer) = &self.confirmer else {
+                return wisp_tools::ConfirmDecision::Denied {
+                    feedback: Some("No interactive Workflow approval host is available".into()),
+                };
+            };
+            let confirmation = confirmer.confirm(message);
+            tokio::pin!(confirmation);
+            loop {
+                tokio::select! {
+                    decision=&mut confirmation=>return decision,
+                    _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{
+                        if self.cancel.load(std::sync::atomic::Ordering::SeqCst) {return wisp_tools::ConfirmDecision::Denied {feedback:Some("Workflow cancelled".into())};}
+                    }
+                }
+            }
+        })
+    }
+    fn tool_result(&self, name: &str, ok: bool, content: &str, _duration: u64) {
+        if !ok {
+            self.tool_errors.lock().unwrap().push(format!(
+                "{name}: {}",
+                content.chars().take(1000).collect::<String>()
+            ));
+        }
     }
 
     fn approval_mode(&self, tool: &str) -> Approval {
@@ -150,6 +187,41 @@ pub(crate) async fn run_native_agent(
     system: String,
     prompt: String,
     cancel: &AtomicBool,
+) -> anyhow::Result<NativeAgentRun> {
+    let confirmer =
+        crate::workflow_approval::for_node(store, project_id, child_frame_id, &request.spec.name)
+            .await;
+    run_native_agent_with_approval(
+        provider,
+        vision_provider,
+        store,
+        project_id,
+        child_frame_id,
+        project_root,
+        tools,
+        request,
+        system,
+        prompt,
+        cancel,
+        confirmer,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_native_agent_with_approval(
+    provider: &dyn Provider,
+    vision_provider: Option<&dyn Provider>,
+    store: &Store,
+    project_id: &str,
+    child_frame_id: &str,
+    project_root: &Path,
+    tools: &Registry,
+    request: &AgentDelegationRequest,
+    system: String,
+    prompt: String,
+    cancel: &AtomicBool,
+    confirmer: Option<Arc<dyn crate::workflow_approval::WorkflowConfirmer>>,
 ) -> anyhow::Result<NativeAgentRun> {
     let provenance_scope = conversation_scope(store, child_frame_id).await;
     let (message_tx, mut message_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
@@ -220,6 +292,9 @@ pub(crate) async fn run_native_agent(
         messages: message_tx,
         provenance: provenance_tx,
         provenance_scope,
+        confirmer,
+        cancel,
+        tool_errors: Mutex::new(vec![]),
     };
     let usage = Arc::new(UsageTracker::default());
     let vision_provider = vision_provider.map(|inner| BudgetedProvider {
@@ -267,6 +342,7 @@ pub(crate) async fn run_native_agent(
         .rev()
         .find(|message| message.role == wisp_llm::Role::Assistant)
         .map(|message| message.content.as_text());
+    let tool_errors = output.tool_errors.lock().unwrap().clone();
     drop(output);
     message_task.await??;
     provenance_task.await??;
@@ -276,6 +352,7 @@ pub(crate) async fn run_native_agent(
             .map(|_| content.unwrap_or_default())
             .map_err(|error| error.to_string()),
         usage: usage.snapshot(),
+        tool_errors,
     })
 }
 
@@ -889,5 +966,87 @@ mod tests {
         assert!(run.unwrap().result.unwrap_err().contains("stopped by user"));
         drop(store);
         std::fs::remove_dir_all(base).ok();
+    }
+    struct GuardedTool(Arc<AtomicBool>);
+    #[async_trait]
+    impl Tool for GuardedTool {
+        fn name(&self) -> &str {
+            "guarded"
+        }
+        fn schema(&self) -> ToolSchema {
+            ToolSchema::new(
+                "guarded",
+                "A tool requiring an explicit node decision",
+                serde_json::json!({"type":"object"}),
+            )
+        }
+        fn minimum_approval(&self) -> Approval {
+            Approval::Ask
+        }
+        async fn run(&self, _args: &serde_json::Value, _env: &dyn ToolEnv) -> ToolResult {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            ToolResult::ok("executed")
+        }
+    }
+    struct TestConfirmer {
+        approve: bool,
+        messages: Mutex<Vec<String>>,
+    }
+    #[async_trait]
+    impl crate::workflow_approval::WorkflowConfirmer for TestConfirmer {
+        async fn confirm(&self, message: &str) -> wisp_tools::ConfirmDecision {
+            self.messages.lock().unwrap().push(message.into());
+            if self.approve {
+                wisp_tools::ConfirmDecision::Approved
+            } else {
+                wisp_tools::ConfirmDecision::Denied {
+                    feedback: Some("declined by test host".into()),
+                }
+            }
+        }
+    }
+    #[tokio::test]
+    async fn native_workflow_tool_confirmation_reaches_host_and_respects_denial() {
+        for approve in [false, true] {
+            let (store, base, workspace) = fixture().await;
+            let ran = Arc::new(AtomicBool::new(false));
+            let mut tools = Registry::builtins();
+            tools.add(Box::new(GuardedTool(ran.clone())));
+            let tools = tools.filtered(&["guarded".into()]);
+            let provider = SequenceProvider::new(vec![
+                completion(
+                    "",
+                    vec![tool_call("call", "guarded", serde_json::json!({}))],
+                    1,
+                    1,
+                ),
+                completion("{}", vec![], 1, 1),
+            ]);
+            let confirmer = Arc::new(TestConfirmer {
+                approve,
+                messages: Mutex::new(vec![]),
+            });
+            let output = run_native_agent_with_approval(
+                &provider,
+                None,
+                &store,
+                "project",
+                "child",
+                &workspace,
+                &tools,
+                &request(100, 5),
+                "Execute only the assigned node".into(),
+                "test".into(),
+                &AtomicBool::new(false),
+                Some(confirmer.clone()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), approve);
+            assert_eq!(confirmer.messages.lock().unwrap().len(), 1);
+            assert_eq!(output.tool_errors.is_empty(), approve);
+            drop(store);
+            let _ = std::fs::remove_dir_all(base);
+        }
     }
 }

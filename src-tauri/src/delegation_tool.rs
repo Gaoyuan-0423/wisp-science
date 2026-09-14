@@ -298,12 +298,6 @@ fn build_delegate_tasks_schema(
                                 "items": {"type": "string", "enum": capabilities},
                                 "description": capability_help
                             },
-                            "skill_ids": {
-                                "type": "array",
-                                "uniqueItems": true,
-                                "items": {"type": "string"},
-                                "description": "Exact effective and enabled Skill names to load for this node. Use search_skills first; omit for no Skill guidance."
-                            },
                             "specialist_id": {
                                 "type": "string",
                                 "enum": specialist_ids,

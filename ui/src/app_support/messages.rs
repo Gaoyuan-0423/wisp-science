@@ -1392,6 +1392,11 @@ pub(crate) fn ApprovalCard(
     let is_plan = tool == "update_plan";
     let is_resource_conflict = tool == "resource_conflict";
     let is_image_resize = tool == "image_resize";
+    let workflow_node = message.strip_prefix("Workflow node ").and_then(|text| {
+        text.split_once(" requests confirmation")
+            .map(|(node, _)| node.to_string())
+    });
+    let is_workflow = workflow_node.is_some();
     let show_feedback = create_rw_signal(false);
     let feedback = create_rw_signal(String::new());
     let approval_scope = create_rw_signal(String::from("once"));
@@ -1447,6 +1452,11 @@ pub(crate) fn ApprovalCard(
                         {move || t(locale.get(), "approval.waiting")}
                     </span>
                 </div>
+                {workflow_node.map(|node|view! {
+                    <p class="approval-conflict-message" data-testid="workflow-approval-node">
+                        {move || tf(locale.get(),"approval.workflow_node",&[("node",&node)])}
+                    </p>
+                })}
                 {if is_plan {
                     view! {
                         <div class="plan-steps">
@@ -1503,7 +1513,7 @@ pub(crate) fn ApprovalCard(
                     "approval.hint"
                 })}</p>
                 <div class="approval-actions">
-                    {(!is_plan && !is_resource_conflict && !is_image_resize).then(|| view! {
+                    {(!is_plan && !is_resource_conflict && !is_image_resize && !is_workflow).then(|| view! {
                         <label class="approval-scope">
                             <span>{move || t(locale.get(), "approval.scope")}</span>
                             <select
@@ -1519,7 +1529,7 @@ pub(crate) fn ApprovalCard(
                     })}
                     <button type="button" class="primary"
                         on:click=move |_| {
-                            let scope = if is_plan { "once".into() } else { approval_scope.get() };
+                            let scope = if is_plan || is_workflow { "once".into() } else { approval_scope.get() };
                             on_decide.call((sid_allow.clone(), true, None, scope));
                         }>
                         {move || {

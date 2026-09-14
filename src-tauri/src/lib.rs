@@ -84,6 +84,8 @@ mod research_graph;
 mod resource_leases;
 mod resource_refs;
 mod review;
+mod workflow_approval;
+mod workflow_artifacts;
 pub(crate) use wisp_runs as run_context;
 mod network;
 mod runtime_commands;
@@ -387,6 +389,7 @@ async fn request_image_resize_confirmation(
     project_id: &str,
     message: String,
 ) -> bool {
+    let _slot = workflow_approval::lock_frame(frame_id).await;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request = ConfirmRequest::new(frame_id, message, "image_resize", String::new());
     state.confirms.lock().unwrap().insert(
@@ -2584,6 +2587,7 @@ async fn request_mcp_app_tool_confirmation(
     limiter: &McpAppCallLimiter,
     epoch: u64,
 ) -> wisp_tools::ConfirmDecision {
+    let _slot = workflow_approval::lock_frame(frame_id).await;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request = ConfirmRequest::new(frame_id, message, tool, preview);
     state.confirms.lock().unwrap().insert(
@@ -3033,6 +3037,7 @@ impl TauriOutput {
         message: &str,
         allow_full_permission: bool,
     ) -> wisp_tools::ConfirmDecision {
+        let _slot = workflow_approval::lock_frame(&self.frame_id).await;
         if allow_full_permission && self.full_permission() && !self.force_ask_mutations {
             return wisp_tools::ConfirmDecision::Approved;
         }
@@ -7271,6 +7276,7 @@ pub fn run() {
                 scratch: std::sync::RwLock::new(HashMap::new()),
             };
             app.manage(state);
+            workflow_approval::install(app.handle().clone());
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

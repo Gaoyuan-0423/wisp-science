@@ -98,6 +98,23 @@ test("native approval resolution in another window removes the restored card", a
   await expect(page.getByRole("button", { name: "Deny", exact: true })).toHaveCount(0);
 });
 
+test("a cold window restores a Workflow node approval with one-time scope", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    Object.assign((window as any).approval, {
+      tool: "run_in_context", preview: "python verify.py",
+      message: "Workflow node verify requests confirmation:\nRun the verification command?",
+    });
+  });
+  await open(page);
+  await expect(page.getByTestId("workflow-approval-node")).toHaveText("Workflow node: verify");
+  await expect(page.getByLabel("Approval scope")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Allow once", exact: true })).toBeVisible();
+  await page.evaluate(() => (window as any).__tauriEmit("confirm-resolved", (window as any).approval));
+  await expect(page.getByRole("button", { name: "Deny", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Latest results ready for transfer", { exact: true })).toBeVisible();
+});
+
 test("failed hydration shows an error with retry instead of the welcome screen", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => { (window as any).hydration.fail = true; });
