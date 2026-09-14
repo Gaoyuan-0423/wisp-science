@@ -5485,6 +5485,7 @@ pub(super) fn SettingsView(
                                         <div>
                                             <h3 id="plugin-install-title">{move || t(locale.get(), "plugins.install_title")}</h3>
                                             <p class="hint">{move || t(locale.get(), "plugins.install_safety")}</p>
+                                            <p class="hint" data-testid="plugin-install-compatibility">{move || t(locale.get(), "plugins.claude_compatibility")}</p>
                                         </div>
                                         <button type="button" class="ps-close"
                                             title=move || t(locale.get(), "plugins.install_close")
@@ -5610,6 +5611,7 @@ pub(super) fn SettingsView(
                         {move || plugins_msg.get().map(|(ok, text)| view! {
                             <div class="settings-status" class:ok=ok class:fail=move || !ok>{text}</div>
                         })}
+                        <p class="hint" data-testid="plugin-compatibility">{move || t(locale.get(), "plugins.claude_compatibility")}</p>
                         <div class="settings-list plugin-list">
                             <For each=move || {
                                 let query = plugin_search.get().trim().to_lowercase();

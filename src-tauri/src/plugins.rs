@@ -478,6 +478,23 @@ fn validate_plugin_url(value: &str) -> Result<url::Url, String> {
 }
 
 pub(crate) fn extract_zip(archive_path: &Path, destination: &Path) -> Result<(), String> {
+    extract_zip_entries(archive_path, destination, false).map(|_| ())
+}
+
+/// ZIP link metadata is kept as data, never created as an OS symlink. Only
+/// plugin installation may resolve the restricted Claude Skill alias layout;
+/// the shared single-Skill ZIP importer continues rejecting every link.
+#[derive(Debug)]
+struct ArchivedSkillAlias {
+    path: PathBuf,
+    target: String,
+}
+
+fn extract_zip_entries(
+    archive_path: &Path,
+    destination: &Path,
+    collect_skill_aliases: bool,
+) -> Result<Vec<ArchivedSkillAlias>, String> {
     let metadata =
         std::fs::metadata(archive_path).map_err(|error| format!("stat ZIP archive: {error}"))?;
     if metadata.len() > MAX_ARCHIVE_BYTES {
@@ -496,6 +513,7 @@ pub(crate) fn extract_zip(archive_path: &Path, destination: &Path) -> Result<(),
     }
     let mut seen = HashSet::new();
     let mut expanded = 0u64;
+    let mut aliases = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive
             .by_index(index)
@@ -515,10 +533,10 @@ pub(crate) fn extract_zip(archive_path: &Path, destination: &Path) -> Result<(),
                 "ZIP archive contains duplicate path '{normalized}'"
             ));
         }
-        if entry
+        let is_link = entry
             .unix_mode()
-            .is_some_and(|mode| mode & 0o170000 == 0o120000)
-        {
+            .is_some_and(|mode| mode & 0o170000 == 0o120000);
+        if is_link && !collect_skill_aliases {
             return Err(format!("ZIP archive contains symbolic link '{normalized}'"));
         }
         let size = entry.size();
@@ -528,6 +546,21 @@ pub(crate) fn extract_zip(archive_path: &Path, destination: &Path) -> Result<(),
         expanded = expanded.saturating_add(size);
         if expanded > MAX_EXPANDED_BYTES {
             return Err("ZIP archive expanded size exceeds safety limit".into());
+        }
+        if is_link {
+            let mut target = String::new();
+            entry
+                .take(MAX_PATH_BYTES as u64 + 1)
+                .read_to_string(&mut target)
+                .map_err(|error| format!("read plugin Skill alias '{normalized}': {error}"))?;
+            if target.len() > MAX_PATH_BYTES {
+                return Err(format!("plugin Skill alias '{normalized}' is too long"));
+            }
+            aliases.push(ArchivedSkillAlias {
+                path: enclosed.to_path_buf(),
+                target,
+            });
+            continue;
         }
         let output = destination.join(&enclosed);
         if entry.is_dir() {
@@ -548,7 +581,58 @@ pub(crate) fn extract_zip(archive_path: &Path, destination: &Path) -> Result<(),
             .flush()
             .map_err(|error| format!("flush extracted file '{}': {error}", output.display()))?;
     }
-    Ok(())
+    Ok(aliases)
+}
+
+fn resolve_claude_skill_aliases(
+    unpacked: &Path,
+    package_root: &Path,
+    aliases: &[ArchivedSkillAlias],
+) -> Result<Vec<String>, String> {
+    if aliases.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !package_root.join(".claude-plugin/plugin.json").is_file()
+        || package_root.join(".wisp-plugin/plugin.json").exists()
+    {
+        return Err("symbolic Skill aliases require a Claude plugin package".into());
+    }
+    let mut skills = Vec::new();
+    for alias in aliases {
+        let path = unpacked.join(&alias.path);
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        // Deliberately not a general link resolver: no absolute paths, link
+        // chains, files, renamed targets, or recursive directory expansion.
+        if path.parent() != Some(package_root.join("skills").as_path())
+            || name.is_empty()
+            || name == "skills"
+            || name.contains(['\\', ':', '\0'])
+            || alias.target != format!("../{name}")
+        {
+            return Err(format!("unsupported symbolic link '{}'; only skills/name -> ../name is supported in Claude plugin ZIPs", alias.path.display()));
+        }
+        if path.exists() {
+            return Err(format!(
+                "plugin Skill alias '{}' conflicts with extracted files",
+                alias.path.display()
+            ));
+        }
+        let target = package_root.join(name);
+        let is_directory =
+            std::fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_dir());
+        let is_skill_file = std::fs::symlink_metadata(target.join("SKILL.md"))
+            .is_ok_and(|metadata| metadata.is_file());
+        if !is_directory || !is_skill_file {
+            return Err(format!("plugin Skill alias '{}' must target a regular package directory containing SKILL.md", alias.path.display()));
+        }
+        // Keep the original directory as the Skill root: shared sibling
+        // resources must resolve exactly as they do in the source package.
+        skills.push(name.to_string());
+    }
+    Ok(skills)
 }
 
 fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
@@ -606,14 +690,14 @@ fn prepare_plugin(
     std::fs::create_dir_all(&staging_root)
         .map_err(|error| format!("create plugin staging directory: {error}"))?;
     let result = (|| {
-        let (sha256, trust_state, unpacked) = if source.is_dir() {
+        let (sha256, trust_state, unpacked, aliases) = if source.is_dir() {
             let sha256 = tree_sha256(source)?;
             let trust_state = validate_expected_sha256(expected_sha256, &sha256)?;
             let unpacked = staging_root.join("package");
             std::fs::create_dir_all(&unpacked)
                 .map_err(|error| format!("create plugin staging package: {error}"))?;
             copy_directory(source, &unpacked)?;
-            (sha256, trust_state, unpacked)
+            (sha256, trust_state, unpacked, Vec::new())
         } else {
             if !source.is_file() {
                 return Err("plugin source does not exist or is not a regular file".into());
@@ -632,11 +716,18 @@ fn prepare_plugin(
             let unpacked = staging_root.join("package");
             std::fs::create_dir_all(&unpacked)
                 .map_err(|error| format!("create plugin staging package: {error}"))?;
-            extract_zip(source, &unpacked)?;
-            (sha256, trust_state, unpacked)
+            let aliases = extract_zip_entries(source, &unpacked, true)?;
+            (sha256, trust_state, unpacked, aliases)
         };
         let package_root = find_package_root(&unpacked)?;
-        let manifest = parse_manifest(&package_root)?;
+        let alias_skills = resolve_claude_skill_aliases(&unpacked, &package_root, &aliases)?;
+        let mut manifest = parse_manifest(&package_root)?;
+        if !alias_skills.is_empty() {
+            manifest.skills.extend(alias_skills);
+            manifest.skills.sort();
+            manifest.skills.dedup();
+            manifest = validate_manifest(&package_root, manifest)?;
+        }
         Ok(PreparedPlugin {
             package_root,
             manifest,
@@ -1338,6 +1429,224 @@ mod tests {
         assert_eq!(manifest.mcp_servers[0].command, "node");
         assert_eq!(manifest.source_format, "claude-plugin");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn skill_alias_zip(path: &Path, prefix: &str, alias: &str, target: &str, overlay: bool) {
+        let mut archive = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, content) in [
+            (".claude-plugin/plugin.json", r#"{"name":"academic-research-skills","version":"1.0.0"}"#),
+            ("deep-research/SKILL.md", "---\nname: deep-research\ndescription: Synthetic research method\n---\nRead ../shared/method.md."),
+            ("deep-research/references/source.md", "Synthetic source"),
+            ("shared/method.md", "Synthetic shared method"),
+            ("hooks/hooks.json", "{}"),
+        ] {
+            archive.start_file(format!("{prefix}{name}"), options).unwrap();
+            archive.write_all(content.as_bytes()).unwrap();
+        }
+        archive
+            .add_symlink(format!("{prefix}{alias}"), target, options)
+            .unwrap();
+        if overlay {
+            archive
+                .start_file(format!("{prefix}{alias}/unexpected.md"), options)
+                .unwrap();
+            archive.write_all(b"conflicting directory").unwrap();
+        }
+        archive.finish().unwrap();
+    }
+
+    #[test]
+    fn claude_plugin_zip_skill_aliases_keep_the_canonical_resource_directory() {
+        for prefix in ["", "repository-main/"] {
+            let root =
+                std::env::temp_dir().join(format!("wisp-plugin-alias-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&root).unwrap();
+            let archive = root.join("plugin.zip");
+            skill_alias_zip(
+                &archive,
+                prefix,
+                "skills/deep-research",
+                "../deep-research",
+                false,
+            );
+            let prepared = prepare_plugin(
+                &archive,
+                Some(&sha256_file(&archive).unwrap()),
+                &root.join("data"),
+                "fixture".into(),
+            )
+            .unwrap();
+            assert_eq!(prepared.manifest.skills, ["deep-research"]);
+            assert_eq!(prepared.trust_state, "checksum_verified");
+            let installed = install_prepared(&prepared, &root.join("data")).unwrap();
+            let install_root = PathBuf::from(&installed.installation.install_root);
+            let index =
+                wisp_skills::SkillIndex::load(&prepared.manifest.skill_paths(&install_root));
+            let skill = index
+                .get("deep-research")
+                .expect("canonical Skill must be discoverable");
+            assert_eq!(skill.dir, install_root.join("deep-research"));
+            assert_eq!(
+                std::fs::read_to_string(skill.dir.join("../shared/method.md")).unwrap(),
+                "Synthetic shared method"
+            );
+            assert!(skill.dir.join("references/source.md").is_file());
+            assert!(!install_root.join("skills/deep-research").exists());
+            assert!(walkdir::WalkDir::new(&install_root)
+                .into_iter()
+                .all(|entry| !entry.unwrap().file_type().is_symlink()));
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn claude_plugin_zip_rejects_unsupported_or_missing_skill_alias_targets() {
+        let root =
+            std::env::temp_dir().join(format!("wisp-plugin-bad-alias-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("plugin.zip");
+        let data = root.join("data");
+        for (alias, target) in [
+            ("skills/deep-research", "../../outside"),
+            ("skills/deep-research", "/outside"),
+            ("skills/deep-research", "C:/outside"),
+            ("skills/deep-research", "..\\deep-research"),
+            ("skills/deep-research", "../shared"),
+            ("skills/deep-research", "../deep-research/../shared"),
+            ("skills/deep-research", "../deep-research\0"),
+            ("skills/missing", "../missing"),
+            ("skills/skills", "../skills"),
+            ("deep-research/linked.md", "../shared/method.md"),
+            (
+                "skills/deep-research/SKILL.md",
+                "../../deep-research/SKILL.md",
+            ),
+        ] {
+            skill_alias_zip(&archive, "repository-main/", alias, target, false);
+            assert!(
+                prepare_plugin(&archive, None, &data, "fixture".into()).is_err(),
+                "{alias} -> {target:?}"
+            );
+            assert_eq!(
+                std::fs::read_dir(data.join("plugin-staging"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            assert!(!data.join("plugins").exists());
+        }
+        skill_alias_zip(
+            &archive,
+            "",
+            "skills/deep-research",
+            &"x".repeat(MAX_PATH_BYTES + 1),
+            false,
+        );
+        let error = prepare_plugin(&archive, None, &data, "fixture".into()).unwrap_err();
+        assert!(error.contains("too long"), "{error}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn claude_skill_alias_conflicts_do_not_replace_an_installed_plugin() {
+        let root = std::env::temp_dir().join(format!(
+            "wisp-plugin-alias-conflict-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("plugin.zip");
+        let data = root.join("data");
+        skill_alias_zip(
+            &archive,
+            "",
+            "skills/deep-research",
+            "../deep-research",
+            false,
+        );
+        let valid = prepare_plugin(&archive, None, &data, "fixture".into()).unwrap();
+        let installed = install_prepared(&valid, &data).unwrap();
+        let skill_file =
+            Path::new(&installed.installation.install_root).join("deep-research/SKILL.md");
+        let original = std::fs::read(&skill_file).unwrap();
+        skill_alias_zip(
+            &archive,
+            "",
+            "skills/deep-research",
+            "../deep-research",
+            true,
+        );
+        let error = prepare_plugin(&archive, None, &data, "fixture".into()).unwrap_err();
+        assert!(error.contains("conflicts with extracted files"), "{error}");
+        assert_eq!(std::fs::read(skill_file).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skill_alias_zip_still_requires_the_expected_checksum_and_the_plugin_importer() {
+        let root = std::env::temp_dir().join(format!(
+            "wisp-plugin-alias-boundary-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("plugin.zip");
+        skill_alias_zip(
+            &archive,
+            "",
+            "skills/deep-research",
+            "../deep-research",
+            false,
+        );
+        let error = prepare_plugin(
+            &archive,
+            Some(&"0".repeat(64)),
+            &root.join("data"),
+            "fixture".into(),
+        )
+        .unwrap_err();
+        assert!(error.contains("SHA-256 mismatch"), "{error}");
+        let output = root.join("standalone-skill");
+        std::fs::create_dir_all(&output).unwrap();
+        let error = extract_zip(&archive, &output).unwrap_err();
+        assert!(error.contains("symbolic link"), "{error}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Manual acceptance only: download the pinned upstream archive first.
+    /// Installation and indexing use temporary directories and execute no code.
+    #[test]
+    #[ignore = "requires WISP_CLAUDE_PLUGIN_ZIP and WISP_CLAUDE_PLUGIN_SHA256"]
+    fn academic_research_skills_zip_acceptance() {
+        let source = std::env::var("WISP_CLAUDE_PLUGIN_ZIP").unwrap();
+        let expected = std::env::var("WISP_CLAUDE_PLUGIN_SHA256").unwrap();
+        let root =
+            std::env::temp_dir().join(format!("wisp-academic-plugin-{}", uuid::Uuid::new_v4()));
+        let prepared =
+            prepare_plugin(Path::new(&source), Some(&expected), &root, source.clone()).unwrap();
+        assert_eq!(prepared.manifest.id, "academic-research-skills");
+        let names = [
+            "academic-paper",
+            "academic-paper-reviewer",
+            "academic-pipeline",
+            "deep-research",
+        ];
+        assert_eq!(prepared.manifest.skills, names);
+        let installed = install_prepared(&prepared, &root).unwrap();
+        let install_root = PathBuf::from(&installed.installation.install_root);
+        let index = wisp_skills::SkillIndex::load(&prepared.manifest.skill_paths(&install_root));
+        assert_eq!(index.all().len(), 4);
+        for name in names {
+            assert_eq!(index.get(name).unwrap().dir, install_root.join(name));
+        }
+        assert!(install_root.join("shared").is_dir());
+        assert!(install_root.join("hooks/hooks.json").is_file());
+        assert!(walkdir::WalkDir::new(&install_root)
+            .into_iter()
+            .all(|entry| !entry.unwrap().file_type().is_symlink()));
+        let view = plugin_view(installed.installation, false).unwrap();
+        assert_eq!(view.skill_names, names);
+        assert!(view.runtime_errors.is_empty(), "{:?}", view.runtime_errors);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

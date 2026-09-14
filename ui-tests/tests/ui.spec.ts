@@ -10687,6 +10687,7 @@ test("plugin settings diagnose, launch, install, and remove a feature plugin", a
   await expect(enabledToggle).toBeChecked();
 
   // The install dialog is above Settings in the Escape stack.
+  await expect(page.getByTestId("plugin-compatibility")).toContainText("Claude hooks, slash commands and agent definitions are not activated");
   await page.getByRole("button", { name: "Install plugin", exact: true }).click();
   let section = page.getByTestId("plugin-settings");
   await page.keyboard.press("Escape");
@@ -10697,6 +10698,7 @@ test("plugin settings diagnose, launch, install, and remove a feature plugin", a
   // install action.
   await page.getByRole("button", { name: "Install plugin", exact: true }).click();
   section = page.getByTestId("plugin-settings");
+  await expect(section.getByTestId("plugin-install-compatibility")).toContainText("download its ZIP and choose Local ZIP");
   const localInstall = section.getByRole("button", { name: "Install plugin", exact: true });
   await expect(localInstall).toBeDisabled();
   await section.getByRole("button", { name: "Choose ZIP", exact: true }).click();
@@ -10738,6 +10740,33 @@ test("plugin settings diagnose, launch, install, and remove a feature plugin", a
     version: "0.2.1",
   });
   await expect(row).toHaveCount(0);
+});
+
+test("Skills-only plugins describe the MCP declaration without promising dependency readiness", async ({ page }) => {
+  await page.goto("/?mockPluginImport=1");
+  await page.evaluate(() => {
+    const core = (window as any).__TAURI__.core;
+    const original = core.invoke;
+    core.invoke = async (command: string, args: any) => {
+      const result = await original(command, args);
+      if (command !== "list_plugins") return result;
+      return result.map((plugin: any) => ({
+        ...plugin,
+        id: "academic-research-skills", display_name: "Academic research skills", version: "3.21.2",
+        skill_count: 4, skill_names: ["academic-paper", "academic-paper-reviewer", "academic-pipeline", "deep-research"],
+        mcp_server_count: 0, commands: [], runtime_status: "not_applicable", runtime_errors: [],
+      }));
+    };
+  });
+  await page.locator(".proj-card-main").first().click();
+  await openSettingsSection(page, "Plugins");
+  const plugin = page.locator('[data-plugin-id="academic-research-skills"]');
+  await expect(plugin.locator(".plugin-runtime")).toHaveText("No MCP runtime declared");
+  await expect(plugin.getByRole("button", { name: "Enable & use" })).toBeEnabled();
+  await plugin.getByText("Details", { exact: true }).click();
+  await expect(plugin).toContainText("academic-pipeline");
+  await expect(plugin).toContainText("deep-research");
+  await expect(page.getByTestId("plugin-compatibility")).toContainText("Claude hooks, slash commands and agent definitions are not activated");
 });
 
 test("custom MCP row opens tools while edit uses a dedicated button", async ({ page }) => {

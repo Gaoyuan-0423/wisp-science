@@ -18,6 +18,20 @@ server/...
 ```
 
 Claude packages are normalized into the native manifest at install time.
+Claude ZIPs may also expose root-level methods through entries such as
+`skills/deep-research -> ../deep-research`. Wisp registers the existing
+`deep-research/` directory as the Skill root, keeping sibling/shared resource
+paths intact. It does not create filesystem symlinks or duplicate the method
+directory. This works with GitHub's enclosing archive directory on Windows,
+macOS and Linux without symlink privileges.
+
+This is a limited compatibility format: Skills and local stdio MCP servers are
+imported. Claude hooks, slash commands and agent definitions are retained as
+package files but are not registered or activated. Installing a package does
+not make its Claude-specific execution guarantees available in Wisp.
+An empty MCP list is shown as **No MCP runtime declared**; Skill scripts may
+still require interpreters or other dependencies.
+
 `${CLAUDE_PLUGIN_ROOT}` and `${WISP_PLUGIN_ROOT}` are both resolved to the
 immutable installed package directory. MCP processes are launched directly,
 without a command shell.
@@ -32,6 +46,17 @@ review the selected path and optional checksum, then select **Install plugin**.
 Choosing a file does not start installation. The dialog closes after a
 successful install and stays open with the entered values when installation
 fails. Removing an installed plugin always requires confirmation.
+
+For a GitHub repository, download its source ZIP using **Code → Download ZIP**,
+then use **Settings → Plugins → Install plugin → Local ZIP**. A repository's
+HTML page is not a release ZIP URL. Feature-plugin archives belong in Plugins,
+rather than the single-package import under Skills. Enable the installed
+plugin for the project to expose its supported Skills.
+
+For example, [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills) uses four of these package-local
+Skill aliases. Importing its source ZIP exposes `academic-paper`,
+`academic-paper-reviewer`, `academic-pipeline` and `deep-research`, with the
+original shared resources. Its Claude hooks/commands/agents remain inactive.
 
 The manifest `id` is the plugin identity. Installing another valid package with
 the same ID replaces the existing files and installation record, including
@@ -75,6 +100,36 @@ structured JSON up to 64 KiB; the App should send a compact selection or summary
 rather than its entire workspace.
 
 ## Safety boundary
+
+### ZIP Skill aliases
+
+Only Claude plugin ZIP entries of the exact form `skills/name -> ../name` are
+recognized, and the destination must be a real directory with a regular
+`SKILL.md` inside the same plugin root. Link metadata is treated as data until
+normalization. Absolute/out-of-package targets, renamed targets, link chains,
+recursive aliases, file links and aliases conflicting with extracted entries
+are rejected. Archive checksum verification still precedes extraction, and
+the existing archive/file/expanded-size limits still apply. A rejected package
+does not replace an existing installation.
+
+Local-directory installation and the shared single-Skill ZIP importer retain
+their existing blanket rejection of symlinks. Use the plugin ZIP import for
+the supported Claude layout.
+
+The offline tests generate their own ZIP fixtures. An opt-in acceptance also
+installed/indexed the unmodified academic-research-skills archive at commit
+`b06ceafb6c6b2c83455301e14c0751094478a8cd` (version `3.21.2`), archive SHA-256
+`74623097a9600a10cc49242345e726958e3136c73f9acec71414bef49844cd89`.
+All four Skills were indexed from their canonical directories, shared files
+were retained, and no package code was executed. The archive stays outside the
+repository. To repeat with that downloaded archive:
+
+```bash
+WISP_CLAUDE_PLUGIN_ZIP=/path/to/academic-research-skills.zip \
+WISP_CLAUDE_PLUGIN_SHA256=74623097a9600a10cc49242345e726958e3136c73f9acec71414bef49844cd89 \
+WISP_CATALOG_OFFLINE=1 cargo test -p wisp-tauri --offline \
+  academic_research_skills_zip_acceptance -- --ignored
+```
 
 ### Tool-result fidelity
 
