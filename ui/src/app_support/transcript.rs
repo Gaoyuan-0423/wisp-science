@@ -2,6 +2,31 @@ use super::*;
 
 const MAX_IDLE_TRANSCRIPT_CACHE: usize = 8;
 
+/// A late navigation snapshot must not overwrite an event received while it
+/// was loading, including approval resolution and streaming deltas.
+pub(crate) fn note_transcript_event(payload: &JsValue, revisions: RwSignal<HashMap<String, u64>>) {
+    for key in ["frame_id", "frameId"] {
+        if let Some(id) = js_sys::Reflect::get(payload, &JsValue::from_str(key))
+            .ok()
+            .and_then(|value| value.as_string())
+        {
+            revisions.update(|all| *all.entry(id).or_default() += 1);
+            break;
+        }
+    }
+}
+
+pub(crate) async fn wait_for_transcript_retry() {
+    let (tx, rx) = futures_channel::oneshot::channel();
+    set_timeout(
+        move || {
+            let _ = tx.send(());
+        },
+        std::time::Duration::from_millis(100),
+    );
+    let _ = rx.await;
+}
+
 fn trim_idle_transcript_cache(
     cache: &mut HashMap<String, Vec<ChatItem>>,
     running: &HashSet<String>,

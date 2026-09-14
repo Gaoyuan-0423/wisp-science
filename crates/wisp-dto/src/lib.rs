@@ -2476,6 +2476,16 @@ pub struct LoadedItem {
     pub resources: Vec<MessageResource>,
 }
 
+/// A live native tool approval, restored independently of persisted messages.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PendingToolApproval {
+    pub approval_id: String,
+    pub frame_id: String,
+    pub message: String,
+    pub tool: String,
+    pub preview: String,
+}
+
 #[derive(Deserialize)]
 pub struct LoadedSessionPage {
     pub items: Vec<LoadedItem>,
@@ -2489,6 +2499,8 @@ pub struct LoadedSessionPage {
     pub branches: Vec<SessionBranchLink>,
     #[serde(default)]
     pub branch_state: Option<String>,
+    #[serde(default)]
+    pub pending_approvals: Vec<PendingToolApproval>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]

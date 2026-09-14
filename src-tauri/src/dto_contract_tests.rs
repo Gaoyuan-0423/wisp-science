@@ -693,3 +693,27 @@ fn transfer_progress_preserves_indeterminate_and_accepts_legacy_records() {
     assert_eq!(ui.total_bytes, 1024);
     assert_eq!(ui.completed_bytes, 0);
 }
+
+#[test]
+fn native_approval_snapshot_and_resolution_share_the_request_contract() {
+    let request = super::ConfirmRequest::new(
+        "frame",
+        "Approve transfer?".into(),
+        "transfer_between_contexts",
+        "CPU3 to local".into(),
+    );
+    let loaded: wisp_dto::PendingToolApproval = roundtrip(&request);
+    assert_eq!(loaded.approval_id, request.approval_id);
+    assert_eq!(loaded.frame_id, "frame");
+    assert_eq!(loaded.tool, "transfer_between_contexts");
+    let page: wisp_dto::LoadedSessionPage = serde_json::from_value(json!({
+        "items": [], "next_before_seq": null, "user_offset": 0, "pending_approvals": [loaded]
+    }))
+    .unwrap();
+    assert_eq!(page.pending_approvals[0].preview, "CPU3 to local");
+    let legacy: wisp_dto::LoadedSessionPage = serde_json::from_value(json!({
+        "items": [], "next_before_seq": null, "user_offset": 0
+    }))
+    .unwrap();
+    assert!(legacy.pending_approvals.is_empty());
+}

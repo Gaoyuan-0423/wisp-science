@@ -379,6 +379,10 @@ fn App() -> impl IntoView {
     let transcript_pages = create_rw_signal::<HashMap<String, TranscriptPageState>>(HashMap::new());
     let transcript_request_sequence = store_value(0_u64);
     let transcript_page_error = create_rw_signal::<Option<(String, String)>>(None);
+    let transcript_loading = create_rw_signal::<Option<String>>(None);
+    let transcript_load_epoch = create_rw_signal(0_u64);
+    let transcript_event_revisions = create_rw_signal::<HashMap<String, u64>>(HashMap::new());
+    let native_approval_ids = create_rw_signal::<HashMap<String, String>>(HashMap::new());
     let conversation_outlines =
         create_rw_signal::<HashMap<String, Vec<SessionOutlineItem>>>(HashMap::new());
     let conversation_outline_open = create_rw_signal(false);
@@ -2598,6 +2602,7 @@ fn App() -> impl IntoView {
     let cb_buf = delta_buf.clone();
     let cb_scheduled = flush_scheduled.clone();
     let cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let ev: AgentEvent = match serde_wasm_bindgen::from_value(payload) {
             Ok(e) => e,
             Err(err) => {
@@ -3451,6 +3456,7 @@ fn App() -> impl IntoView {
     let confirm_transcripts = transcripts;
     let confirm_pending = approval_pending;
     let confirm_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         if let Ok(v) = serde_wasm_bindgen::from_value::<serde_json::Value>(payload) {
             let msg = v
                 .get("message")
@@ -3464,6 +3470,11 @@ fn App() -> impl IntoView {
                 .to_string();
             if msg.is_empty() || fid.is_empty() {
                 return;
+            }
+            if let Some(id) = v.get("approval_id").and_then(|value| value.as_str()) {
+                native_approval_ids.update(|all| {
+                    all.insert(fid.clone(), id.to_string());
+                });
             }
             let mut tool = v
                 .get("tool")
@@ -3515,6 +3526,40 @@ fn App() -> impl IntoView {
     std::mem::forget(confirm_cb);
     spawn_local(async move {
         let _ = listen_current_window("confirm-request", &confirm_js).await;
+    });
+
+    let confirm_resolved = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
+        let Ok(request) = serde_wasm_bindgen::from_value::<PendingToolApproval>(payload) else {
+            return;
+        };
+        if native_approval_ids
+            .with_untracked(|all| all.get(&request.frame_id) == Some(&request.approval_id))
+        {
+            native_approval_ids.update(|all| {
+                all.remove(&request.frame_id);
+            });
+            approval_pending.update(|all| {
+                all.remove(&request.frame_id);
+            });
+            route_items(
+                active_session,
+                items,
+                transcripts,
+                &request.frame_id,
+                |rows| {
+                    rows.retain(|row| !matches!(row, ChatItem::ApprovalPending { .. }));
+                },
+            );
+        }
+    }) as Box<dyn FnMut(JsValue)>);
+    let confirm_resolved_js = confirm_resolved
+        .as_ref()
+        .unchecked_ref::<js_sys::Function>()
+        .clone();
+    confirm_resolved.forget();
+    spawn_local(async move {
+        let _ = listen_current_window("confirm-resolved", &confirm_resolved_js).await;
     });
 
     let browser_cleanup_pending = browser_tab_cleanup;
@@ -3605,6 +3650,7 @@ fn App() -> impl IntoView {
     let acp_permission_active = active_session;
     let acp_permission_transcripts = transcripts;
     let acp_permission_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let Ok(request) = serde_wasm_bindgen::from_value::<AcpPermissionRequest>(payload) else {
             return;
         };
@@ -3649,6 +3695,7 @@ fn App() -> impl IntoView {
 
     let acp_update_buf = delta_buf.clone();
     let acp_update_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let Ok(update) = serde_wasm_bindgen::from_value::<AcpSessionUpdate>(payload) else {
             return;
         };
@@ -3795,6 +3842,7 @@ fn App() -> impl IntoView {
     });
 
     let acp_resolved_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let Ok(resolved) = serde_wasm_bindgen::from_value::<AcpPermissionResolved>(payload) else {
             return;
         };
@@ -3824,6 +3872,7 @@ fn App() -> impl IntoView {
     // answers, so the card mirrors the permission flow — request event inserts
     // it, resolved event settles it.
     let ask_user_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let Ok(request) = serde_wasm_bindgen::from_value::<AskUserRequest>(payload) else {
             return;
         };
@@ -3853,6 +3902,7 @@ fn App() -> impl IntoView {
     });
 
     let ask_resolved_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        note_transcript_event(&payload, transcript_event_revisions);
         let Ok(resolved) = serde_wasm_bindgen::from_value::<AskUserResolved>(payload) else {
             return;
         };
@@ -5871,58 +5921,126 @@ fn App() -> impl IntoView {
             transcripts,
             running,
         );
-        let is_running = running.get().contains(&id);
         active_session.set(Some(id.clone()));
         active_branch_state.set(sessions.with_untracked(|rows| {
             rows.iter()
                 .find(|session| session.id == id)
                 .and_then(|session| session.branch_state.clone())
         }));
-        if is_running {
-            // Mid-stream: render the cached transcript immediately, but still
-            // reconcile the separately persisted Plan claim/status. This keeps
-            // session switching and restart semantics identical.
-            transcript_pages.update(|pages| {
-                pages.entry(id.clone()).or_default().window_user_start = usize::MAX;
-            });
-            restore_chat_session_scroll(&id);
-            // Still retarget the backend's viewed-session marker so uploads
-            // attach here (#194). Not `load_session`: that would overwrite the
-            // running turn's persisted seq with the DB snapshot.
-            spawn_local(async move {
-                let _ = invoke(
-                    "set_viewed_session",
-                    to_value(&serde_json::json!({ "id": id })).unwrap(),
-                )
-                .await;
-            });
-            return;
-        }
-        // Idle session: load from DB and overwrite any stale cache entry.
+        let epoch = transcript_load_epoch.get_untracked().wrapping_add(1);
+        transcript_load_epoch.set(epoch);
+        transcript_loading.set(Some(id.clone()));
+        // A running flag says nothing about this window's cache. Always hydrate;
+        // the backend drains its writer without touching execution state.
+        let hydration_buf = delta_buf.clone();
         spawn_local(async move {
-            let v = invoke(
-                "load_session",
-                to_value(&serde_json::json!({ "id": id.clone() })).unwrap(),
-            )
-            .await;
-            if let Ok(page) = serde_wasm_bindgen::from_value::<LoadedSessionPage>(v) {
-                let presentations = page.presentations.clone();
-                conversation_branches.update(|branches| {
-                    branches.insert(id.clone(), page.branches.clone());
+            let current = || {
+                transcript_load_epoch.get_untracked() == epoch
+                    && active_session.get_untracked().as_deref() == Some(id.as_str())
+            };
+            loop {
+                if !current() {
+                    return;
+                }
+                let revision = transcript_event_revisions
+                    .with_untracked(|all| all.get(&id).copied().unwrap_or_default());
+                let result = invoke_checked(
+                    "load_session",
+                    to_value(&serde_json::json!({ "id": id.clone() })).unwrap(),
+                )
+                .await
+                .map_err(js_error_text)
+                .and_then(|value| {
+                    serde_wasm_bindgen::from_value::<LoadedSessionPage>(value)
+                        .map_err(|error| error.to_string())
                 });
-                active_branch_state.set(page.branch_state.clone());
-                conversation_outlines.update(|outlines| {
-                    outlines.insert(id.clone(), page.outline.clone());
-                });
+                if !current() {
+                    return;
+                }
+                if transcript_event_revisions
+                    .with_untracked(|all| all.get(&id).copied().unwrap_or_default())
+                    != revision
+                {
+                    // Keep live rows, then retry against a snapshot that includes
+                    // the intervening events. Never replay a delta twice.
+                    wait_for_transcript_retry().await;
+                    continue;
+                }
+                let page = match result {
+                    Ok(page) => page,
+                    Err(error) => {
+                        transcript_loading.set(None);
+                        transcript_page_error.set(Some((
+                            id.clone(),
+                            tf(
+                                locale.get(),
+                                "transcript.open_failed",
+                                &[("msg", &localize_backend(locale.get(), &error))],
+                            ),
+                        )));
+                        return;
+                    }
+                };
                 let mut chats: Vec<ChatItem> =
                     page.items.into_iter().map(LoadedItem::into_chat).collect();
                 settle_question_cards(&mut chats);
-                // The session may have started a turn while this idle-page
-                // request was in flight. Its live cache/items are newer than
-                // the page snapshot, so never replace them with the stale load.
-                if running.get_untracked().contains(&id) {
-                    return;
+                // A just-submitted optimistic turn may not have reached storage
+                // yet. An empty snapshot cannot erase its visible live rows.
+                if chats.is_empty() && running.get_untracked().contains(&id) {
+                    chats = items.get_untracked();
+                } else {
+                    // Those pre-request deltas were flushed into the snapshot.
+                    hydration_buf.borrow_mut().remove(&id);
+                    // Queued sends and ACP permission cards are transient UI
+                    // rows, not part of the native persisted transcript.
+                    items.with_untracked(|rows| {
+                        chats.extend(
+                            rows.iter()
+                                .filter(|row| {
+                                    matches!(
+                                        row,
+                                        ChatItem::QueuedUser { .. }
+                                            | ChatItem::AcpPermission { .. }
+                                    )
+                                })
+                                .cloned(),
+                        );
+                    });
                 }
+                chats.retain(|row| !matches!(row, ChatItem::ApprovalPending { .. }));
+                native_approval_ids.update(|all| {
+                    all.remove(&id);
+                });
+                approval_pending.update(|all| {
+                    if chats
+                        .iter()
+                        .any(|row| matches!(row, ChatItem::AcpPermission { .. }))
+                    {
+                        all.insert(id.clone());
+                    } else {
+                        all.remove(&id);
+                    }
+                });
+                for request in page.pending_approvals {
+                    native_approval_ids.update(|all| {
+                        all.insert(id.clone(), request.approval_id);
+                    });
+                    approval_pending.update(|all| {
+                        all.insert(id.clone());
+                    });
+                    chats.push(ChatItem::ApprovalPending {
+                        tool: request.tool,
+                        preview: request.preview,
+                        message: request.message,
+                    });
+                }
+                conversation_branches.update(|all| {
+                    all.insert(id.clone(), page.branches);
+                });
+                active_branch_state.set(page.branch_state);
+                conversation_outlines.update(|all| {
+                    all.insert(id.clone(), page.outline);
+                });
                 transcript_pages.update(|pages| {
                     pages.insert(
                         id.clone(),
@@ -5934,30 +6052,20 @@ fn App() -> impl IntoView {
                         },
                     );
                 });
-                // Only repaint the view if we're still on this session — a rapid
-                // switch could have moved on while the load was in flight, and an
-                // unguarded set would clobber the newer view with stale rows (#53).
-                if active_session.get().as_deref() == Some(&id) {
-                    items.set(chats.clone());
-                    // The latest turn's tool rows are the whole verdict, so a
-                    // reload cannot revive an offline banner the turn's own
-                    // successful retrieval already answered (#887).
-                    set_browser_offline_notice(
-                        browser_offline_notice,
-                        &id,
-                        browser_offline_notice_from_items(&id, &chats),
-                    );
-                    for presentation in presentations {
-                        if presentation.presentation_kind == "mcp_app" {
-                            show_mcp_app.call((id.clone(), presentation.payload, false));
-                        }
+                set_browser_offline_notice(
+                    browser_offline_notice,
+                    &id,
+                    browser_offline_notice_from_items(&id, &chats),
+                );
+                items.set(chats);
+                transcript_loading.set(None);
+                for presentation in page.presentations {
+                    if presentation.presentation_kind == "mcp_app" {
+                        show_mcp_app.call((id.clone(), presentation.payload, false));
                     }
-                    restore_chat_session_scroll(&id);
-                } else {
-                    transcripts.update(|m| {
-                        m.insert(id.clone(), chats);
-                    });
                 }
+                restore_chat_session_scroll(&id);
+                return;
             }
         });
     });
@@ -11688,9 +11796,14 @@ fn App() -> impl IntoView {
                             }.into_view())
                         }
                     })}
+                    {move || (transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()).then(|| view! {
+                        <div class="transcript-page-control" role="status" data-testid="transcript-loading">{t(locale.get(), "transcript.open_loading")}</div>
+                    })}
                     {move || transcript_page_error.get().and_then(|(id, message)| {
                         (active_session.get().as_deref() == Some(id.as_str())).then(|| view! {
-                            <div class="transcript-page-control" role="alert">{message}</div>
+                            <div class="transcript-page-control" role="alert">{message}
+                                <button type="button" on:click=move |_| load_session.call(id.clone())>{t(locale.get(), "transcript.retry")}</button>
+                            </div>
                         })
                     })}
                     {move || active_session.get().and_then(|id| {
@@ -11740,7 +11853,7 @@ fn App() -> impl IntoView {
                             }
                         })
                     })}
-                    {move || items.with(|l| l.is_empty()).then(|| view! {
+                    {move || (items.with(|l| l.is_empty()) && !(transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()) && transcript_page_error.get().is_none_or(|(id, _)| active_session.get().as_deref() != Some(id.as_str()))).then(|| view! {
                         <div class="empty">
                             <span class="empty-logo brand-wordmark" role="img" aria-label="Wisp Science"></span>
                             <h1>{move || empty_title(locale.get(), empty_title_idx.get())}</h1>
