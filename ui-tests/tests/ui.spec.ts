@@ -4458,7 +4458,7 @@ test("Workflow library includes the Wisp-native seven-node method-search DAG", a
   await expect(studio.getByTestId("workflow-save")).toHaveText("Save as copy");
 });
 
-test("Skill Portfolio Planner uses the selected model and opens an unbudgeted editable DAG", async ({ page }) => {
+test("Workflow conversion uses the selected model and opens an unbudgeted editable DAG", async ({ page }) => {
   await enterApp(page);
   await openSettingsSection(page, "Workflows");
   const studio = page.getByTestId("workflow-studio");
@@ -4470,7 +4470,7 @@ test("Skill Portfolio Planner uses the selected model and opens an unbudgeted ed
 
   await studio.getByTestId("portfolio-planner-open").click();
   await expect(page.getByTestId("portfolio-planner-overlay")).toContainText(
-    "Convert source Skill instructions into independent nodes",
+    "Turn method documents into a reusable workflow",
   );
   await expect(page.getByTestId("portfolio-tier")).toHaveCount(0);
   await expect(page.getByTestId("portfolio-total")).toHaveCount(0);
@@ -4485,9 +4485,9 @@ test("Skill Portfolio Planner uses the selected model and opens an unbudgeted ed
     },
   });
   const card = page.getByTestId("portfolio-plan-card");
-  await expect(card).toContainText("3 tasks · 2 Skills · planned by opus-4.8");
-  await expect(card).toContainText("review instructions, tool permissions and output contracts");
-  await card.getByTestId("portfolio-edit-studio").click();
+  await expect(card).toContainText("3 nodes · 2 source methods · opus-4.8");
+  await expect(card).toContainText("Review instructions, requested permissions and output contracts");
+  await page.getByTestId("portfolio-edit-studio").click();
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(3);
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(2);
 });
@@ -16722,7 +16722,8 @@ test("independent Workflow conversion selects source methods without creating Sk
   await openSettingsSection(page, "Workflows");
   const studio=page.getByTestId("workflow-studio");
   await studio.getByTestId("portfolio-planner-open").click();
-  await page.getByTestId("portfolio-source-skill").selectOption("analysis-workflow");
+  await page.getByTestId("portfolio-source-manual").click();
+  await page.locator('[data-testid="portfolio-source-skill"][value="analysis-workflow"]').check();
   await page.getByTestId("portfolio-request").fill("Convert this method into independent roles and output contracts");
   await page.getByTestId("portfolio-generate").click();
   await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
@@ -16736,6 +16737,206 @@ test("independent Workflow conversion selects source methods without creating Sk
   expect(args.template.proposal.tasks.every((task:any) => task.skill_ids.length===0)).toBe(true);
   expect(args.template.proposal.approval_policy).toBe("review_all");
 });
+
+
+test("Workflow conversion reviews source provenance, real node contracts and multiple selected methods", async ({ page }) => {
+  await enterApp(page);
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await expect(page.getByTestId("portfolio-source-auto")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
+  await page.getByTestId("portfolio-request").fill("Produce an evidence-grounded analysis and report");
+  await page.getByTestId("portfolio-source-manual").click();
+  await expect(page.getByTestId("portfolio-source-manual")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("portfolio-source-auto")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
+  await page.getByTestId("portfolio-source-search").fill("analysis");
+  await page.getByTestId("portfolio-source-skill").check();
+  await page.getByTestId("portfolio-source-search").fill("literature");
+  await page.getByTestId("portfolio-source-skill").check();
+  await expect(page.getByTestId("portfolio-source-count")).toHaveText("2 / 8 sources selected");
+  await page.getByTestId("portfolio-generate").click();
+  await expect.poll(() => lastInvokeArgs(page, "plan_skill_portfolio")).toMatchObject({
+    request: { source_skill_ids: ["analysis-workflow", "literature-review"] },
+  });
+  const draft = page.getByTestId("portfolio-plan-card");
+  const nodes = draft.getByTestId("portfolio-review-node");
+  await expect(nodes).toHaveCount(3);
+  await expect(nodes.nth(1)).toContainText("Plan a reproducible analysis");
+  await expect(nodes.nth(1)).toContainText("code_run");
+  await expect(nodes.nth(2)).toContainText("After literature, analysis");
+  await expect(nodes.first()).toContainText("No structured output contract");
+  await expect(nodes.first()).not.toContainText("literature-review");
+  const contract = draft.getByTestId("portfolio-output-contract");
+  await contract.locator("summary").click();
+  await expect(contract.locator("pre")).toContainText('"required": [');
+  await expect(contract.locator("pre")).toContainText('"report"');
+  const sources = draft.getByTestId("portfolio-provenance");
+  await expect(sources.locator(".portfolio-tags code")).toHaveCount(2);
+  await sources.locator("summary").click();
+  await expect(sources).toContainText("fixture-conversion-source");
+  await expect.poll(() => invokeCount(page, "save_workflow_template")).toBe(0);
+  await page.getByTestId("portfolio-edit-studio").click();
+  await expect(page.getByTestId("workflow-conversion-notice")).toBeVisible();
+  await expect(page.getByTestId("workflow-name")).toHaveValue("Design an evidence-grounded oncology study");
+  await expect.poll(() => invokeCount(page, "save_workflow_template")).toBe(0);
+});
+
+test("Workflow conversion invalidates a draft when the request, model or source mode changes", async ({ page }) => {
+  await enterApp(page);
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Original research question");
+  for (const change of [
+    () => page.getByTestId("portfolio-request").fill("Updated research question"),
+    () => page.getByTestId("portfolio-model").selectOption("opus"),
+    () => page.getByTestId("portfolio-source-manual").click(),
+  ]) {
+    await page.getByTestId("portfolio-generate").click();
+    await expect(page.getByTestId("portfolio-edit-studio")).toBeVisible();
+    await change();
+    await expect(page.getByTestId("portfolio-plan-card")).toHaveCount(0);
+    await expect(page.getByTestId("portfolio-edit-studio")).toHaveCount(0);
+  }
+  await page.getByTestId("portfolio-source-skill").first().check();
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await page.getByTestId("portfolio-source-skill").nth(1).check();
+  await expect(page.getByTestId("portfolio-edit-studio")).toHaveCount(0);
+});
+
+test("Workflow conversion keeps errors inside the dialog and supports retry", async ({ page }) => {
+  await enterApp(page);
+  await page.evaluate(() => {
+    const core = (window as any).__TAURI__.core;
+    const original = core.invoke;
+    let failed = false;
+    core.invoke = async (cmd: string, args: any) => {
+      if (cmd === "plan_skill_portfolio" && !failed) {
+        failed = true;
+        throw new Error("Source contains unsupported packaged scripts");
+      }
+      return original(cmd, args);
+    };
+  });
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Convert the method");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-error")).toContainText("unsupported packaged scripts");
+  await expect(page.getByTestId("workflow-studio-error")).toHaveCount(0);
+  await expect(page.getByTestId("portfolio-edit-studio")).toHaveCount(0);
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect(page.getByTestId("portfolio-error")).toHaveCount(0);
+});
+
+test("Workflow conversion discards late responses after closing and reopening", async ({ page }) => {
+  await enterApp(page);
+  await page.evaluate(() => {
+    const core = (window as any).__TAURI__.core;
+    const original = core.invoke;
+    let delayed = false;
+    core.invoke = async (cmd: string, args: any) => {
+      const result = await original(cmd, args);
+      if (cmd === "plan_skill_portfolio" && !delayed) {
+        delayed = true;
+        return new Promise(resolve => { (window as any).__finishConversion = () => resolve(result); });
+      }
+      return result;
+    };
+  });
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Old research question");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-loading")).toBeVisible();
+  await expect(page.getByTestId("portfolio-request")).toBeDisabled();
+  await expect(page.getByTestId("portfolio-model")).toBeDisabled();
+  await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workflow-studio")).toBeVisible();
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.evaluate(() => (window as any).__finishConversion());
+  await expect(page.getByTestId("portfolio-empty")).toBeVisible();
+  await expect(page.getByTestId("portfolio-plan-card")).toHaveCount(0);
+  await page.getByTestId("portfolio-request").fill("New research question");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+});
+
+for (const missing of ["Sources", "Models"]) {
+  test(`Workflow conversion explains missing ${missing.toLowerCase()} and disables generation`, async ({ page }) => {
+    await enterApp(page, `/?mockWorkflow${missing}=none`);
+    await openSettingsSection(page, "Workflows");
+    await page.getByTestId("portfolio-planner-open").click();
+    await page.getByTestId("portfolio-request").fill("Convert a method");
+    await expect(page.getByTestId(`portfolio-no-${missing.toLowerCase()}`)).toBeVisible();
+    await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
+  });
+}
+
+test("Workflow conversion limits manual selection to eight methods", async ({ page }) => {
+  await enterApp(page, "/?mockWorkflowSources=many");
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-source-manual").click();
+  const sources = page.getByTestId("portfolio-source-skill");
+  for (let i = 0; i < 8; i++) await sources.nth(i).check();
+  await expect(sources.nth(8)).toBeDisabled();
+  await expect(sources.nth(9)).toBeDisabled();
+  await sources.first().uncheck();
+  await expect(sources.nth(8)).toBeEnabled();
+  await sources.nth(8).check();
+  await expect(page.getByTestId("portfolio-source-count")).toHaveText("8 / 8 sources selected");
+});
+
+test("Workflow conversion Escape closes the dialog before an underlying graph connection", async ({ page }) => {
+  await enterApp(page);
+  await openSettingsSection(page, "Workflows");
+  const studio = page.getByTestId("workflow-studio");
+  await studio.getByTestId("workflow-graph-connect").first().click();
+  await studio.getByTestId("portfolio-planner-open").click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("portfolio-planner-overlay")).toHaveCount(0);
+  await expect(studio.getByTestId("workflow-graph-connect-hint")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(studio.getByTestId("workflow-graph-connect-hint")).toHaveCount(0);
+  await expect(studio).toBeVisible();
+});
+
+for (const layout of [
+  { locale: "en", width: 1440, height: 900, theme: "light" },
+  { locale: "zh", width: 1100, height: 800, theme: "light" },
+  { locale: "zh", width: 640, height: 740, theme: "dark" },
+]) {
+  test(`Workflow conversion layout ${layout.locale} ${layout.width} ${layout.theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: layout.width, height: layout.height });
+    await page.goto(`/?mockLocale=${layout.locale}`);
+    await page.locator(".proj-card-main").first().click();
+    const zh = layout.locale === "zh";
+    await page.getByRole("button", { name: zh ? "设置" : "Settings", exact: true }).click();
+    await page.getByRole("button", { name: zh ? "工作流" : "Workflows", exact: true }).click();
+    await page.evaluate(theme => document.documentElement.setAttribute("data-theme", theme), layout.theme);
+    await page.getByTestId("portfolio-planner-open").click();
+    await page.getByTestId("portfolio-request").fill(zh ? "核查开放获取论文是否获得更多引用，生成带引用的证据报告。" : "Check whether open access papers receive more citations and produce an evidence report.");
+    const modal = page.getByRole("dialog");
+    await expectInsideViewport(modal, layout.width, layout.height);
+    const model = page.getByTestId("portfolio-model");
+    const inputWidth = await model.evaluate(el => el.getBoundingClientRect().width);
+    expect(inputWidth).toBeGreaterThan(300);
+    await modal.screenshot({ path: test.info().outputPath("workflow-conversion-inputs.png") });
+    await page.getByTestId("portfolio-generate").click();
+    await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+    if (layout.width <= 720) {
+      await expect.poll(() => modal.locator(".portfolio-workspace").evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+      await expectInsideViewport(modal.locator(".portfolio-draft-head"), layout.width, layout.height);
+    }
+    await expectInsideViewport(page.getByTestId("portfolio-edit-studio"), layout.width, layout.height);
+    expect(await modal.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await modal.screenshot({ path: test.info().outputPath("workflow-conversion-review.png") });
+  });
+}
 
 test("legacy Skill-bound templates require explicit conversion and keep the parent Escape layer open", async ({ page }) => {
   await enterApp(page,"/?mockLegacyWorkflow=1");
