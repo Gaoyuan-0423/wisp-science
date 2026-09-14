@@ -2607,12 +2607,18 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
               ...row, workspace_dir: String(arg("workspaceDir")), updated_at: 1,
             }));
           }
+          case "set_project_starred":
+            if ((window as any).__failProjectStar) throw new Error("Could not save project star");
+            localStorage.setItem("mock-project-star:" + arg("id"), String(arg("starred")));
+            return null;
           case "list_projects":
             return [
               ...(new URL(location.href).searchParams.get("mockCalendar") === "dense" ? Array.from({length:32}, (_, index) => ({id:`calendar-project-${index}`,name:["跨物种单细胞图谱", "水稻基因组", "转录组分析", "长期研究项目与文献证据整理"][index % 4] + ` ${index + 1}`,workspace_dir:`/mock/calendar-${index}`,session_count:0,updated_at:0,running_count:0,needs_you_count:0,sync_configured:false,last_synced_at:null})) : []),
               { id: "default", name: projectNames.default ?? project.name, workspace_dir: project.root, session_count: 0, updated_at: 1, running_count: 0, needs_you_count: 0, sync_configured: syncedProjects.has("default"), last_synced_at: syncedProjects.has("default") ? Math.floor(Date.now() / 1000) : null },
               { id: "other", name: projectNames.other ?? "Other project", workspace_dir: "/mock/other", session_count: 1, updated_at: 1, running_count: 0, needs_you_count: 0, sync_configured: syncedProjects.has("other"), last_synced_at: syncedProjects.has("other") ? Math.floor(Date.now() / 1000) : null },
-            ];
+            ].map(p => ({ ...p, starred: localStorage.getItem("mock-project-star:" + p.id) === "true" }))
+              .sort((a, b) => Number(b.starred) - Number(a.starred));
+
           case "list_recent_sessions":
             return [
               {

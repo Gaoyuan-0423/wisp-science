@@ -2727,8 +2727,10 @@ pub struct ProjectInfo {
     pub memory_file_count: usize,
 }
 
-#[derive(Clone, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectSummary {
+    #[serde(default)]
+    pub starred: bool,
     pub id: String,
     pub name: String,
     #[serde(default)]

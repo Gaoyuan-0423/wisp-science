@@ -4557,6 +4557,7 @@ async fn store_open_records_migrations_and_seeds_local_context() {
             SESSION_SERVICE_TIER_MIGRATION.to_string(),
             RESEARCH_JOURNAL_MIGRATION.to_string(),
             EXPLORATION_HISTORY_MIGRATION.to_string(),
+            PROJECT_STARS_MIGRATION.to_string(),
         ]
     );
     let first_open_migrations = store.schema_migrations().await.unwrap();
@@ -9518,4 +9519,59 @@ async fn research_journey_notes_follow_exploration_baseline_and_export() {
     for file in [path, archive, target_path] {
         let _ = std::fs::remove_file(file);
     }
+}
+
+#[tokio::test]
+async fn project_star_persists_and_preserves_recency() {
+    let tmp = std::env::temp_dir().join(format!("wisp_star_{}.sqlite", uuid::Uuid::new_v4()));
+    let store = Store::open(&tmp).await.unwrap();
+    store.create_project("old", "Old", "").await.unwrap();
+    store.create_project("new", "New", "").await.unwrap();
+    sqlx::query("UPDATE projects SET updated_at=CASE id WHEN 'old' THEN 10 ELSE 20 END")
+        .execute(&store.pool)
+        .await
+        .unwrap();
+    assert!(store.starred_project_ids().await.unwrap().is_empty());
+    store.set_project_starred("old", true).await.unwrap();
+    store.set_project_starred("old", true).await.unwrap();
+    let rows = store.list_projects().await.unwrap();
+    assert_eq!(rows[0].0, "old");
+    assert_eq!(rows[0].4, 10);
+    store.set_project_starred("new", true).await.unwrap();
+    assert_eq!(store.list_projects().await.unwrap()[0].0, "new");
+    store.set_project_starred("new", false).await.unwrap();
+    store.pool.close().await;
+    let store = Store::open(&tmp).await.unwrap();
+    assert!(store.starred_project_ids().await.unwrap().contains("old"));
+    assert_eq!(store.list_projects().await.unwrap()[0].0, "old");
+    store.set_project_starred("old", false).await.unwrap();
+    assert_eq!(store.list_projects().await.unwrap()[0].0, "new");
+    assert!(store.set_project_starred("missing", true).await.is_err());
+    store
+        .create_project("scratch:test", "Scratch", "")
+        .await
+        .unwrap();
+    assert!(store
+        .set_project_starred("scratch:test", true)
+        .await
+        .is_err());
+    // Simulate an older database and rerun the idempotent migration.
+    sqlx::query("ALTER TABLE projects DROP COLUMN starred")
+        .execute(&store.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM wisp_schema_migrations WHERE version=?")
+        .bind(PROJECT_STARS_MIGRATION)
+        .execute(&store.pool)
+        .await
+        .unwrap();
+    store.pool.close().await;
+    let store = Store::open(&tmp).await.unwrap();
+    Store::migrate(&store.pool).await.unwrap();
+    assert!(store.starred_project_ids().await.unwrap().is_empty());
+    store.set_project_starred("old", true).await.unwrap();
+    store.delete_project("old").await.unwrap();
+    assert!(store.starred_project_ids().await.unwrap().is_empty());
+    store.pool.close().await;
+    let _ = std::fs::remove_file(tmp);
 }

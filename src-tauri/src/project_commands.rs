@@ -100,6 +100,19 @@ pub(super) async fn get_research_journey_source(
 }
 
 #[tauri::command]
+pub(super) async fn set_project_starred(
+    state: State<'_, AppState>,
+    id: String,
+    starred: bool,
+) -> Result<(), String> {
+    state
+        .store
+        .set_project_starred(&id, starred)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub(super) async fn list_projects(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProjectSummary>, String> {
@@ -110,6 +123,11 @@ pub(super) async fn list_projects(
         .list_projects()
         .await
         .map_err(|e| format!("{e}"))?;
+    let starred = state
+        .store
+        .starred_project_ids()
+        .await
+        .map_err(|e| e.to_string())?;
     let mut out = vec![];
     for (id, name, ws, _c, upd, cnt, desc, art) in rows {
         let (running_count, needs_you_count) =
@@ -119,6 +137,7 @@ pub(super) async fn list_projects(
             .as_ref()
             .is_some_and(|state| state.base_revision.is_some());
         out.push(ProjectSummary {
+            starred: starred.contains(&id),
             id,
             name,
             description: desc,
@@ -1058,6 +1077,7 @@ mod tests {
             std::env::temp_dir().join(format!("wisp_workspace_ids_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let summary = |id: &str, path: &Path, count: i64| super::ProjectSummary {
+            starred: false,
             id: id.into(),
             name: "Same name".into(),
             description: String::new(),

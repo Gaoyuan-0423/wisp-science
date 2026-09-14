@@ -54,7 +54,28 @@ impl Store {
         Ok(())
     }
 
-    /// All projects, newest-updated first, each with its session count
+    /// Set a local pin without changing the project's activity timestamp.
+    pub async fn set_project_starred(&self, id: &str, starred: bool) -> Result<()> {
+        let result =
+            sqlx::query("UPDATE projects SET starred=? WHERE id=? AND id NOT LIKE 'scratch:%'")
+                .bind(starred)
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        anyhow::ensure!(result.rows_affected() == 1, "Project not found");
+        Ok(())
+    }
+
+    pub async fn starred_project_ids(&self) -> Result<std::collections::HashSet<String>> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM projects WHERE starred=1 AND id NOT LIKE 'scratch:%'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(ids.into_iter().collect())
+    }
+
+    /// All projects, starred first then newest-updated first, each with its session count
     /// (root frames with a user turn or an explicit title — matches
     /// `list_sessions_page`, #888) and artifact count.
     pub async fn list_projects(
@@ -71,7 +92,7 @@ impl Store {
                        AND a.exploration_id IS NULL) AS artifacts \
              FROM projects p \
              WHERE p.id NOT LIKE 'scratch:%' \
-             ORDER BY p.updated_at DESC, p.rowid DESC",
+             ORDER BY p.starred DESC, p.updated_at DESC, p.rowid DESC",
             listable = SESSION_IS_LISTABLE_SQL,
         );
         let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;

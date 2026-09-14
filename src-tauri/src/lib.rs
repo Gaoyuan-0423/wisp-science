@@ -1063,20 +1063,7 @@ struct FolderInfo {
     name: String,
 }
 
-#[derive(Serialize, Clone)]
-struct ProjectSummary {
-    id: String,
-    name: String,
-    description: String,
-    workspace_dir: String,
-    session_count: i64,
-    artifact_count: i64,
-    updated_at: i64,
-    running_count: i64,
-    needs_you_count: i64,
-    sync_configured: bool,
-    last_synced_at: Option<i64>,
-}
+use wisp_dto::ProjectSummary;
 
 async fn build_project_summary(state: &AppState, id: &str) -> ProjectSummary {
     let running = state.running_turns.lock().await.clone();
@@ -1089,6 +1076,7 @@ async fn build_project_summary(state: &AppState, id: &str) -> ProjectSummary {
         .and_then(|v| v.into_iter().find(|r| r.0 == id))
     else {
         return ProjectSummary {
+            starred: false,
             id: id.into(),
             name: String::new(),
             description: String::new(),
@@ -1109,6 +1097,12 @@ async fn build_project_summary(state: &AppState, id: &str) -> ProjectSummary {
         .as_ref()
         .is_some_and(|state| state.base_revision.is_some());
     ProjectSummary {
+        starred: state
+            .store
+            .starred_project_ids()
+            .await
+            .unwrap_or_default()
+            .contains(&id),
         id,
         name,
         description: desc,
@@ -7516,6 +7510,7 @@ pub fn run() {
             session_commands::list_recent_sessions,
             session_commands::latest_used_session,
             project_commands::list_projects,
+            project_commands::set_project_starred,
             project_commands::list_workspace_projects,
             app_commands::pick_directory,
             app_commands::pick_executable_file,

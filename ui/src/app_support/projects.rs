@@ -28,6 +28,7 @@ pub(crate) fn ProjectsScreen(
     menu_import_project: RwSignal<bool>,
 ) -> impl IntoView {
     let projects = create_rw_signal(Vec::<ProjectSummary>::new());
+    let starring_projects = create_rw_signal(HashSet::<String>::new());
     let recent = create_rw_signal(Vec::<RecentSession>::new());
     let artifact_hits = create_rw_signal(Vec::<ArtifactInfo>::new());
     let search_open = create_rw_signal(false);
@@ -1258,15 +1259,6 @@ pub(crate) fn ProjectsScreen(
             <div class="projects-cols" prop:inert=move ||calendar_open.get()>
                 <div class="projects-col">
                     <h2>{move || t(locale.get(), "projects.title")}</h2>
-                    <button type="button" class="proj-card proj-example" on:click=move |_| on_open_demo.call(())>
-                        <div>
-                            <div class="pc-name">
-                                {move || t(locale.get(), "projects.example")}
-                                <span class="pc-tag">{move || t(locale.get(), "projects.example_tag")}</span>
-                            </div>
-                            <div class="pc-meta">{move || tf(locale.get(), "projects.sessions_n", &[("n", &demo_count.get().to_string())])}</div>
-                        </div>
-                    </button>
                     {move || {
                         let loc = locale.get();
                         let list = projects
@@ -1275,10 +1267,10 @@ pub(crate) fn ProjectsScreen(
                             .filter(|project| !project_is_hidden(&project.id))
                             .collect::<Vec<_>>();
                         let show_sync_actions = sync_actions_available.get();
-                        if list.is_empty() && !creating.get() {
-                            return view! {}.into_view();
-                        }
-                        list.into_iter().map(|p| {
+                        let pinned_count = list.iter().take_while(|p| p.starred).count();
+                        let mut cards = list.into_iter().map(|p| {
+                            let id_star = p.id.clone();
+                            let id_star_busy = p.id.clone();
                             let id_open = p.id.clone();
                             let id_open_locked = p.id.clone();
                             let id_card_locked = p.id.clone();
@@ -1313,7 +1305,7 @@ pub(crate) fn ProjectsScreen(
                                 None
                             };
                             view! {
-                                <div class="proj-card"
+                                <div class="proj-card" class:project-starred=p.starred
                                     class:project-exporting=move || project_transfer.get().is_some_and(|transfer| transfer.is_exporting_project(&id_card_locked))>
                                     <button type="button" class="proj-card-main"
                                         disabled=move || project_transfer.get().is_some_and(|transfer| transfer.is_exporting_project(&id_open_locked))
@@ -1347,6 +1339,27 @@ pub(crate) fn ProjectsScreen(
                                     </div>
                                     </button>
                                     <div class="pc-actions">
+                                    <button type="button" class="pc-star" data-testid="project-card-star"
+                                        class:starred=p.starred
+                                        aria-pressed=p.starred.to_string()
+                                        title=t(loc, if p.starred { "projects.unstar" } else { "projects.star" })
+                                        aria-label=t(loc, if p.starred { "projects.unstar" } else { "projects.star" })
+                                        disabled=move || starring_projects.with(|ids| ids.contains(&id_star_busy))
+                                        on:click=move |e| {
+                                            e.stop_propagation();
+                                            let id = id_star.clone();
+                                            if starring_projects.with_untracked(|ids| ids.contains(&id)) { return; }
+                                            starring_projects.update(|ids| { ids.insert(id.clone()); });
+                                            open_error.set(None);
+                                            spawn_local(async move {
+                                                let args = to_value(&serde_json::json!({"id": id, "starred": !p.starred})).unwrap();
+                                                match invoke_checked("set_project_starred", args).await {
+                                                    Ok(_) => reload(),
+                                                    Err(error) => open_error.set(Some(localize_backend(locale.get_untracked(), &js_error_text(error)))),
+                                                }
+                                                starring_projects.update(|ids| { ids.remove(&id); });
+                                            });
+                                        }>{compose_icon(if p.starred { "star-filled" } else { "star" })}</button>
                                     <button type="button" class="pc-settings" data-testid="project-card-settings"
                                         title=t(loc, "projects.settings")
                                         aria-label=t(loc, "projects.settings")
@@ -1476,7 +1489,19 @@ pub(crate) fn ProjectsScreen(
                                     </div>
                                 </div>
                             }
-                        }).collect_view()
+                        }).map(IntoView::into_view).collect::<Vec<_>>();
+                        cards.insert(pinned_count, view! {
+                            <button type="button" class="proj-card proj-example" on:click=move |_| on_open_demo.call(())>
+                                <div>
+                                    <div class="pc-name">
+                                        {move || t(locale.get(), "projects.example")}
+                                        <span class="pc-tag">{move || t(locale.get(), "projects.example_tag")}</span>
+                                    </div>
+                                    <div class="pc-meta">{move || tf(locale.get(), "projects.sessions_n", &[("n", &demo_count.get().to_string())])}</div>
+                                </div>
+                            </button>
+                        }.into_view());
+                        cards.collect_view()
                     }}
                 </div>
                 <div class="projects-col">

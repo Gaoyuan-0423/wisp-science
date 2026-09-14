@@ -717,3 +717,15 @@ fn native_approval_snapshot_and_resolution_share_the_request_contract() {
     .unwrap();
     assert!(legacy.pending_approvals.is_empty());
 }
+
+#[test]
+fn project_summary_star_defaults_for_older_payloads_and_roundtrips() {
+    let legacy = json!({"id": "p", "name": "Project"});
+    let mut summary: wisp_dto::ProjectSummary = serde_json::from_value(legacy).unwrap();
+    assert!(!summary.starred);
+    summary.starred = true;
+    let payload = serde_json::to_value(&summary).unwrap();
+    assert_eq!(payload["starred"], true);
+    let decoded: wisp_dto::ProjectSummary = serde_json::from_value(payload).unwrap();
+    assert!(decoded.starred);
+}
