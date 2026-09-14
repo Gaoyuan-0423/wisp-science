@@ -104,7 +104,7 @@ button.proj-card { width: 100%; padding: 16px 18px; color: var(--text); font: in
 /* Card actions share one uniform 28px box with a 16px compose_icon glyph so the
    cluster reads as a single aligned row (previously padding-sized boxes made the
    icons look uneven). */
-.proj-card .pc-del, .proj-card .pc-window, .proj-card .pc-export, .proj-card .pc-settings, .proj-card .pc-sync, .proj-card .pc-sync-code {
+.proj-card .pc-star, .proj-card .pc-del, .proj-card .pc-window, .proj-card .pc-export, .proj-card .pc-settings, .proj-card .pc-sync, .proj-card .pc-sync-code {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; flex: 0 0 auto;
   opacity: .58; color: var(--text-faint); background: none; border: 0; border-radius: var(--radius-xs); cursor: pointer;
@@ -352,3 +352,8 @@ body:has(.window-titlebar) .conversation-search-dialog { max-height: min(660px, 
 }
 
 .library-text { padding: 14px 16px; border-radius: var(--radius-sm); background: var(--bg-sunken); font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text); overflow: auto; min-height: 0; }
+
+.proj-card .pc-star { opacity: 1; }
+.proj-card .pc-star.starred { color: var(--clay); }
+.proj-card .pc-star:hover { color: var(--clay); background: var(--surface-hover); }
+.proj-card .pc-star:disabled { cursor: wait; opacity: .35; }

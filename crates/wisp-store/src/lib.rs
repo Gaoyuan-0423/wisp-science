@@ -177,6 +177,7 @@ const RUN_REVIEW_DISMISSED_MIGRATION: &str = "0052_run_review_dismissed";
 const SESSION_SERVICE_TIER_MIGRATION: &str = "0053_session_service_tier";
 const RESEARCH_JOURNAL_MIGRATION: &str = "0054_research_journal";
 const EXPLORATION_HISTORY_MIGRATION: &str = "0055_exploration_history";
+const PROJECT_STARS_MIGRATION: &str = "0056_project_stars";
 
 #[derive(Clone)]
 pub struct Store {
@@ -733,6 +734,16 @@ impl Store {
             sqlx::query("UPDATE exploration_checkpoints SET source_ui_event_head_seq=source_ui_event_seq WHERE source_ui_event_head_seq IS NULL")
                 .execute(pool).await?;
             Self::record_migration(pool, EXPLORATION_HISTORY_MIGRATION).await?;
+        }
+
+        if !Self::migration_applied(pool, PROJECT_STARS_MIGRATION).await? {
+            Self::add_columns_if_missing(
+                pool,
+                "projects",
+                &[("starred", "INTEGER NOT NULL DEFAULT 0")],
+            )
+            .await?;
+            Self::record_migration(pool, PROJECT_STARS_MIGRATION).await?;
         }
 
         // Re-apply additive DDL even when a migration marker is already

@@ -16782,3 +16782,30 @@ test("Workflow child confirmation cleanup cannot dismiss a newer owner request",
   await emitTauriEvent(page,"confirm-resolved",{frame_id:"s-model-a",approval_id:"child-2",tool:"run_in_context",preview:"",message:""});
   await expect(page.getByRole("button",{name:"Deny",exact:true})).toHaveCount(0);
 });
+
+test("project star pins above examples, survives reload, and can be removed", async ({ page }) => {
+  await page.goto("/");
+  const other = page.locator(".proj-card:not(.proj-example)", { hasText: "Other project" });
+  const star = other.getByTestId("project-card-star");
+  await expect(star).toHaveAttribute("aria-pressed", "false");
+  await star.click();
+  await expect(star).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".projects-col").first().locator(".proj-card").first()).toContainText("Other project");
+  await expect.poll(() => lastInvokeArgs(page, "open_project")).toBeNull();
+  await page.reload();
+  await expect(star).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".projects-col").first().locator(".proj-card").first()).toContainText("Other project");
+  await star.click();
+  await expect(star).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".proj-card:not(.proj-example)").first()).not.toContainText("Other project");
+});
+
+test("project star save failure leaves ordering and state unchanged", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => { (window as any).__failProjectStar = true; });
+  const other = page.locator(".proj-card:not(.proj-example)", { hasText: "Other project" });
+  await other.getByTestId("project-card-star").click();
+  await expect(page.getByRole("alert")).toContainText("Could not save project star");
+  await expect(other.getByTestId("project-card-star")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".proj-card:not(.proj-example)").first()).not.toContainText("Other project");
+});
