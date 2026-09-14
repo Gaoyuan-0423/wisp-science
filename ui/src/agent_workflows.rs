@@ -2805,10 +2805,47 @@ pub(super) fn workflow_studio(
     let portfolio_model_id = create_rw_signal(String::new());
     let portfolio_draft = create_rw_signal::<Option<SkillPortfolioDraft>>(None);
     let portfolio_loading = create_rw_signal(false);
-    let portfolio_source = create_rw_signal(String::new());
+    let portfolio_sources = create_rw_signal::<Vec<String>>(vec![]);
+    let portfolio_auto_sources = create_rw_signal(true);
+    let portfolio_source_search = create_rw_signal(String::new());
+    let portfolio_error = create_rw_signal::<Option<String>>(None);
+    let portfolio_generation = create_rw_signal(0_u64);
+    let portfolio_review_ref = create_node_ref::<html::Div>();
     let portfolio_legacy_template = create_rw_signal::<Option<String>>(None);
     let portfolio_legacy_workflow = create_rw_signal::<Option<String>>(None);
     let conversion_source_sha256 = create_rw_signal::<Option<String>>(None);
+    let portfolio_legacy = create_memo(move |_| {
+        portfolio_legacy_template.get().is_some() || portfolio_legacy_workflow.get().is_some()
+    });
+    let portfolio_ready = create_memo(move |_| {
+        !portfolio_request.get().trim().is_empty()
+            && state
+                .options
+                .get()
+                .models
+                .iter()
+                .any(|model| model.id == portfolio_model_id.get())
+            && (portfolio_legacy.get()
+                || (!state.options.get().skills.is_empty()
+                    && (portfolio_auto_sources.get() || !portfolio_sources.get().is_empty())))
+    });
+    // A draft belongs to the exact conversion inputs and open dialog instance.
+    // Closing/reopening or editing inputs must never apply an older response.
+    create_effect(move |_| {
+        let _inputs = (
+            portfolio_open.get(),
+            portfolio_request.get(),
+            portfolio_model_id.get(),
+            portfolio_sources.get(),
+            portfolio_auto_sources.get(),
+            portfolio_legacy_template.get(),
+            portfolio_legacy_workflow.get(),
+        );
+        portfolio_generation.update(|generation| *generation += 1);
+        portfolio_draft.set(None);
+        portfolio_error.set(None);
+        portfolio_loading.set(false);
+    });
     let legacy_form = create_memo(move |_| {
         state.dynamic_form.with(|form| {
             form.tasks
@@ -2837,14 +2874,14 @@ pub(super) fn workflow_studio(
     });
 
     // Escape stack for the studio surface (registered while Workflows is open):
-    // cancel in-progress connect → close portfolio planner → leave studio.
+    // close conversion dialog → cancel in-progress connect → leave studio.
     window_capture_escape(move || {
-        if connect_from_key.get_untracked().is_some() {
-            connect_from_key.set(None);
-            return true;
-        }
         if portfolio_open.get_untracked() {
             portfolio_open.set(false);
+            return true;
+        }
+        if connect_from_key.get_untracked().is_some() {
+            connect_from_key.set(None);
             return true;
         }
         on_back.call(());
@@ -2868,10 +2905,13 @@ pub(super) fn workflow_studio(
     });
 
     let generate_portfolio = move |_| {
+        if portfolio_loading.get_untracked() {
+            return;
+        }
         let request_text = portfolio_request.get_untracked().trim().to_string();
         let model_id = portfolio_model_id.get_untracked();
-        if request_text.is_empty() || model_id.is_empty() {
-            state.error.set(Some(
+        if !portfolio_ready.get_untracked() {
+            portfolio_error.set(Some(
                 t(
                     locale.get_untracked(),
                     "workflow_studio.portfolio.validation",
@@ -2880,23 +2920,50 @@ pub(super) fn workflow_studio(
             ));
             return;
         }
+        portfolio_error.set(None);
+        portfolio_draft.set(None);
         portfolio_loading.set(true);
+        let generation = portfolio_generation.get_untracked();
         let args = serde_json::json!({"request":SkillPortfolioRequest {
             request:request_text,model_id,
-            source_skill_ids:nonempty(&portfolio_source.get_untracked()).into_iter().collect(),
+            source_skill_ids:if portfolio_auto_sources.get_untracked() || portfolio_legacy.get_untracked() {
+                vec![]
+            } else {
+                portfolio_sources.get_untracked()
+            },
             legacy_template_id:portfolio_legacy_template.get_untracked(),
             legacy_workflow_id:portfolio_legacy_workflow.get_untracked(),
         }});
         spawn_local(async move {
-            match invoke_checked("plan_skill_portfolio", to_value(&args).unwrap()).await {
+            let result = invoke_checked("plan_skill_portfolio", to_value(&args).unwrap()).await;
+            if portfolio_generation.try_get_untracked() != Some(generation) {
+                return;
+            }
+            match result {
                 Ok(value) => match serde_wasm_bindgen::from_value::<SkillPortfolioDraft>(value) {
                     Ok(draft) => {
                         portfolio_draft.set(Some(draft));
-                        state.error.set(None);
+                        portfolio_error.set(None);
+                        // In stacked windows the review is below the inputs.
+                        // Bring the new draft into view once it has rendered.
+                        request_animation_frame(move || {
+                            if portfolio_generation.try_get_untracked() != Some(generation) {
+                                return;
+                            }
+                            let narrow = web_sys::window()
+                                .and_then(|window| window.inner_width().ok())
+                                .and_then(|width| width.as_f64())
+                                .is_some_and(|width| width <= 720.0);
+                            if narrow {
+                                if let Some(review) = portfolio_review_ref.get_untracked() {
+                                    review.scroll_into_view_with_bool(true);
+                                }
+                            }
+                        });
                     }
-                    Err(error) => state.error.set(Some(error.to_string())),
+                    Err(error) => portfolio_error.set(Some(error.to_string())),
                 },
-                Err(error) => state.error.set(Some(js_error_text(error))),
+                Err(error) => portfolio_error.set(Some(js_error_text(error))),
             }
             portfolio_loading.set(false);
         });
@@ -3070,7 +3137,8 @@ pub(super) fn workflow_studio(
                 <div class="workflow-studio-library-actions">
                     <button type="button" class="settings-add-btn" data-testid="workflow-new"
                         on:click=start_new>
-                        {move || format!("+ {}", t(locale.get(), "workflow_studio.new"))}
+                        {compose_icon("plus")}
+                        {move || t(locale.get(), "workflow_studio.new")}
                     </button>
                     <button type="button" class="settings-add-btn" data-testid="portfolio-planner-open"
                         on:click=move |_| {
@@ -3078,6 +3146,7 @@ pub(super) fn workflow_studio(
                             portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
                             portfolio_open.set(true);
                         }>
+                        {compose_icon("branch")}
                         {move || t(locale.get(), "workflow_studio.plan_from_skills")}
                     </button>
                 </div>
@@ -3205,10 +3274,16 @@ pub(super) fn workflow_studio(
                         <button type="button" class="agents-secondary" data-testid="workflow-reconvert"
                             on:click=move |_| {
                                 portfolio_legacy_template.set(selected_template_id.get_untracked());
-                                portfolio_legacy_workflow.set(None);portfolio_source.set(String::new());
+                                portfolio_legacy_workflow.set(None);portfolio_sources.set(vec![]);
                                 portfolio_request.set(state.dynamic_form.get_untracked().goal);
                                 portfolio_draft.set(None);portfolio_open.set(true);
                             }>{compose_icon("branch")}{move || t(locale.get(),"workflow_studio.reconvert")}</button>
+                    </div>
+                </Show>
+                <Show when=move || conversion_source_sha256.get().is_some()>
+                    <div class="workflow-conversion-notice" data-testid="workflow-conversion-notice">
+                        {compose_icon("branch")}
+                        <span>{move || t(locale.get(), "workflow_studio.portfolio.editor_notice")}</span>
                     </div>
                 </Show>
                 <details class="workflow-studio-config" data-testid="workflow-studio-config">
@@ -3325,180 +3400,280 @@ pub(super) fn workflow_studio(
                 })}
             </form>
             {move || portfolio_open.get().then(|| view! {
-                <div class="overlay" role="presentation" data-testid="portfolio-planner-overlay"
+                <div class="overlay portfolio-planner-overlay" role="presentation" data-testid="portfolio-planner-overlay"
                     on:click=move |_| portfolio_open.set(false)>
                     <div class="modal portfolio-planner-modal" role="dialog" aria-modal="true"
-                        aria-labelledby="portfolio-planner-title"
+                        aria-labelledby="portfolio-planner-title" aria-describedby="portfolio-planner-description"
                         on:click=move |event| event.stop_propagation()>
                         <div class="ps-head">
-                            <h2 id="portfolio-planner-title">
-                                {move || t(locale.get(), "workflow_studio.portfolio.title")}
-                            </h2>
+                            <div>
+                                <h2 id="portfolio-planner-title">{move || t(locale.get(), "workflow_studio.portfolio.title")}</h2>
+                                <p id="portfolio-planner-description" class="hint">{move || t(locale.get(), "workflow_studio.portfolio.subtitle")}</p>
+                            </div>
                             <button type="button" class="ps-close"
                                 title=move || t(locale.get(), "workflow_studio.portfolio.close")
                                 aria-label=move || t(locale.get(), "workflow_studio.portfolio.close")
-                                on:click=move |_| portfolio_open.set(false)>
-                                {compose_icon("close")}
-                            </button>
+                                on:click=move |_| portfolio_open.set(false)>{compose_icon("close")}</button>
                         </div>
-                        <p class="hint">
-                            {move || t(locale.get(), "workflow_studio.portfolio.subtitle")}
-                        </p>
-                        <label>
-                            {move || t(locale.get(), "workflow_studio.portfolio.request")}
-                            <textarea data-testid="portfolio-request"
-                                prop:value=move || portfolio_request.get()
-                                on:input=move |event| portfolio_request.set(event_target_value(&event))></textarea>
-                        </label>
-                        <label>
-                            {move || t(locale.get(),"workflow_studio.source_skill")}
-                            <select data-testid="portfolio-source-skill" disabled=move || portfolio_loading.get() || portfolio_legacy_template.get().is_some() || portfolio_legacy_workflow.get().is_some()
-                                on:change=move |event|portfolio_source.set(dom_value(&event))>
-                                <option value="" prop:selected=move || portfolio_source.get().is_empty()>{move || t(locale.get(),"workflow_studio.source_auto")}</option>
-                                <For each=move || state.options.get().skills key=|skill|skill.id.clone() children=move |skill| {
-                                    let id=skill.id.clone();
-                                    view! {<option value=skill.id prop:selected=move || portfolio_source.get()==id>{skill.name}</option>}
-                                }/>
-                            </select>
-                        </label>
-                        <div class="portfolio-planner-fields">
-                            <label>
-                                {move || t(locale.get(), "workflow_studio.portfolio.model")}
-                                <select data-testid="portfolio-model"
+                        <ol class="portfolio-steps" aria-label=move || t(locale.get(), "workflow_studio.portfolio.steps")>
+                            <li class:active=move || !portfolio_loading.get() && portfolio_draft.get().is_none()
+                                aria-current=move || (!portfolio_loading.get() && portfolio_draft.get().is_none()).then_some("step")>
+                                <span>"1"</span>{move || t(locale.get(), "workflow_studio.portfolio.step_source")}
+                            </li>
+                            <li class:active=move || portfolio_loading.get()
+                                aria-current=move || portfolio_loading.get().then_some("step")>
+                                <span>"2"</span>{move || t(locale.get(), "workflow_studio.portfolio.step_convert")}
+                            </li>
+                            <li class:active=move || portfolio_draft.get().is_some()
+                                aria-current=move || portfolio_draft.get().is_some().then_some("step")>
+                                <span>"3"</span>{move || t(locale.get(), "workflow_studio.portfolio.step_review")}
+                            </li>
+                        </ol>
+                        <div class="portfolio-workspace">
+                            <div class="portfolio-inputs">
+                                <label for="portfolio-request">{move || t(locale.get(), "workflow_studio.portfolio.request")}</label>
+                                <textarea id="portfolio-request" data-testid="portfolio-request"
+                                    disabled=move || portfolio_loading.get()
+                                    placeholder=move || t(locale.get(), "workflow_studio.portfolio.request_hint")
+                                    prop:value=move || portfolio_request.get()
+                                    on:input=move |event| portfolio_request.set(event_target_value(&event))></textarea>
+                                <fieldset class="portfolio-source-field" disabled=move || portfolio_loading.get()>
+                                    <legend>{move || t(locale.get(), "workflow_studio.source_skill")}</legend>
+                                    <Show when=move || portfolio_legacy.get() fallback=move || view! {
+                                        <div class="portfolio-source-modes">
+                                            <button type="button" data-testid="portfolio-source-auto"
+                                                aria-pressed=move || portfolio_auto_sources.get().to_string()
+                                                on:click=move |_| portfolio_auto_sources.set(true)>
+                                                {compose_icon("sparkles")}{move || t(locale.get(), "workflow_studio.portfolio.source_auto")}
+                                            </button>
+                                            <button type="button" data-testid="portfolio-source-manual"
+                                                aria-pressed=move || (!portfolio_auto_sources.get()).to_string()
+                                                on:click=move |_| portfolio_auto_sources.set(false)>
+                                                {compose_icon("book")}{move || t(locale.get(), "workflow_studio.portfolio.source_manual")}
+                                            </button>
+                                        </div>
+                                        <Show when=move || portfolio_auto_sources.get() fallback=move || view! {
+                                            <label class="portfolio-source-search">
+                                                <span>{move || t(locale.get(), "workflow_studio.portfolio.source_search")}</span>
+                                                <input type="search" data-testid="portfolio-source-search"
+                                                    prop:value=move || portfolio_source_search.get()
+                                                    on:input=move |event| portfolio_source_search.set(event_target_value(&event)) />
+                                            </label>
+                                            <div class="portfolio-source-list" data-testid="portfolio-source-list">
+                                                <For each=move || {
+                                                    let query = portfolio_source_search.get().to_lowercase();
+                                                    state.options.get().skills.into_iter().filter(|skill| {
+                                                        skill.name.to_lowercase().contains(&query) || skill.id.to_lowercase().contains(&query)
+                                                    }).collect::<Vec<_>>()
+                                                } key=|skill| skill.id.clone() children=move |skill| {
+                                                    let id = skill.id.clone();
+                                                    let checked_id = id.clone();
+                                                    let disabled_id = id.clone();
+                                                    view! {
+                                                        <label class="portfolio-source-option">
+                                                            <input type="checkbox" data-testid="portfolio-source-skill" value=skill.id
+                                                                prop:checked=move || portfolio_sources.get().contains(&checked_id)
+                                                                disabled=move || { portfolio_sources.get().len() >= 8 && !portfolio_sources.get().contains(&disabled_id) }
+                                                                on:change=move |event| {
+                                                                    let checked = event_target_checked(&event);
+                                                                    portfolio_sources.update(|sources| {
+                                                                        if checked && sources.len() < 8 && !sources.contains(&id) { sources.push(id.clone()); }
+                                                                        if !checked { sources.retain(|source| source != &id); }
+                                                                    });
+                                                                } />
+                                                            <span>{skill.name}</span>
+                                                        </label>
+                                                    }
+                                                } />
+                                                <Show when=move || {
+                                                    let query = portfolio_source_search.get().to_lowercase();
+                                                    !state.options.get().skills.iter().any(|skill| skill.name.to_lowercase().contains(&query) || skill.id.to_lowercase().contains(&query))
+                                                }><p class="hint">{move || t(locale.get(), "workflow_studio.portfolio.source_no_match")}</p></Show>
+                                            </div>
+                                            <p class="hint" data-testid="portfolio-source-count">{move || tf(locale.get(), "workflow_studio.portfolio.source_count", &[("count", &portfolio_sources.get().len().to_string())])}</p>
+                                        }>
+                                            <p class="hint">{move || t(locale.get(), "workflow_studio.portfolio.source_auto_help")}</p>
+                                        </Show>
+                                        <Show when=move || state.options.get().skills.is_empty()>
+                                            <p class="portfolio-notice" data-testid="portfolio-no-sources">{move || t(locale.get(), "workflow_studio.portfolio.no_sources")}</p>
+                                        </Show>
+                                    }>
+                                        <p class="portfolio-notice" data-testid="portfolio-legacy-source">{move || t(locale.get(), "workflow_studio.portfolio.legacy_source")}</p>
+                                    </Show>
+                                    <p class="hint portfolio-source-support">{move || t(locale.get(), "workflow_studio.portfolio.source_support")}</p>
+                                </fieldset>
+                                <label for="portfolio-model">{move || t(locale.get(), "workflow_studio.portfolio.model")}</label>
+                                <select id="portfolio-model" data-testid="portfolio-model"
                                     disabled=move || portfolio_loading.get()
                                     on:change=move |event| portfolio_model_id.set(dom_value(&event))>
                                     <For each=move || state.options.get().models key=|model| model.id.clone()
                                         children=move |model_option| {
                                             let id = model_option.id.clone();
                                             let selected_id = id.clone();
-                                            let label = models.get().into_iter()
-                                                .find(|model| model.id == id)
-                                                .map(|model| model.label)
-                                                .unwrap_or_else(|| id.clone());
+                                            let label = models.get().into_iter().find(|model| model.id == id)
+                                                .map(|model| model.label).unwrap_or_else(|| id.clone());
                                             let display_label = if model_option.external {
-                                                tf(
-                                                    locale.get_untracked(),
-                                                    "workflow_studio.portfolio.model_external",
-                                                    &[("model", &label)],
-                                                )
-                                            } else {
-                                                label
-                                            };
-                                            view! {
-                                                <option value=id prop:selected=move || portfolio_model_id.get() == selected_id>
-                                                    {display_label}
-                                                </option>
-                                            }
+                                                tf(locale.get_untracked(), "workflow_studio.portfolio.model_external", &[("model", &label)])
+                                            } else { label };
+                                            view! {<option value=id prop:selected=move || portfolio_model_id.get() == selected_id>{display_label}</option>}
                                         }
                                     />
                                     {move || state.options.get().models.is_empty().then(|| view! {
-                                        <option value="">
-                                            {move || t(locale.get(), "workflow_studio.portfolio.no_models")}
-                                        </option>
+                                        <option value="">{move || t(locale.get(), "workflow_studio.portfolio.no_models")}</option>
                                     })}
                                 </select>
-                            </label>
-                        </div>
-                        {move || portfolio_draft.get().map(|draft| {
-                            let plan = draft.plan.clone();
-                            let source_hash=plan.source_sha256.clone();
-                            let proposal = draft.proposal.clone();
-                            let loc = locale.get();
-                            let skill_count = plan.tasks.iter()
-                                .flat_map(|task| task.skill_ids.iter())
-                                .collect::<HashSet<_>>()
-                                .len();
-                            let planner_label = plan.planner_model_label.clone();
-                            let summary = tf(
-                                loc,
-                                "workflow_studio.portfolio.summary",
-                                &[
-                                    ("tasks", &plan.tasks.len().to_string()),
-                                    ("skills", &skill_count.to_string()),
-                                    ("model", &planner_label),
-                                ],
-                            );
-                            let description_label = planner_label.clone();
-                            view! {
-                                <section class="portfolio-plan-card" data-testid="portfolio-plan-card">
-                                    <strong>{summary}</strong>
-                                    <p>{plan.rationale}</p>
-                                    <ul>{plan.tasks.into_iter().map(|task| {
-                                        let skills = task.skill_ids.join(", ");
-                                        let dependencies = task.depends_on.join(", ");
-                                        let skill_text = (!skills.is_empty()).then(|| tf(
-                                            loc,
-                                            "workflow_studio.portfolio.task_skills",
-                                            &[("skills", &skills)],
-                                        ));
-                                        let dependency_text = (!dependencies.is_empty()).then(|| tf(
-                                            loc,
-                                            "workflow_studio.portfolio.task_after",
-                                            &[("tasks", &dependencies)],
-                                        ));
-                                        view! {
-                                            <li><code>{task.id}</code>
-                                                {format!(" · {}", task.rationale)}
-                                                {skill_text.map(|text| view! {
-                                                    <span>{format!(" · {text}")}</span>
-                                                })}
-                                                {dependency_text.map(|text| view! {
-                                                    <span>{format!(" · {text}")}</span>
-                                                })}
-                                            </li>
-                                        }
-                                    }).collect_view()}</ul>
-                                    <p>{move || t(locale.get(), "workflow_studio.portfolio.validated_unbudgeted")}</p>
-                                    <div class="row">
-                                        <button type="button" class="primary" data-testid="portfolio-edit-studio"
-                                            on:click=move |_| {
-                                                let form = DynamicWorkflowForm::from_proposal(proposal.clone());
-                                                selected_task_key.set(form.tasks.first().map(|task| task.key));
-                                                state.dynamic_form.set(form);
-                                                template_name.set(
-                                                    t(locale.get_untracked(), "workflow_studio.portfolio.template_name").into(),
-                                                );
-                                                template_description.set(
-                                                    tf(
-                                                        locale.get_untracked(),
-                                                        "workflow_studio.portfolio.template_description",
-                                                        &[("model", &description_label)],
-                                                    ),
-                                                );
-                                                conversion_source_sha256.set(source_hash.clone());
-                                                if let Some(id)=portfolio_legacy_template.get_untracked() {
-                                                    if let Some(name)=templates.with_untracked(|items|items.iter().find(|template|template.id==id).map(|template|template.name.clone())) {
-                                                        template_name.set(name);
-                                                    }
-                                                    creating.set(false);loaded_id.set(Some(id.clone()));selected_template_id.set(Some(id));
-                                                } else {creating.set(true);loaded_id.set(None);selected_template_id.set(None);}
-                                                portfolio_open.set(false);
-                                            }>
-                                            {move || t(locale.get(), "workflow_studio.portfolio.edit_studio")}
-                                        </button>
+                                <p class="hint">{move || t(locale.get(), "workflow_studio.portfolio.model_help")}</p>
+                                <Show when=move || state.options.get().models.is_empty()>
+                                    <p class="portfolio-notice" data-testid="portfolio-no-models">{move || t(locale.get(), "workflow_studio.portfolio.no_models_help")}</p>
+                                </Show>
+                            </div>
+                            <div class="portfolio-review" node_ref=portfolio_review_ref aria-busy=move || portfolio_loading.get().to_string()>
+                                {move || portfolio_error.get().map(|error| view! {
+                                    <div class="portfolio-error" role="alert" data-testid="portfolio-error">
+                                        <strong>{move || t(locale.get(), "workflow_studio.portfolio.error")}</strong>
+                                        <p>{error}</p>
                                     </div>
-                                </section>
-                            }
-                        })}
-                        <div class="row">
-                            <button type="button"
-                                on:click=move |_| portfolio_open.set(false)>
+                                })}
+                                <Show when=move || portfolio_loading.get()>
+                                    <div class="portfolio-empty" role="status" data-testid="portfolio-loading">
+                                        {compose_icon("sparkles")}
+                                        <h3>{move || t(locale.get(), "workflow_studio.portfolio.planning")}</h3>
+                                        <p>{move || t(locale.get(), "workflow_studio.portfolio.loading_help")}</p>
+                                    </div>
+                                </Show>
+                                <Show when=move || !portfolio_loading.get() && portfolio_draft.get().is_none()>
+                                    <div class="portfolio-empty" data-testid="portfolio-empty">
+                                        {compose_icon("branch")}
+                                        <h3>{move || t(locale.get(), "workflow_studio.portfolio.empty_title")}</h3>
+                                        <p>{move || t(locale.get(), "workflow_studio.portfolio.empty_help")}</p>
+                                        <ul class="portfolio-review-checklist">
+                                            <li>{compose_icon("list")}{move || t(locale.get(), "workflow_studio.portfolio.review_instructions")}</li>
+                                            <li>{compose_icon("shield")}{move || t(locale.get(), "workflow_studio.portfolio.review_permissions")}</li>
+                                            <li>{compose_icon("doc")}{move || t(locale.get(), "workflow_studio.portfolio.review_outputs")}</li>
+                                        </ul>
+                                    </div>
+                                </Show>
+                                {move || portfolio_draft.get().map(|draft| workflow_conversion_review(draft, locale.get()))}
+                            </div>
+                        </div>
+                        <div class="row portfolio-footer">
+                            <p>{move || t(locale.get(), "workflow_studio.portfolio.footer")}</p>
+                            <button type="button" on:click=move |_| portfolio_open.set(false)>
                                 {move || t(locale.get(), "settings.cancel")}
                             </button>
-                            <button type="button" class="primary" data-testid="portfolio-generate"
-                                disabled=move || portfolio_loading.get() || portfolio_model_id.get().is_empty()
+                            <button type="button" class:primary=move || portfolio_draft.get().is_none()
+                                data-testid="portfolio-generate"
+                                disabled=move || portfolio_loading.get() || !portfolio_ready.get()
                                 on:click=generate_portfolio>
-                                {move || if portfolio_loading.get() {
-                                    t(locale.get(), "workflow_studio.portfolio.planning")
-                                } else {
-                                    t(locale.get(), "workflow_studio.portfolio.generate")
-                                }}
+                                {move || t(locale.get(), if portfolio_loading.get() {
+                                    "workflow_studio.portfolio.planning"
+                                } else if portfolio_draft.get().is_some() {
+                                    "workflow_studio.portfolio.regenerate"
+                                } else { "workflow_studio.portfolio.generate" })}
                             </button>
+                            {move || portfolio_draft.get().map(|draft| view! {
+                                <button type="button" class="primary" data-testid="portfolio-edit-studio"
+                                    on:click=move |_| {
+                                        let form = DynamicWorkflowForm::from_proposal(draft.proposal.clone());
+                                        selected_task_key.set(form.tasks.first().map(|task| task.key));
+                                        connect_from_key.set(None);
+                                        state.dynamic_form.set(form);
+                                        state.error.set(None);
+                                        template_name.set(draft.proposal.goal.clone());
+                                        template_description.set(tf(locale.get_untracked(), "workflow_studio.portfolio.template_description", &[("model", &draft.plan.planner_model_label)]));
+                                        conversion_source_sha256.set(draft.plan.source_sha256.clone());
+                                        if let Some(id) = portfolio_legacy_template.get_untracked() {
+                                            if let Some(name) = templates.with_untracked(|items| items.iter().find(|template| template.id == id).map(|template| template.name.clone())) {
+                                                template_name.set(name);
+                                            }
+                                            creating.set(false); loaded_id.set(Some(id.clone())); selected_template_id.set(Some(id));
+                                        } else { creating.set(true); loaded_id.set(None); selected_template_id.set(None); }
+                                        portfolio_open.set(false);
+                                    }>{move || t(locale.get(), "workflow_studio.portfolio.edit_studio")}</button>
+                            })}
                         </div>
                     </div>
                 </div>
             })}
         </div>
+    }
+}
+
+/// Review the actual converted proposal; source summaries are provenance only.
+fn workflow_conversion_review(draft: SkillPortfolioDraft, locale: Locale) -> impl IntoView {
+    let mut sources = draft
+        .plan
+        .tasks
+        .iter()
+        .flat_map(|task| task.skill_ids.clone())
+        .collect::<Vec<_>>();
+    sources.sort();
+    sources.dedup();
+    let summary = tf(
+        locale,
+        "workflow_studio.portfolio.summary",
+        &[
+            ("tasks", &draft.proposal.tasks.len().to_string()),
+            ("skills", &sources.len().to_string()),
+            ("model", &draft.plan.planner_model_label),
+        ],
+    );
+    view! {
+        <section class="portfolio-plan-card" data-testid="portfolio-plan-card">
+            <div class="portfolio-draft-head">
+                <span>{t(locale, "workflow_studio.portfolio.draft_ready")}</span>
+                <h3>{draft.proposal.goal}</h3>
+                <p>{summary}</p>
+            </div>
+            <div class="portfolio-provenance" data-testid="portfolio-provenance">
+                <strong>{t(locale, "workflow_studio.portfolio.provenance")}</strong>
+                <div class="portfolio-tags">{sources.into_iter().map(|source| view! {<code>{source}</code>}).collect_view()}</div>
+                <p>{t(locale, "workflow_studio.portfolio.provenance_help")}</p>
+                <details>
+                    <summary>{t(locale, "workflow_studio.portfolio.source_details")}</summary>
+                    <p>{draft.plan.rationale}</p>
+                    {draft.plan.source_sha256.map(|hash| view! {<code class="portfolio-source-hash">"SHA-256: "{hash}</code>})}
+                </details>
+            </div>
+            <div class="portfolio-review-notice">
+                {compose_icon("shield")}
+                <p>{t(locale, "workflow_studio.portfolio.validated_unbudgeted")}</p>
+            </div>
+            <div class="portfolio-node-list">
+                {draft.proposal.tasks.into_iter().enumerate().map(|(index, task)| {
+                    let dependencies = if task.depends_on.is_empty() {
+                        t(locale, "workflow_studio.portfolio.no_dependencies").to_string()
+                    } else {
+                        tf(locale, "workflow_studio.portfolio.task_after", &[("tasks", &task.depends_on.join(", "))])
+                    };
+                    view! {
+                        <article class="portfolio-node" data-testid="portfolio-review-node">
+                            <div class="portfolio-node-head"><span>{index + 1}</span><code>{task.id}</code></div>
+                            <p class="portfolio-node-dependencies">{dependencies}</p>
+                            <h4>{t(locale, "workflow_studio.portfolio.node_instruction")}</h4>
+                            <p class="portfolio-node-instruction">{task.instruction}</p>
+                            <h4>{t(locale, "workflow_studio.portfolio.node_permissions")}</h4>
+                            <div class="portfolio-tags">
+                                {if task.capabilities.is_empty() {
+                                    view! {<span>{t(locale, "workflow_studio.portfolio.no_permissions")}</span>}.into_view()
+                                } else {
+                                    task.capabilities.into_iter().map(|id| view! {<code>{id}</code>}).collect_view()
+                                }}
+                            </div>
+                            <h4>{t(locale, "workflow_studio.portfolio.node_output")}</h4>
+                            {task.output_schema.map(|schema| view! {
+                                <details class="portfolio-output" data-testid="portfolio-output-contract">
+                                    <summary>{t(locale, "workflow_studio.portfolio.view_contract")}</summary>
+                                    <pre>{serde_json::to_string_pretty(&schema).unwrap_or_default()}</pre>
+                                </details>
+                            }.into_view()).unwrap_or_else(|| view! {
+                                <p>{t(locale, "workflow_studio.portfolio.no_contract")}</p>
+                            }.into_view())}
+                        </article>
+                    }
+                }).collect_view()}
+            </div>
+        </section>
     }
 }
 

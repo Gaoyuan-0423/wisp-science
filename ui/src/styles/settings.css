@@ -565,6 +565,14 @@ body:has(.settings-page) .projects-screen { display: none; }
   padding-bottom: 12px;
   flex-shrink: 0;
 }
+.workflow-studio-library-actions .settings-add-btn { display: flex; align-items: center; gap: 7px; }
+.workflow-studio-library-actions .settings-add-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+.workflow-conversion-notice {
+  display: flex; align-items: center; gap: 9px; padding: 12px 20px;
+  border-bottom: 1px solid var(--border); color: var(--text-muted);
+  background: var(--bg-sunken); font-size: 12px; line-height: 1.5;
+}
+.workflow-conversion-notice svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--clay); }
 .workflow-studio-library-actions .settings-add-btn {
   justify-content: center;
   width: 100%;
@@ -1654,10 +1662,11 @@ button.workflow-graph-port.output.active {
   .workflow-studio,
   .settings-page.workflow-studio-mode .workflow-studio {
     grid-template-columns: 1fr;
+    grid-template-rows: 280px minmax(680px, 1fr);
     overflow-y: auto;
     border-radius: 0;
   }
-  .workflow-studio-library { max-height: 220px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .workflow-studio-library { max-height: none; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--border); }
   .workflow-studio-editor { min-height: 680px; overflow: visible; }
   .workflow-studio-editor-head { align-items: flex-start; flex-wrap: wrap; }
   .workflow-studio-editor-actions { width: 100%; justify-content: flex-end; }

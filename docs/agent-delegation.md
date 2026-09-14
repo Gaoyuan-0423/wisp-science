@@ -463,13 +463,34 @@ the coordination paths.
 
 ## Convert Skills into independent Workflows
 
-In Workflow Studio, **Plan from Skills** accepts a research request and a
-configured conversion model. Select an explicit source Skill, or let the model
-select up to three relevant methods. The converter reads the complete selected
+In Workflow Studio, **Convert Skills** opens a conversion workspace with three
+stages: choose sources, convert to nodes, and review the draft. Enter the research
+question, available inputs and expected deliverables on the left. Choose up to
+eight installed source Skills using the searchable checklist, or let the model
+select up to three relevant methods. The full-width conversion model selector
+is separate from the execution models configured later for individual nodes.
+The converter reads the complete selected
 method documents and Markdown references, then produces independent node
 instructions, dependency edges, capability requests and output contracts.
-Source Skills are displayed as provenance only. No runtime node calls
+The review pane shows the actual proposal: each node's saved instructions,
+dependencies, requested capabilities and expandable output schema. Missing
+structured output contracts are stated explicitly. Source methods appear once
+as conversion provenance, with the selection rationale and source fingerprint
+available for inspection. No runtime node calls
 `use_skill`, and `side_effects` is not used to infer permissions.
+
+**Use draft and edit** transfers the proposal into the graph editor without
+saving or executing it. The proposed goal supplies the initial template name;
+legacy conversions retain the original template name. Review and save the
+template in Studio before using the normal execution/approval flow.
+
+Changing conversion inputs invalidates the previous draft. Conversion failures
+appear inside the conversion window and can be retried. Closing it discards late
+responses without replacing the current editor contents; it does not cancel the
+model request on the backend. Escape closes this window before any graph
+connection operation or the parent Studio. Missing source Skills or configured
+models show setup guidance and disable generation. The layout stacks vertically
+in narrow windows, scrolls to the generated draft, and keeps footer actions visible.
 
 The host validates the resulting graph against the current resource policy.
 An unavailable source, unsupported package resource, invented capability or

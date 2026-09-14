@@ -3013,8 +3013,18 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
           case "list_acp_agents":
             return mockAcpAgents;
           case "get_dynamic_agent_options":
-            return mockDynamicAgentOptions;
-          case "plan_skill_portfolio":
+            return {
+              ...mockDynamicAgentOptions,
+              skills: query.get("mockWorkflowSources") === "none" ? []
+                : query.get("mockWorkflowSources") === "many"
+                  ? Array.from({ length: 10 }, (_, index) => ({ id: `method-${index}`, name: `Method ${index}`, scope: "bundled" }))
+                  : mockDynamicAgentOptions.skills,
+              models: query.get("mockWorkflowModels") === "none" ? [] : mockDynamicAgentOptions.models,
+            };
+          case "plan_skill_portfolio": {
+            const request = plain(arg("request") ?? {});
+            const sources = request.source_skill_ids?.length
+              ? request.source_skill_ids : ["literature-review", "analysis-workflow"];
             return {
               plan: {
                 source_sha256: "fixture-conversion-source",
@@ -3022,8 +3032,8 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
                 planner_model_label: String(plain(arg("request") ?? {}).model_id) === "opus" ? "opus-4.8" : "deepseek-v4-pro",
                 rationale: "Literature and analysis should run before evidence-grounded synthesis.",
                 tasks: [
-                  { id: "literature", rationale: "Find and verify published evidence.", skill_ids: ["literature-review"], depends_on: [] },
-                  { id: "analysis", rationale: "Analyze the research question using the reproducible workflow.", skill_ids: ["analysis-workflow"], depends_on: [] },
+                  { id: "literature", rationale: "Find and verify published evidence.", skill_ids: sources, depends_on: [] },
+                  { id: "analysis", rationale: "Analyze the research question using the reproducible workflow.", skill_ids: sources, depends_on: [] },
                   { id: "synthesis", rationale: "Identify gaps only after both evidence streams finish.", skill_ids: [], depends_on: ["literature", "analysis"] },
                 ],
               },
@@ -3034,10 +3044,11 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
                 tasks: [
                   { id: "literature", instruction: "Review the published evidence", depends_on: [], capabilities: ["literature_search"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
                   { id: "analysis", instruction: "Plan a reproducible analysis", depends_on: [], capabilities: ["code_run"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
-                  { id: "synthesis", instruction: "Synthesize the evidence and identify gaps", depends_on: ["literature", "analysis"], capabilities: ["reasoning"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
+                  { id: "synthesis", instruction: "Synthesize the evidence and identify gaps", depends_on: ["literature", "analysis"], capabilities: ["reasoning"], skill_ids: [], specialist_id: null, output_schema: { type: "object", required: ["report"], properties: { report: { type: "string" } } }, isolated: false, model_id: null, executor: null, budget: null },
                 ],
               },
             };
+          }
           case "list_quick_actions":
             return mockQuickActions;
           case "list_workflow_templates":
