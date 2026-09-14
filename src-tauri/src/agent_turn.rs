@@ -673,10 +673,13 @@ pub(crate) async fn send_message_inner(
         agent.add_tool(Box::new(quick_actions::SearchModelsTool::new(
             state.store.clone(),
         )));
-        agent.add_tool(Box::new(quick_actions::CreateWorkflowTool::new(
-            state.store.clone(),
-            skills.clone(),
-        )));
+        agent.add_tool(Box::new(
+            quick_actions::CreateWorkflowTool::new(state.store.clone(), skills.clone()).in_project(
+                ap.clone(),
+                frame_id.clone(),
+                state.app_data.clone(),
+            ),
+        ));
         agent.add_tool(Box::new(specialist_tool::SaveSpecialistTool {
             store: state.store.clone(),
         }));

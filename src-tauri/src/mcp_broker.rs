@@ -406,6 +406,33 @@ mod tests {
     }
     #[tokio::test]
     async fn broker_long_call_survives_deadlines_and_lease_loss_retains_host_connection() {
+        const CHILD_ENV: &str = "WISP_MCP_BROKER_AUDIT_TEST_CHILD";
+        const TEST_NAME: &str =
+            "mcp_broker::tests::broker_long_call_survives_deadlines_and_lease_loss_retains_host_connection";
+        // Tracing callsite interest is process-wide. Parallel MCP tests can
+        // first register a shared callsite without this test's local subscriber,
+        // caching it as disabled. Isolate the audit and install its subscriber
+        // globally before any MCP operation, including spawned transport tasks.
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME, "--nocapture"])
+                .env(CHILD_ENV, "1")
+                .output()
+                .expect("run isolated MCP broker audit test");
+            assert!(
+                output.status.success(),
+                "isolated MCP broker audit failed: {}\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "isolated MCP broker audit did not run: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
         let audit = AuditBuffer(Default::default());
         let captured = audit.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -414,10 +441,7 @@ mod tests {
             .with_max_level(tracing::Level::INFO)
             .with_writer(move || captured.clone())
             .finish();
-        use tracing::instrument::WithSubscriber;
-        // Attach the dispatcher to each async operation. A thread-local guard
-        // is not a reliable assertion boundary when the suite spawns tasks.
-        let dispatch = tracing::Dispatch::new(subscriber);
+        tracing::subscriber::set_global_default(subscriber).unwrap();
         let entered = Arc::new(tokio::sync::Notify::new());
         let observed = entered.clone();
         let initializations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -489,7 +513,6 @@ mod tests {
             Query(query.clone()),
             Json(json!({"id":1,"method":"initialize"})),
         )
-        .with_subscriber(dispatch.clone())
         .await
         .unwrap();
         assert!(initialized.status().is_success());
@@ -499,9 +522,8 @@ mod tests {
         );
         let task = {
             let (grants, headers, query) = (grants.clone(), headers.clone(), query.clone());
-            let dispatch = dispatch.clone();
             tokio::spawn(async move {
-                request(AxumState(grants),headers,Query(query),Json(json!({"id":2,"method":"tools/call","params":{"name":"echo","arguments":{"hold":true,"secret":"DO_NOT_LOG_MCP_ARGUMENTS_4817"}}}))).with_subscriber(dispatch).await
+                request(AxumState(grants),headers,Query(query),Json(json!({"id":2,"method":"tools/call","params":{"name":"echo","arguments":{"hold":true,"secret":"DO_NOT_LOG_MCP_ARGUMENTS_4817"}}}))).await
             })
         };
         entered.notified().await;
@@ -523,14 +545,7 @@ mod tests {
             .await
             .unwrap();
         assert!(client.is_connected());
-        assert_eq!(
-            client
-                .tool_call("echo", &json!({}))
-                .with_subscriber(dispatch.clone())
-                .await
-                .unwrap(),
-            "ok"
-        );
+        assert_eq!(client.tool_call("echo", &json!({})).await.unwrap(), "ok");
         assert_eq!(initializations.load(Ordering::SeqCst), 1);
         let log = String::from_utf8(audit.0.lock().unwrap().clone()).unwrap();
         assert!(log.contains("mcp.request.started"), "audit: {log}");

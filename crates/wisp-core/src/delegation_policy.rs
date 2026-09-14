@@ -598,6 +598,15 @@ impl CapabilityRegistry {
         plan: &DelegationPlan,
         host: &DelegationHostPolicy,
     ) -> Result<(), ResolutionError> {
+        if plan
+            .steps
+            .iter()
+            .any(|step| !step.spec.skill_bindings.is_empty())
+        {
+            return Err(ResolutionError::InvalidProposal(
+                crate::workflow_conversion::LEGACY_WORKFLOW_ERROR.into(),
+            ));
+        }
         if plan.schema_version != DYNAMIC_DELEGATION_SCHEMA_VERSION {
             return Err(ResolutionError::InvalidProposal(
                 "resolved policy validation requires a v2 plan".into(),
@@ -2250,5 +2259,39 @@ mod tests {
         let mut budget = original;
         budget.steps[0].spec.budget.max_tokens = Some(9_000);
         assert!(registry.validate_resolved_plan(&budget, &host).is_err());
+    }
+    #[test]
+    fn legacy_skill_bound_plans_are_rejected_before_execution() {
+        let registry = CapabilityRegistry::builtins();
+        let host = host_policy();
+        let mut plan = registry
+            .resolve_plan(
+                "legacy",
+                DelegationMode::Manual,
+                1,
+                vec![proposal("task", &["reasoning"])],
+                &host,
+            )
+            .unwrap()
+            .into_plan();
+        plan.steps[0].spec.skill_bindings.push(AgentSkillBinding {
+            id: "old".into(),
+            name: "old".into(),
+            scope: "project".into(),
+            path: "old/SKILL.md".into(),
+            declared_version: None,
+            skill_md_sha256: "a".repeat(64),
+            package_id: None,
+            package_version: None,
+            package_source: None,
+        });
+        let error = registry
+            .validate_resolved_plan(&plan, &host)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Skill-bound Workflow nodes are retired"),
+            "{error}"
+        );
     }
 }

@@ -22,6 +22,7 @@ sha2 = { workspace = true }
 wisp-llm = { workspace = true }
 wisp-tools = { workspace = true }
 wisp-skills = { workspace = true }
+wisp-dto = { workspace = true }
 
 [dev-dependencies]
 # test-util enables tokio::time::pause so retry-backoff tests skip real sleeps.

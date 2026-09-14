@@ -26,7 +26,7 @@ struct DynamicTaskForm {
     run_activity_max_evaluator_seconds: String,
     run_activity_max_cost_microunits: String,
     capabilities: Vec<String>,
-    skill_ids: Vec<String>,
+    legacy_skill_ids: Vec<String>,
     specialist_id: String,
     output_schema: String,
     isolated: bool,
@@ -53,7 +53,7 @@ impl DynamicTaskForm {
             run_activity_max_evaluator_seconds: "120".into(),
             run_activity_max_cost_microunits: "5000000".into(),
             capabilities: vec!["reasoning".into()],
-            skill_ids: vec![],
+            legacy_skill_ids: vec![],
             specialist_id: String::new(),
             output_schema: String::new(),
             isolated: false,
@@ -94,7 +94,7 @@ impl DynamicTaskForm {
                 .map(|value| value.max_cost_microunits.to_string())
                 .unwrap_or_else(|| "5000000".into()),
             capabilities: task.capabilities,
-            skill_ids: task.skill_ids,
+            legacy_skill_ids: task.skill_ids,
             specialist_id: task.specialist_id.unwrap_or_default(),
             output_schema: task
                 .output_schema
@@ -123,6 +123,9 @@ impl DynamicTaskForm {
     }
 
     fn proposal(&self) -> Result<DynamicAgentTaskProposal, String> {
+        if !self.legacy_skill_ids.is_empty() {
+            return Err("Legacy Skill-bound nodes must be converted into independent instructions before saving or running".into());
+        }
         if self.task_kind == WorkflowTaskKind::RunActivity {
             let max_candidates =
                 parse_required_u32(&self.run_activity_max_candidates, "candidate budget")?;
@@ -186,7 +189,7 @@ impl DynamicTaskForm {
             task_kind: WorkflowTaskKind::Agent,
             run_activity: None,
             capabilities: self.capabilities.clone(),
-            skill_ids: self.skill_ids.clone(),
+            skill_ids: vec![],
             specialist_id: nonempty(&self.specialist_id),
             output_schema,
             isolated: self.isolated,
@@ -330,7 +333,8 @@ impl DynamicWorkflowForm {
         !self.goal.trim().is_empty()
             && !self.tasks.is_empty()
             && self.tasks.iter().all(|task| {
-                !task.id.trim().is_empty()
+                task.legacy_skill_ids.is_empty()
+                    && !task.id.trim().is_empty()
                     && !task.instruction.trim().is_empty()
                     && match task.task_kind {
                         WorkflowTaskKind::Agent => !task.capabilities.is_empty(),
@@ -844,6 +848,7 @@ pub(super) struct AgentPanelState {
     retry_budgets: RwSignal<HashMap<(String, String), String>>,
     pub(super) error: RwSignal<Option<String>>,
     pub(super) result: RwSignal<Option<AgentWorkflowResultDetail>>,
+    pub(super) legacy_conversion_requested: RwSignal<Option<String>>,
 }
 
 impl AgentPanelState {
@@ -858,6 +863,7 @@ impl AgentPanelState {
             retry_budgets: create_rw_signal(HashMap::new()),
             error: create_rw_signal(None),
             result: create_rw_signal(None),
+            legacy_conversion_requested: create_rw_signal(None),
         }
     }
 }
@@ -1408,26 +1414,6 @@ fn dynamic_task_editor(
 ) -> impl IntoView {
     let key = task.key;
     let remove_key = key;
-    let skill_query = create_rw_signal(String::new());
-    let filtered_skills = create_memo(move |_| {
-        let query = skill_query.get();
-        let query = query.trim().to_lowercase();
-        if query.is_empty() {
-            return vec![];
-        }
-        state.options.with(|options| {
-            options
-                .skills
-                .iter()
-                .filter(|skill| {
-                    [&skill.id, &skill.name, &skill.scope]
-                        .into_iter()
-                        .any(|value| value.to_lowercase().contains(&query))
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-    });
     view! {
         <fieldset class="dynamic-agent-task" data-testid="dynamic-agent-task" data-task-key=key>
             <div class="dynamic-agent-task-head">
@@ -1493,7 +1479,6 @@ fn dynamic_task_editor(
                                             .unwrap_or_default();
                                     }
                                     task.capabilities.clear();
-                                    task.skill_ids.clear();
                                     task.specialist_id.clear();
                                     task.output_schema.clear();
                                     task.isolated = false;
@@ -1740,132 +1725,6 @@ fn dynamic_task_editor(
                             }).collect_view()
                         }
                     }}
-                </div>
-            </fieldset>
-            <fieldset class="dynamic-agent-choice-group dynamic-skill-picker"
-                data-testid="dynamic-task-skills"
-                prop:hidden=move || task_value(
-                    state.dynamic_form,
-                    key,
-                    |task| task.task_kind,
-                ) == WorkflowTaskKind::RunActivity>
-                <legend>
-                    <span>{move || t(locale.get(), "agents.task.skills")}</span>
-                    <small>{move || tf(
-                        locale.get(),
-                        "agents.task.skills_selected",
-                        &[(
-                            "count",
-                            &task_value(
-                                state.dynamic_form,
-                                key,
-                                |task| task.skill_ids.len(),
-                            ).to_string(),
-                        )],
-                    )}</small>
-                </legend>
-                <Show when=move || !task_value(
-                    state.dynamic_form,
-                    key,
-                    |task| task.skill_ids.clone(),
-                ).is_empty()>
-                    <div class="dynamic-skill-selected" data-testid="dynamic-task-selected-skills">
-                        <For each=move || {
-                            let selected = task_value(
-                                state.dynamic_form,
-                                key,
-                                |task| task.skill_ids.clone(),
-                            );
-                            state.options.with(|options| {
-                                options.skills.iter()
-                                    .filter(|skill| selected.contains(&skill.id))
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                            })
-                        }
-                            key=|skill| skill.id.clone()
-                            children=move |skill| {
-                                let remove_id = skill.id.clone();
-                                let remove_name = skill.name.clone();
-                                view! {
-                                    <button type="button" data-testid="dynamic-task-selected-skill"
-                                        aria-label=move || tf(
-                                            locale.get(),
-                                            "agents.task.skill_remove",
-                                            &[("skill", &remove_name)],
-                                        )
-                                        on:click=move |_| update_task(
-                                            state.dynamic_form,
-                                            key,
-                                            |task| task.skill_ids.retain(|id| id != &remove_id),
-                                        )>
-                                        <span>{format!("{} · {}", skill.name, skill.scope)}</span>
-                                        {compose_icon("close")}
-                                    </button>
-                                }
-                            }
-                        />
-                    </div>
-                </Show>
-                <input type="search" class="dynamic-skill-search"
-                    data-testid="dynamic-task-skill-search"
-                    autocomplete="off"
-                    prop:value=move || skill_query.get()
-                    prop:placeholder=move || t(locale.get(), "agents.task.skills_search")
-                    aria-label=move || t(locale.get(), "agents.task.skills_search")
-                    on:input=move |event| skill_query.set(event_target_value(&event)) />
-                <div class="dynamic-skill-results" data-testid="dynamic-task-skill-results">
-                    {move || {
-                        if skill_query.get().trim().is_empty() {
-                            view! {
-                                <span class="dynamic-skill-hint">{tf(
-                                    locale.get(),
-                                    "agents.task.skills_search_hint",
-                                    &[("count", &state.options.get().skills.len().to_string())],
-                                )}</span>
-                            }.into_view()
-                        } else if filtered_skills.get().is_empty() {
-                            view! {
-                                <span class="dynamic-skill-hint">
-                                    {t(locale.get(), "agents.task.skills_no_results")}
-                                </span>
-                            }.into_view()
-                        } else {
-                            ().into_view()
-                        }
-                    }}
-                    <For each=move || filtered_skills.get()
-                        key=|skill| skill.id.clone()
-                        children=move |skill| {
-                            let id = skill.id.clone();
-                            let checked_id = id.clone();
-                            let update_id = id.clone();
-                            view! {
-                                <label class="dynamic-skill-option" title=skill.id
-                                    data-testid="dynamic-task-skill-option">
-                                    <input type="checkbox"
-                                        prop:checked=move || state.dynamic_form.with(|form| {
-                                            form.tasks.iter().find(|task| task.key == key)
-                                                .is_some_and(|task| task.skill_ids.contains(&checked_id))
-                                        })
-                                        on:change=move |event| {
-                                            let checked = event_target_checked(&event);
-                                            update_task(state.dynamic_form, key, |task| {
-                                                if checked {
-                                                    if !task.skill_ids.contains(&update_id) {
-                                                        task.skill_ids.push(update_id.clone());
-                                                    }
-                                                } else {
-                                                    task.skill_ids.retain(|id| id != &update_id);
-                                                }
-                                            });
-                                        } />
-                                    <span>{skill.name}</span>
-                                    <small>{skill.scope}</small>
-                                </label>
-                            }
-                        }
-                    />
                 </div>
             </fieldset>
             <label prop:hidden=move || task_value(
@@ -2946,6 +2805,36 @@ pub(super) fn workflow_studio(
     let portfolio_model_id = create_rw_signal(String::new());
     let portfolio_draft = create_rw_signal::<Option<SkillPortfolioDraft>>(None);
     let portfolio_loading = create_rw_signal(false);
+    let portfolio_source = create_rw_signal(String::new());
+    let portfolio_legacy_template = create_rw_signal::<Option<String>>(None);
+    let portfolio_legacy_workflow = create_rw_signal::<Option<String>>(None);
+    let conversion_source_sha256 = create_rw_signal::<Option<String>>(None);
+    let legacy_form = create_memo(move |_| {
+        state.dynamic_form.with(|form| {
+            form.tasks
+                .iter()
+                .any(|task| !task.legacy_skill_ids.is_empty())
+        })
+    });
+    create_effect(move |_| {
+        if let Some(id) = state.legacy_conversion_requested.get() {
+            let goal = state
+                .workflows
+                .with_untracked(|items| {
+                    items
+                        .iter()
+                        .find(|item| item.workflow.id == id)
+                        .map(|item| item.workflow.goal.clone())
+                })
+                .unwrap_or_else(|| "Convert this legacy Workflow".into());
+            portfolio_legacy_workflow.set(Some(id));
+            portfolio_legacy_template.set(None);
+            portfolio_request.set(goal);
+            portfolio_draft.set(None);
+            portfolio_open.set(true);
+            state.legacy_conversion_requested.set(None);
+        }
+    });
 
     // Escape stack for the studio surface (registered while Workflows is open):
     // cancel in-progress connect → close portfolio planner → leave studio.
@@ -2992,12 +2881,12 @@ pub(super) fn workflow_studio(
             return;
         }
         portfolio_loading.set(true);
-        let args = serde_json::json!({
-            "request": {
-                "request": request_text,
-                "model_id": model_id,
-            }
-        });
+        let args = serde_json::json!({"request":SkillPortfolioRequest {
+            request:request_text,model_id,
+            source_skill_ids:nonempty(&portfolio_source.get_untracked()).into_iter().collect(),
+            legacy_template_id:portfolio_legacy_template.get_untracked(),
+            legacy_workflow_id:portfolio_legacy_workflow.get_untracked(),
+        }});
         spawn_local(async move {
             match invoke_checked("plan_skill_portfolio", to_value(&args).unwrap()).await {
                 Ok(value) => match serde_wasm_bindgen::from_value::<SkillPortfolioDraft>(value) {
@@ -3031,6 +2920,7 @@ pub(super) fn workflow_studio(
         let Some(template) = items.into_iter().find(|template| template.id == id) else {
             return;
         };
+        conversion_source_sha256.set(None);
         template_name.set(template.name);
         template_description.set(template.description);
         let form = DynamicWorkflowForm::from_proposal(template.proposal);
@@ -3042,6 +2932,7 @@ pub(super) fn workflow_studio(
     });
 
     let start_new = move |_| {
+        conversion_source_sha256.set(None);
         creating.set(true);
         loaded_id.set(None);
         selected_template_id.set(None);
@@ -3095,7 +2986,10 @@ pub(super) fn workflow_studio(
         };
         saving.set(true);
         spawn_local(async move {
-            let args = serde_json::json!({ "template": template });
+            let mut args = serde_json::json!({ "template": template });
+            if let Some(hash) = conversion_source_sha256.get_untracked() {
+                args["conversionSourceSha256"] = serde_json::json!(hash);
+            }
             match invoke_checked("save_workflow_template", to_value(&args).unwrap()).await {
                 Ok(value) => match serde_wasm_bindgen::from_value::<WorkflowTemplate>(value) {
                     Ok(saved) => {
@@ -3181,6 +3075,7 @@ pub(super) fn workflow_studio(
                     <button type="button" class="settings-add-btn" data-testid="portfolio-planner-open"
                         on:click=move |_| {
                             portfolio_draft.set(None);
+                            portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
                             portfolio_open.set(true);
                         }>
                         {move || t(locale.get(), "workflow_studio.plan_from_skills")}
@@ -3304,6 +3199,18 @@ pub(super) fn workflow_studio(
                         </button>
                     </div>
                 </div>
+                <Show when=move || legacy_form.get()>
+                    <div class="agents-error" data-testid="workflow-legacy-warning">
+                        <p>{move || t(locale.get(),"workflow_studio.legacy_warning")}</p>
+                        <button type="button" class="agents-secondary" data-testid="workflow-reconvert"
+                            on:click=move |_| {
+                                portfolio_legacy_template.set(selected_template_id.get_untracked());
+                                portfolio_legacy_workflow.set(None);portfolio_source.set(String::new());
+                                portfolio_request.set(state.dynamic_form.get_untracked().goal);
+                                portfolio_draft.set(None);portfolio_open.set(true);
+                            }>{compose_icon("branch")}{move || t(locale.get(),"workflow_studio.reconvert")}</button>
+                    </div>
+                </Show>
                 <details class="workflow-studio-config" data-testid="workflow-studio-config">
                     <summary>
                         <span>{compose_icon("settings")}</span>
@@ -3443,6 +3350,17 @@ pub(super) fn workflow_studio(
                                 prop:value=move || portfolio_request.get()
                                 on:input=move |event| portfolio_request.set(event_target_value(&event))></textarea>
                         </label>
+                        <label>
+                            {move || t(locale.get(),"workflow_studio.source_skill")}
+                            <select data-testid="portfolio-source-skill" disabled=move || portfolio_loading.get() || portfolio_legacy_template.get().is_some() || portfolio_legacy_workflow.get().is_some()
+                                on:change=move |event|portfolio_source.set(dom_value(&event))>
+                                <option value="" prop:selected=move || portfolio_source.get().is_empty()>{move || t(locale.get(),"workflow_studio.source_auto")}</option>
+                                <For each=move || state.options.get().skills key=|skill|skill.id.clone() children=move |skill| {
+                                    let id=skill.id.clone();
+                                    view! {<option value=skill.id prop:selected=move || portfolio_source.get()==id>{skill.name}</option>}
+                                }/>
+                            </select>
+                        </label>
                         <div class="portfolio-planner-fields">
                             <label>
                                 {move || t(locale.get(), "workflow_studio.portfolio.model")}
@@ -3483,6 +3401,7 @@ pub(super) fn workflow_studio(
                         </div>
                         {move || portfolio_draft.get().map(|draft| {
                             let plan = draft.plan.clone();
+                            let source_hash=plan.source_sha256.clone();
                             let proposal = draft.proposal.clone();
                             let loc = locale.get();
                             let skill_count = plan.tasks.iter()
@@ -3546,9 +3465,13 @@ pub(super) fn workflow_studio(
                                                         &[("model", &description_label)],
                                                     ),
                                                 );
-                                                creating.set(true);
-                                                loaded_id.set(None);
-                                                selected_template_id.set(None);
+                                                conversion_source_sha256.set(source_hash.clone());
+                                                if let Some(id)=portfolio_legacy_template.get_untracked() {
+                                                    if let Some(name)=templates.with_untracked(|items|items.iter().find(|template|template.id==id).map(|template|template.name.clone())) {
+                                                        template_name.set(name);
+                                                    }
+                                                    creating.set(false);loaded_id.set(Some(id.clone()));selected_template_id.set(Some(id));
+                                                } else {creating.set(true);loaded_id.set(None);selected_template_id.set(None);}
                                                 portfolio_open.set(false);
                                             }>
                                             {move || t(locale.get(), "workflow_studio.portfolio.edit_studio")}
@@ -3688,11 +3611,18 @@ fn workflow_actions(
     snapshot: &AgentWorkflowSnapshot,
     state: AgentPanelState,
     locale: RwSignal<Locale>,
+    open_workflows: Callback<()>,
 ) -> View {
     if snapshot.workflow.depth > 0 {
         return view! {}.into_view();
     }
+    let legacy = snapshot
+        .dynamic
+        .tasks
+        .iter()
+        .any(|task| !task.skill_bindings.is_empty());
     let workflow = snapshot.workflow.clone();
+    let legacy_id = workflow.id.clone();
     let workflow_id = workflow.id.clone();
     let approve_id = workflow_id.clone();
     let discard_id = workflow_id.clone();
@@ -3704,10 +3634,15 @@ fn workflow_actions(
     let automatic = snapshot.approval_policy == AgentApprovalPolicy::AutoSafe;
     view! {
         <div class="agent-workflow-actions">
+            {legacy.then(|| view! {
+                <div class="agents-error" data-testid="agent-legacy-warning">{t(locale.get(),"workflow_studio.legacy_warning")}</div>
+                <button type="button" class="agents-secondary" data-testid="agent-reconvert"
+                    on:click=move |_| {state.legacy_conversion_requested.set(Some(legacy_id.clone()));open_workflows.call(());}>{t(locale.get(),"workflow_studio.reconvert")}</button>
+            })}
             {(workflow.status == "draft").then(|| {
                 view! {
                     <button type="button" class="agents-primary" data-testid="agent-approve"
-                        disabled=!delegation_enabled
+                        disabled=!delegation_enabled || legacy
                         on:click=move |_| invoke_workflow_action(
                             "approve_agent_workflow",
                             serde_json::json!({
@@ -3730,7 +3665,7 @@ fn workflow_actions(
             })}
             {(workflow.status == "approved").then(|| view! {
                 <button type="button" class="agents-primary" data-testid="agent-run"
-                    disabled=move || !delegation_enabled || state.launching.with(|ids| ids.contains(&run_busy_id))
+                    disabled=move || legacy || !delegation_enabled || state.launching.with(|ids| ids.contains(&run_busy_id))
                     on:click=move |_| launch_workflow(run_id.clone(), state)>
                     {t(locale.get(), "agents.run")}
                 </button>
@@ -3745,7 +3680,7 @@ fn workflow_actions(
             })}
             {matches!(workflow.status.as_str(), "failed" | "cancelled").then(|| view! {
                 <button type="button" class="agents-primary" data-testid="agent-retry"
-                    disabled=!delegation_enabled
+                    disabled=!delegation_enabled || legacy
                     on:click=move |_| retry_workflow(retry_snapshot.clone(), state)>
                     {t(locale.get(), "agents.retry")}
                 </button>
@@ -3759,6 +3694,7 @@ fn dynamic_workflow_card(
     snapshot: AgentWorkflowSnapshot,
     state: AgentPanelState,
     locale: RwSignal<Locale>,
+    open_workflows: Callback<()>,
 ) -> View {
     let workflow = snapshot.workflow.clone();
     let workflow_id = workflow.id.clone();
@@ -3769,7 +3705,7 @@ fn dynamic_workflow_card(
         AgentApprovalPolicy::ReviewAll => t(locale.get(), "agents.approval.review_all"),
         AgentApprovalPolicy::AutoSafe => t(locale.get(), "agents.approval.auto_safe"),
     };
-    let actions = workflow_actions(&snapshot, state, locale);
+    let actions = workflow_actions(&snapshot, state, locale, open_workflows);
     let workflow_delegation_enabled = snapshot.delegation_enabled;
     let nested = workflow.depth > 0;
     let card_class = if nested {
@@ -3919,7 +3855,7 @@ fn dynamic_workflow_card(
                             </div>
                             {(!task.skill_bindings.is_empty()).then(|| view! {
                                 <div class="agent-chip-row" aria-label="Skills">
-                                    <span class="agent-chip-label">{"Skills"}</span>
+                                    <span class="agent-chip-label">{t(locale.get(),"workflow_studio.legacy_sources")}</span>
                                     {task.skill_bindings.into_iter().map(|binding| view! {
                                         <span class="agent-chip skill" title=format!("{} · {}", binding.path, binding.skill_md_sha256)>
                                             {format!("{} · {}", binding.name, binding.scope)}
@@ -4381,6 +4317,7 @@ pub(super) fn agent_workflows_panel(
                                             snapshot,
                                             state,
                                             locale,
+                                            open_workflows,
                                         )).collect_view()}
                                     </div>
                                 </section>
@@ -4501,7 +4438,7 @@ mod tests {
         assert_eq!(round_tripped, proposal);
         let activity = &round_tripped.tasks[1];
         assert!(activity.capabilities.is_empty());
-        assert!(activity.skill_ids.is_empty());
+        assert!(activity.legacy_skill_ids.is_empty());
         assert!(activity.budget.is_none());
         assert!(activity.output_schema.is_none());
     }

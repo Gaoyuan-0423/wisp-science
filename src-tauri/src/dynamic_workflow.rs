@@ -365,12 +365,7 @@ pub(crate) async fn resolve_proposal(
         match task.task_kind {
             WorkflowTaskKind::Agent => {
                 let specialist = specialist_snapshot(store, task.specialist_id.as_deref()).await?;
-                let skill_bindings = resources
-                    .map(|resources| {
-                        resources.resolve_skill_bindings(&task.skill_ids, specialist.as_ref())
-                    })
-                    .transpose()?
-                    .unwrap_or_default();
+                let skill_bindings = vec![];
                 if let Some(resources) = resources {
                     resources.validate_task(
                         &task.capabilities,
@@ -786,6 +781,9 @@ async fn specialist_snapshot(
 }
 
 pub(crate) fn validate_proposal(proposal: &DynamicAgentWorkflowProposal) -> Result<(), String> {
+    if proposal.tasks.iter().any(|task| !task.skill_ids.is_empty()) {
+        return Err(wisp_core::workflow_conversion::LEGACY_WORKFLOW_ERROR.into());
+    }
     let goal = proposal.goal.trim();
     if goal.is_empty() || goal.chars().count() > MAX_GOAL_CHARS {
         return Err(format!(

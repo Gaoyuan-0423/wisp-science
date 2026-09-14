@@ -15038,6 +15038,8 @@ fn App() -> impl IntoView {
                             delegation_enabled,
                             locale,
                             Callback::new(move |_: ()| {
+                                workflow_studio_state.legacy_conversion_requested.set(agent_panel.legacy_conversion_requested.get_untracked());
+                                agent_panel.legacy_conversion_requested.set(None);
                                 open_settings_fn(Some("workflows".into()));
                                 refresh_agent_resources(workflow_studio_state, specialists);
                             }),

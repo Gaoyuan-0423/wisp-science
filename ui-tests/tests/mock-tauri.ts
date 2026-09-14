@@ -570,9 +570,9 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
       context: "Supply project-local source, evaluator, data, metric, and guardrail details.",
       approval_policy: "review_all",
       tasks: [
-        { id: "literature_methods", instruction: "Review relevant methods", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["literature_search"], skill_ids: ["literature-review"], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
-        { id: "data_audit", instruction: "Audit validation data", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["project_read", "reasoning"], skill_ids: ["analysis-workflow"], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
-        { id: "baseline_analysis", instruction: "Inspect the baseline", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["project_read", "reasoning"], skill_ids: ["analysis-workflow"], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
+        { id: "literature_methods", instruction: "Review relevant methods", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["literature_search"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
+        { id: "data_audit", instruction: "Audit validation data", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["project_read", "reasoning"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
+        { id: "baseline_analysis", instruction: "Inspect the baseline", depends_on: [], task_kind: "agent", run_activity: null, capabilities: ["project_read", "reasoning"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: { max_tokens: 16000, max_tool_calls: 16, max_cost_microunits: null } },
         {
           id: "prepare_contract",
           instruction: "Freeze and audit the evaluator contract",
@@ -580,7 +580,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
           task_kind: "agent",
           run_activity: null,
           capabilities: ["code_run"],
-          skill_ids: ["analysis-workflow"],
+          skill_ids: [],
           specialist_id: null,
           output_schema: {
             type: "object",
@@ -743,6 +743,12 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
     },
   }];
   mockWorkflowTemplates.push(mockMethodSearchWorkflowTemplate);
+  if (query.has("mockLegacyWorkflow")) {
+    const legacy = structuredClone(mockWorkflowTemplates[0]);
+    legacy.id = "legacy-skill-workflow"; legacy.name = "Legacy Skill workflow"; legacy.builtin = false;
+    legacy.proposal.tasks[0].skill_ids = ["literature-review"];
+    mockWorkflowTemplates.push(legacy);
+  }
   const quickActionSessions: Record<string, string> = {};
   let mockModels = [
     {
@@ -1085,6 +1091,10 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
     } else if (kind === "succeeded") {
       snapshot.workflow.status = "succeeded";
       for (const task of snapshot.dynamic.tasks) task.result = dynamicResult(task, "succeeded");
+    }
+    if (kind === "legacy") {
+      snapshot.dynamic.tasks[0].skill_bindings = [{ id: "analysis-workflow", name: "analysis-workflow", scope: "bundled", path: "/old/skills/analysis-workflow", skill_md_sha256: "old-hash", declared_version: null, package_id: null, package_version: null, package_source: null }];
+      snapshot.dynamic.editable_proposal.tasks[0].skill_ids = ["analysis-workflow"];
     }
     mockAgentWorkflows = [snapshot, ...mockAgentWorkflows];
     return snapshot.workflow.id;
@@ -3001,6 +3011,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
           case "plan_skill_portfolio":
             return {
               plan: {
+                source_sha256: "fixture-conversion-source",
                 planner_model_id: String(plain(arg("request") ?? {}).model_id ?? "default"),
                 planner_model_label: String(plain(arg("request") ?? {}).model_id) === "opus" ? "opus-4.8" : "deepseek-v4-pro",
                 rationale: "Literature and analysis should run before evidence-grounded synthesis.",
@@ -3015,8 +3026,8 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
                 context: "Design an oncology omics study",
                 approval_policy: "review_all",
                 tasks: [
-                  { id: "literature", instruction: "Review the published evidence", depends_on: [], capabilities: ["literature_search"], skill_ids: ["literature-review"], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
-                  { id: "analysis", instruction: "Plan a reproducible analysis", depends_on: [], capabilities: ["code_run"], skill_ids: ["analysis-workflow"], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
+                  { id: "literature", instruction: "Review the published evidence", depends_on: [], capabilities: ["literature_search"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
+                  { id: "analysis", instruction: "Plan a reproducible analysis", depends_on: [], capabilities: ["code_run"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
                   { id: "synthesis", instruction: "Synthesize the evidence and identify gaps", depends_on: ["literature", "analysis"], capabilities: ["reasoning"], skill_ids: [], specialist_id: null, output_schema: null, isolated: false, model_id: null, executor: null, budget: null },
                 ],
               },

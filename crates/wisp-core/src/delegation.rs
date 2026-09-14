@@ -658,7 +658,8 @@ impl AgentDelegationResponse {
     }
 }
 
-fn matches_json_contract(value: &Value, contract: &Value) -> bool {
+/// Validate a value against the supported delegation JSON Schema subset.
+pub fn matches_json_contract(value: &Value, contract: &Value) -> bool {
     matches_json_contract_at_depth(value, contract, 0)
 }
 
