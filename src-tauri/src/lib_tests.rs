@@ -8,11 +8,11 @@ use super::{
     merge_pending_ui_event, message_uses_resource_bindings, messages_to_items, navigation_allowed,
     parse_disabled_skills, parse_enabled_skill_names, parse_follow_up_questions, parse_skill_tags,
     persist_ui_events, provenance_ui_file_changes, receive_confirm_decision,
-    reclaim_unconsumed_cutin, resolve_acp_artifact_references, resolve_composer_references,
-    resolve_reader_references, resolve_review_backend, resolve_workspace, session_runtime_status,
-    should_hide_app_on_macos_close, should_persist_ui_event, user_message_start, AgentEvent,
-    ComposerReferenceArg, McpConnection, McpHttpAuth, McpTransport, ProjectActivityLocks,
-    QueuedItem, SessionRuntime, SkillInfo, StartupReport, StartupTimeline,
+    resolve_acp_artifact_references, resolve_composer_references, resolve_reader_references,
+    resolve_review_backend, resolve_workspace, session_runtime_status,
+    should_hide_app_on_macos_close, should_persist_ui_event, take_next_queued_turn,
+    user_message_start, AgentEvent, ComposerReferenceArg, McpConnection, McpHttpAuth, McpTransport,
+    ProjectActivityLocks, QueuedItem, SessionRuntime, SkillInfo, StartupReport, StartupTimeline,
     MAX_PENDING_UI_EVENT_BYTES, UI_STREAM_OUTPUT_MAX_BYTES, UI_TOOL_RESULT_MAX_CHARS,
 };
 use std::collections::{HashMap, HashSet};
@@ -2691,11 +2691,11 @@ fn unconsumed_cutin_returns_to_the_front_of_the_queue() {
         references: vec![],
     });
 
-    let (guidance_id, item) = begin_queued_cutin(&rt, 7).unwrap();
+    begin_queued_cutin(&rt, 7).unwrap();
     assert!(rt.queued.lock().unwrap().is_empty());
-    assert!(reclaim_unconsumed_cutin(&rt, guidance_id, item));
-    assert_eq!(rt.queued.lock().unwrap()[0].message, "close tabs");
+    assert_eq!(take_next_queued_turn(&rt).unwrap().message, "close tabs");
     assert!(rt.pending_guidance.lock().unwrap().is_empty());
+    assert!(take_next_queued_turn(&rt).is_none());
 }
 
 #[test]
@@ -2708,10 +2708,87 @@ fn consumed_cutin_is_not_queued_again() {
         references: vec![],
     });
 
-    let (guidance_id, item) = begin_queued_cutin(&rt, 8).unwrap();
+    begin_queued_cutin(&rt, 8).unwrap();
     rt.pending_guidance.lock().unwrap().clear();
-    assert!(!reclaim_unconsumed_cutin(&rt, guidance_id, item));
+    assert!(take_next_queued_turn(&rt).is_none());
     assert!(rt.queued.lock().unwrap().is_empty());
+    assert!(rt.queued_cutins.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn queued_cutin_precedes_the_fifo_driver_already_waiting_for_the_turn() {
+    let rt = Arc::new(SessionRuntime::new());
+    for id in [1, 2, 3] {
+        rt.queued.lock().unwrap().push(QueuedItem {
+            id,
+            message: format!("message {id}"),
+            attachments: vec![format!("file-{id}.png")],
+            references: vec![],
+        });
+    }
+    rt.draining.store(true, std::sync::atomic::Ordering::SeqCst);
+    let current = rt.workflow.clone().lock_owned().await;
+    let (waiting_tx, waiting_rx) = tokio::sync::oneshot::channel();
+    let driver_rt = rt.clone();
+    let driver = tokio::spawn(async move {
+        let lock = driver_rt.workflow.clone().lock_owned();
+        tokio::pin!(lock);
+        // Poll the lock once so this driver is ahead of any later waiter.
+        assert!(futures_util::poll!(&mut lock).is_pending());
+        waiting_tx.send(()).unwrap();
+        let _guard = lock.await;
+        take_next_queued_turn(&driver_rt).unwrap()
+    });
+    waiting_rx.await.unwrap();
+    begin_queued_cutin(&rt, 3).unwrap();
+    drop(current);
+    let first = driver.await.unwrap();
+    assert_eq!(
+        first.id, 3,
+        "a pending cut-in must precede normal queued messages"
+    );
+    assert_eq!(first.attachments, ["file-3.png"]);
+    assert!(rt.pending_guidance.lock().unwrap().is_empty());
+    let _guard = rt.workflow.lock().await;
+    assert_eq!(take_next_queued_turn(&rt).unwrap().id, 1);
+    assert_eq!(take_next_queued_turn(&rt).unwrap().id, 2);
+    assert!(take_next_queued_turn(&rt).is_none());
+    assert!(!rt.draining.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[test]
+fn queued_cutin_handoff_preserves_arrival_order_and_does_not_steal_direct_guidance() {
+    let rt = SessionRuntime::new();
+    for id in [1, 2, 3] {
+        rt.queued.lock().unwrap().push(QueuedItem {
+            id,
+            message: format!("message {id}"),
+            attachments: vec![],
+            references: vec![],
+        });
+    }
+    let consumed = begin_queued_cutin(&rt, 2).unwrap();
+    assert!(
+        begin_queued_cutin(&rt, 2).is_none(),
+        "repeated clicks must not duplicate an offer"
+    );
+    rt.pending_guidance
+        .lock()
+        .unwrap()
+        .retain(|(id, _)| *id != consumed);
+    begin_queued_cutin(&rt, 3).unwrap();
+    begin_queued_cutin(&rt, 1).unwrap();
+    rt.pending_guidance
+        .lock()
+        .unwrap()
+        .push((999, "direct guide".into()));
+    assert_eq!(take_next_queued_turn(&rt).unwrap().id, 3);
+    assert_eq!(take_next_queued_turn(&rt).unwrap().id, 1);
+    assert!(take_next_queued_turn(&rt).is_none());
+    assert_eq!(
+        *rt.pending_guidance.lock().unwrap(),
+        [(999, "direct guide".into())]
+    );
 }
 
 // Reorder (#433): move swaps with the neighbour and clamps at both ends, so the
