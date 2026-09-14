@@ -737,11 +737,12 @@ impl Store {
         }
 
         if !Self::migration_applied(pool, PROJECT_STARS_MIGRATION).await? {
-            if !Self::has_column(pool, "projects", "starred").await? {
-                sqlx::query("ALTER TABLE projects ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
-                    .execute(pool)
-                    .await?;
-            }
+            Self::add_columns_if_missing(
+                pool,
+                "projects",
+                &[("starred", "INTEGER NOT NULL DEFAULT 0")],
+            )
+            .await?;
             Self::record_migration(pool, PROJECT_STARS_MIGRATION).await?;
         }
 
