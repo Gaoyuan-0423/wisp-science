@@ -1,9 +1,10 @@
 # Browsing conversation history
 
-Opening a conversation for the first time shows its latest messages, including
-when entering through Recent conversations in another project. Switching back
-to a conversation restores its reading position within the current app window.
-Use the jump-to-latest button when you want to resume following new messages.
+Opening or reopening a conversation shows its latest messages, including when
+entering through Recent conversations in another project. Switching back to a
+conversation starts at the end instead of restoring an older reading position.
+Within the open conversation, scrolling up still keeps your place while new
+messages arrive. Use the jump-to-latest button to resume following new messages.
 
 Running conversations also reload their latest history when opened in a new
 window or revisited after switching projects. **Needs you** restores the current
@@ -36,8 +37,9 @@ even when both requests use the same history cursor.
 
 - Open a long conversation from Recent conversations, then open one in another
   project. Verify an unvisited conversation starts at the latest message.
-- Scroll up, switch conversations, and return. Verify the reading position is
-  restored; use the jump-to-latest button to return to the end.
+- Scroll up, switch conversations, and return. Verify the latest message is
+  visible without clicking jump-to-latest. Scroll up again and verify new output
+  does not pull you back down.
 - In a conversation longer than 60 turns, repeatedly load earlier messages until
   the first question is available. Check message order and tool results, and use
   Show newer messages to return through the loaded history.

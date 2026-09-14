@@ -167,7 +167,7 @@ pub(crate) fn force_chat_bottom() {
     force_chat_scroll_bottom(CHAT_SCROLLER_ID);
 }
 
-/// Save the previous conversation's position and restore this conversation.
+/// Open the conversation at latest, including after asynchronous hydration.
 pub(crate) fn restore_chat_session_scroll(session_id: &str) {
     switch_chat_scroll(CHAT_SCROLLER_ID, session_id);
 }

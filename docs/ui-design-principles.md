@@ -41,7 +41,7 @@
 - Files, images, skills, artifacts, conversations, execution environments, and runtime references must remain visually distinguishable before and after send.
 - Image attachments use a real thumbnail when the project file is readable. Other files use a document card with a filename and type label.
 - Persisted transcript markers such as `Uploaded files:` and `Selected skills:` are transport metadata. The chat UI renders them as cards instead of exposing the raw marker text.
-- Saved conversations open at their latest message. After the user scrolls up, deferred content growth and switching between conversations preserve each conversation's visible reading position instead of pulling the viewport toward the middle or resetting to the latest message.
+- Opening or reopening a saved conversation shows its latest message. After the user scrolls up within that conversation, deferred content growth preserves the visible reading position; switching conversations starts at the latest message again.
 - Long attachment names truncate inside the card; the full value remains available through the control's title.
 - Remove controls live inside the related card and retain an accessible label.
 
