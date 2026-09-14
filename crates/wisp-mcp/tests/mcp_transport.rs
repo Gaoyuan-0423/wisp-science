@@ -94,8 +94,8 @@ fn fake_echo_server() -> ExitCode {
                     json!({
                         "content": [
                             {"type": "text", "text": "TERMINAL: true\nNEXT_ACTION: ask_user"},
-                            {"type": "image", "mimeType": "image/png", "data": "aW1hZ2U="},
-                            {"type": "image", "mimeType": "image/png", "data": "aW1hZ2U="}
+                            {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"},
+                            {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"}
                         ],
                         "structuredContent": {"planDigest": "exact-token"},
                         "_meta": {"appOnly": "private-selection"},

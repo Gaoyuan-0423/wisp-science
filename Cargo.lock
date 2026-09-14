@@ -7327,6 +7327,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "futures-util",
+ "image",
  "libc",
  "regex",
  "reqwest 0.12.28",

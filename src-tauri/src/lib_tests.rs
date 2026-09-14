@@ -569,7 +569,11 @@ fn image_helper_loads_supported_extension_for_model_input() {
     let root = std::env::temp_dir().join(format!("wisp_message_images_{}", uuid::Uuid::new_v4()));
     let uploads = root.join("uploads");
     std::fs::create_dir_all(&uploads).unwrap();
-    std::fs::write(uploads.join("plot.PNG"), b"image bytes").unwrap();
+    std::fs::write(
+        uploads.join("plot.PNG"),
+        include_bytes!("../../crates/wisp-core/tests/fixtures/1x1.png"),
+    )
+    .unwrap();
     std::fs::write(uploads.join("notes.txt"), b"notes").unwrap();
 
     // Small images do not need the UI confirmation path; exercise the shared
