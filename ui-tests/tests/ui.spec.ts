@@ -13893,13 +13893,19 @@ test("default Tauri workspace opens Inspector as a split pane", async ({ page })
   await expect.poll(async () => page.locator(".center").evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBeGreaterThanOrEqual(400);
 });
 
-test("project switcher does not show a stale fallback name while opening", async ({ page }) => {
+test("opening a project crossfades home onto a named workspace", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(() => (window as any).__delayNextProjectOpen("default", 250));
+  await page.evaluate(() => (window as any).__delayNextProjectOpen("default", 500));
   await page.locator(".proj-card-main").first().click();
 
-  await expect(page.locator(".proj-name")).toHaveText("Opening project…");
+  const home = page.locator(".projects-screen");
+  await expect(home).toHaveClass(/projects-screen-leaving/);
+  await expect(page.locator(".app")).not.toHaveClass(/app-hidden/);
+  await expect(page.locator(".app")).not.toHaveClass(/app-entering/);
   await expect(page.locator(".proj-name")).toHaveText("wisp-science");
+  await expect(page.locator(".proj-name")).not.toHaveText("Opening project…");
+  await expect(home).toHaveCount(0);
+  await expect(newSessionButton(page)).toBeVisible();
 });
 
 test("project switcher has no caret and switches workspace in the current window", async ({ page }) => {

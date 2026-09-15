@@ -19,6 +19,7 @@ pub(super) struct SidebarState {
     pub(super) show_projects: RwSignal<bool>,
     pub(super) demo_mode: RwSignal<bool>,
     pub(super) project_info: RwSignal<Option<ProjectInfo>>,
+    pub(super) opening_project_name: RwSignal<Option<String>>,
     pub(super) proj_list: RwSignal<Vec<ProjectSummary>>,
     pub(super) sessions: RwSignal<Vec<SessionInfo>>,
     pub(super) explorations: RwSignal<Vec<ExplorationSummary>>,
@@ -90,6 +91,7 @@ pub(super) fn Sidebar(
         show_projects,
         demo_mode,
         project_info,
+        opening_project_name,
         proj_list,
         sessions,
         explorations,
@@ -143,6 +145,17 @@ pub(super) fn Sidebar(
         sort_menu_open.set(false);
         true
     });
+    let switcher_name = Signal::derive(move || {
+        if demo_mode.get() {
+            t(locale.get(), "projects.example").to_string()
+        } else if let Some(project) = project_info.get() {
+            project.name
+        } else if let Some(name) = opening_project_name.get() {
+            name
+        } else {
+            t(locale.get(), "projects.opening").into()
+        }
+    });
 
     view! {
         <aside class="sidebar" class:collapsed=move || !show_sidebar.get()
@@ -155,9 +168,9 @@ pub(super) fn Sidebar(
                 </button>
                 <button class="proj-switch" class:active=move || show_proj_menu.get()
                     disabled=move || demo_mode.get()
-                    title=move || if demo_mode.get() { t(locale.get(), "projects.example").to_string() } else { project_info.get().map(|p| p.name.clone()).unwrap_or_else(|| t(locale.get(), "projects.opening").into()) }
+                    title=move || switcher_name.get()
                     on:click=move |ev| toggle_proj_menu.call(ev)>
-                    <span class="proj-name">{move || if demo_mode.get() { t(locale.get(), "projects.example").to_string() } else { project_info.get().map(|p| p.name.clone()).unwrap_or_else(|| t(locale.get(), "projects.opening").into()) }}</span>
+                    <span class="proj-name">{move || switcher_name.get()}</span>
                 </button>
                 <button class="icon-btn" title=move || t(locale.get(), "sidebar.collapse") on:click=move |_| show_sidebar.set(false)>{compose_icon("chevron-left")}</button>
             </div>

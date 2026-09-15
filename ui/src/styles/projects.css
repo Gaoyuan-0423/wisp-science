@@ -28,6 +28,15 @@ body:has(.window-titlebar) .app.scratch-mode { top: 38px; height: calc(100% - 38
   display: flex; flex-direction: column; align-items: center;
   animation: motion-fade-in var(--motion-duration-slow) var(--motion-ease-standard) both;
 }
+@keyframes motion-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* Dissolve home over the workspace instead of unmounting it in one frame. */
+.projects-screen.projects-screen-leaving {
+  pointer-events: none;
+  animation: motion-fade-out var(--motion-duration-slow) var(--motion-ease-standard) both;
+}
 body:has(.window-titlebar) .projects-screen { top: 38px; }
 .projects-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-6); width: min(100%, 1200px);
   animation: motion-surface-in var(--motion-duration-medium) var(--motion-ease-decelerate) 20ms both; }
@@ -348,6 +357,10 @@ body:has(.window-titlebar) .conversation-search-dialog { max-height: min(660px, 
   .project-search-overlay,
   .project-search-dialog {
     animation: none;
+  }
+  .projects-screen.projects-screen-leaving {
+    animation: none;
+    opacity: 0;
   }
 }
 

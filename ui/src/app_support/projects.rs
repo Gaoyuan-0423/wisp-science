@@ -3,6 +3,8 @@ use super::*;
 #[component]
 pub(crate) fn ProjectsScreen(
     locale: RwSignal<Locale>,
+    projects: RwSignal<Vec<ProjectSummary>>,
+    leaving: RwSignal<bool>,
     calendar_open: RwSignal<bool>,
     dialog_open: RwSignal<bool>,
     running: RwSignal<HashSet<String>>,
@@ -27,7 +29,6 @@ pub(crate) fn ProjectsScreen(
     menu_new_project: RwSignal<bool>,
     menu_import_project: RwSignal<bool>,
 ) -> impl IntoView {
-    let projects = create_rw_signal(Vec::<ProjectSummary>::new());
     let starring_projects = create_rw_signal(HashSet::<String>::new());
     let recent = create_rw_signal(Vec::<RecentSession>::new());
     let artifact_hits = create_rw_signal(Vec::<ArtifactInfo>::new());
@@ -633,6 +634,9 @@ pub(crate) fn ProjectsScreen(
         if ev.key() != "Escape" || ev.default_prevented() || ime_composing(ev) {
             return;
         }
+        if leaving.get() {
+            return;
+        }
         if confirm_delete_data.get() {
             ev.prevent_default();
             confirm_delete_data.set(false);
@@ -694,7 +698,10 @@ pub(crate) fn ProjectsScreen(
     on_cleanup(move || escape_listener.remove());
 
     view! {
-        <div class="projects-screen" on:contextmenu=move |ev| {
+        <div class="projects-screen"
+            class:projects-screen-leaving=move || leaving.get()
+            prop:inert=move || leaving.get()
+            on:contextmenu=move |ev| {
             if crate::context_menu::uses_native_text_menu(&ev) {
                 return;
             }

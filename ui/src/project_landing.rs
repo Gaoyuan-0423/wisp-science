@@ -29,6 +29,8 @@ pub(super) struct ProjectLandingState {
     /// actual dialogs and resets these flags.
     pub(super) menu_new_project: RwSignal<bool>,
     pub(super) menu_import_project: RwSignal<bool>,
+    pub(super) home_leaving: RwSignal<bool>,
+    pub(super) proj_list: RwSignal<Vec<ProjectSummary>>,
 }
 #[component]
 pub(super) fn ProjectLanding(
@@ -40,6 +42,7 @@ pub(super) fn ProjectLanding(
     open_settings: Callback<Option<String>>,
     open_library: Callback<()>,
     open_project_export: Callback<(String, String)>,
+    reveal_workspace: Callback<()>,
 ) -> impl IntoView {
     let ProjectLandingState {
         home_calendar_open,
@@ -61,13 +64,16 @@ pub(super) fn ProjectLanding(
         privacy_hidden_project_ids,
         menu_new_project,
         menu_import_project,
+        home_leaving,
+        proj_list,
     } = state;
+    let home_visible = create_memo(move |_| show_projects.get() || home_leaving.get());
 
     move || {
-        show_projects.get().then(|| {
+        home_visible.get().then(|| {
             let on_open_demo = Callback::new(move |_: ()| {
                 project_open_error.set(None);
-                show_projects.set(false);
+                reveal_workspace.call(());
                 demo_mode.set(true);
                 items.set(vec![]);
                 active_session.set(None);
@@ -86,6 +92,8 @@ pub(super) fn ProjectLanding(
             view! {
                 <ProjectsScreen
                     locale=locale
+                    projects=proj_list
+                    leaving=home_leaving
                     calendar_open=home_calendar_open
                     dialog_open=home_dialog_open
                     running=running

@@ -113,6 +113,9 @@ const SIDEBAR_RESIZER_WIDTH: f64 = 10.0;
 const THEME_STORAGE_KEY: &str = "wisp-theme";
 const SIDE_CHAT_SCROLLER_ID: &str = "side-chat-scroller";
 const SIDE_CHAT_INPUT_ID: &str = "side-chat-input";
+/// Keep in sync with `--motion-duration-slow` so home can dissolve over a
+/// workspace that has already laid out underneath it.
+const HOME_LEAVE_MS: u64 = 420;
 
 fn service_tier_enabled(value: &str) -> bool {
     matches!(value.trim(), "priority" | "fast")
@@ -854,6 +857,26 @@ fn App() -> impl IntoView {
     // it reaches the system browser.
     let external_link_confirm = create_rw_signal(None::<String>);
     let app_shell_entering = create_rw_signal(false);
+    let home_leaving = create_rw_signal(false);
+    let home_ready = create_rw_signal(false);
+    let opening_project_name = create_rw_signal(None::<String>);
+    create_effect(move |_| {
+        if !show_projects.get() {
+            return;
+        }
+        if !home_ready.get_untracked() {
+            home_ready.set(true);
+        }
+        if home_leaving.get_untracked() {
+            home_leaving.set(false);
+        }
+        if opening_project_name.get_untracked().is_some() {
+            opening_project_name.set(None);
+        }
+        if app_shell_entering.get_untracked() {
+            app_shell_entering.set(false);
+        }
+    });
     let project_transition_epoch = Rc::new(Cell::new(0u64));
     let project_transition_target = Rc::new(RefCell::new(None::<String>));
     let project_open_gate = Rc::new(RefCell::new(ProjectOpenGate::default()));
@@ -8050,7 +8073,10 @@ fn App() -> impl IntoView {
             let arg = to_value(&serde_json::json!({ "query": "", "limit": 50 })).unwrap();
             let v = invoke("search_sessions", arg).await;
             if let Ok(rows) = serde_wasm_bindgen::from_value::<Vec<SessionSearchInfo>>(v) {
-                let rows: Vec<_> = rows.into_iter().filter(|s| s.status == "needs_you").collect();
+                let rows: Vec<_> = rows
+                    .into_iter()
+                    .filter(|s| s.status == "needs_you")
+                    .collect();
                 if inbox_sessions.with_untracked(|current| current != &rows) {
                     inbox_sessions.set(rows);
                 }
@@ -9378,12 +9404,52 @@ fn App() -> impl IntoView {
     // serialized gate. A rapid A -> B switch can therefore never let A's late
     // response load a session, refresh lists, or publish project metadata after
     // B has become the requested target.
+    // Home → workspace: keep the landing overlay mounted while it fades, and
+    // show the already-laid-out shell underneath. Dedicated windows still use
+    // the enter animation; in-app switches do not replay it.
+    let reveal_workspace = {
+        let transition_epoch = project_transition_epoch.clone();
+        Rc::new(move |request_epoch: u64| {
+            let from_home = home_ready.get_untracked() && show_projects.get_untracked();
+            let shell_hidden = show_projects.get_untracked();
+            if from_home {
+                home_leaving.set(true);
+                show_projects.set(false);
+                let transition_epoch = transition_epoch.clone();
+                set_timeout(
+                    move || {
+                        if transition_epoch.get() == request_epoch {
+                            home_leaving.set(false);
+                        }
+                    },
+                    std::time::Duration::from_millis(HOME_LEAVE_MS),
+                );
+            } else {
+                if home_leaving.get_untracked() {
+                    home_leaving.set(false);
+                }
+                show_projects.set(false);
+            }
+            if !from_home && shell_hidden {
+                app_shell_entering.set(true);
+                let transition_epoch = transition_epoch.clone();
+                set_timeout(
+                    move || {
+                        if transition_epoch.get() == request_epoch {
+                            app_shell_entering.set(false);
+                        }
+                    },
+                    std::time::Duration::from_millis(520),
+                );
+            }
+        })
+    };
     let open_project_transition = {
         let transition_epoch = project_transition_epoch.clone();
         let transition_target = project_transition_target.clone();
         let open_gate = project_open_gate.clone();
         let load_session = load_session.clone();
-        let app_shell_entering = app_shell_entering;
+        let reveal_workspace = reveal_workspace.clone();
         Callback::new(move |(project_id, session_id): (String, Option<String>)| {
             if project_transfer
                 .get_untracked()
@@ -9425,21 +9491,21 @@ fn App() -> impl IntoView {
             collapsed_folders.set(HashSet::new());
             selecting_workspace_entries.set(false);
             selected_workspace_paths.set(HashSet::new());
-            project_info.set(None);
-            app_shell_entering.set(true);
-            {
-                let transition_epoch = transition_epoch.clone();
-                let app_shell_entering = app_shell_entering;
-                set_timeout(
-                    move || {
-                        if transition_epoch.get() == request_epoch {
-                            app_shell_entering.set(false);
-                        }
-                    },
-                    std::time::Duration::from_millis(520),
-                );
+            let same_project = project_info
+                .get_untracked()
+                .is_some_and(|project| project.id == project_id);
+            if same_project {
+                opening_project_name.set(None);
+            } else {
+                let preview = proj_list.with_untracked(|list| {
+                    list.iter()
+                        .find(|project| project.id == project_id)
+                        .map(|project| project.name.clone())
+                });
+                project_info.set(None);
+                opening_project_name.set(preview);
             }
-            show_projects.set(false);
+            reveal_workspace(request_epoch);
 
             let transition_epoch = transition_epoch.clone();
             let transition_target = transition_target.clone();
@@ -9505,6 +9571,8 @@ fn App() -> impl IntoView {
                         project_open_error.set(Some(message.clone()));
                         status.set(message);
                         project_info.set(None);
+                        opening_project_name.set(None);
+                        home_leaving.set(false);
                         *transition_target.borrow_mut() = None;
                         show_projects.set(true);
                         return;
@@ -9528,6 +9596,7 @@ fn App() -> impl IntoView {
                 ) {
                     return;
                 }
+                opening_project_name.set(None);
                 project_info.set(Some(project));
                 if let Some(day) = calendar_day {
                     journey_initial_day.set(Some(day));
@@ -10498,7 +10567,8 @@ fn App() -> impl IntoView {
         create_memo(move |_| show_right.get() && !scratch_open.get() && !demo_mode.get());
     let center_preview = create_memo(move |_| {
         let path = (!demo_mode.get()).then(|| center_file.get()).flatten()?;
-        let file = center_files.with(|files| files.iter().find(|file| file.path == path).cloned())?;
+        let file =
+            center_files.with(|files| files.iter().find(|file| file.path == path).cloned())?;
         let revision = center_file_revisions
             .with(|revisions| revisions.get(&path).copied().unwrap_or_default());
         let display_path = project_info
@@ -10510,6 +10580,18 @@ fn App() -> impl IntoView {
             .unwrap_or_else(|| path.replace('\\', "/"));
         Some((file, revision, display_path))
     });
+
+    let demo_reveal_workspace = {
+        let reveal_workspace = reveal_workspace.clone();
+        let transition_epoch = project_transition_epoch.clone();
+        let transition_target = project_transition_target.clone();
+        Callback::new(move |_: ()| {
+            let request_epoch = transition_epoch.get().wrapping_add(1);
+            transition_epoch.set(request_epoch);
+            *transition_target.borrow_mut() = None;
+            reveal_workspace(request_epoch);
+        })
+    };
 
     view! {
         {is_windows().then(|| view! {
@@ -10727,6 +10809,7 @@ fn App() -> impl IntoView {
                 sync_actions_available, command_palette_open, project_transfer,
                 privacy_mode_active, privacy_hidden_project_ids,
                 menu_new_project, menu_import_project, home_calendar_open, home_dialog_open,
+                home_leaving, proj_list,
             }
             open_project=switch_project
             open_project_session=palette_open_session
@@ -10738,6 +10821,7 @@ fn App() -> impl IntoView {
             open_settings=Callback::new(move |section: Option<String>| open_settings_fn(section))
             open_library=Callback::new(move |_| show_library.set(true))
             open_project_export=open_project_export
+            reveal_workspace=demo_reveal_workspace
         />
         <SessionImportModal
             locale=locale
@@ -10800,11 +10884,11 @@ fn App() -> impl IntoView {
             class:scratch-mode=move || scratch_open.get()
             // Onboarding lives in this shell, so hiding it on the projects
             // landing swallowed the first-run overlay entirely.
-            class:app-hidden=move || show_projects.get() && !scratch_open.get() && !show_settings.get() && !show_onboarding.get() && modal_artifact.get().is_none()
+            class:app-hidden=move || show_projects.get() && !home_leaving.get() && !scratch_open.get() && !show_settings.get() && !show_onboarding.get() && modal_artifact.get().is_none()
             on:contextmenu=on_context_menu>
         <Sidebar
             state=SidebarState {
-                locale, show_sidebar, sidebar_w, show_proj_menu, show_projects, demo_mode, project_info, proj_list,
+                locale, show_sidebar, sidebar_w, show_proj_menu, show_projects, demo_mode, project_info, opening_project_name, proj_list,
                 sessions, folders, drag_session, drop_target, active_session, running,
                 explorations,
                 attention: approval_pending,
