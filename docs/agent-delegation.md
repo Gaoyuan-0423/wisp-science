@@ -484,11 +484,26 @@ saving or executing it. The proposed goal supplies the initial template name;
 legacy conversions retain the original template name. Review and save the
 template in Studio before using the normal execution/approval flow.
 
+During conversion, the review pane reports the host's current stage: preparing,
+matching source methods (automatic selection only), reading documents, generating
+nodes, checking the proposal, correcting rejected nodes if needed, and saving
+source provenance. The activity indicator is indeterminate; elapsed time is shown
+without guessing a completion percentage or deadline.
+
+**Continue in background**, the close button, backdrop click and Escape all hide
+the conversion dialog while work continues. You can leave Settings or switch
+projects. A persistent status card shows progress, completion or failure; **View
+progress / View result** returns to the originating project and reopens the same
+request and draft. Completion does not overwrite the graph editor or save a
+template automatically. Inputs stay disabled during conversion. A window handles
+one conversion at a time; the draft remains available until used or its inputs
+are edited. This state lasts for the current app window, not across window
+closure, reload or app restart.
+
 Changing conversion inputs invalidates the previous draft. Conversion failures
-appear inside the conversion window and can be retried. Closing it discards late
-responses without replacing the current editor contents; it does not cancel the
-model request on the backend. Escape closes this window before any graph
-connection operation or the parent Studio. Missing source Skills or configured
+appear inside the conversion window and can be retried with the original inputs.
+Escape closes this window before any graph connection operation or the parent
+Studio. Missing source Skills or configured
 models show setup guidance and disable generation. The layout stacks vertically
 in narrow windows, scrolls to the generated draft, and keeps footer actions visible.
 

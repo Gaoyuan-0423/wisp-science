@@ -4481,7 +4481,7 @@ test("Workflow conversion uses the selected model and opens an unbudgeted editab
   await page.getByTestId("portfolio-model").selectOption("opus");
   await page.getByTestId("portfolio-request").fill("Design an oncology omics study");
   await page.getByTestId("portfolio-generate").click();
-  await expect.poll(() => lastInvokeArgs(page, "plan_skill_portfolio")).toEqual({
+  await expect.poll(() => lastInvokeArgs(page, "plan_skill_portfolio")).toMatchObject({
     request: {
       request: "Design an oncology omics study",
       model_id: "opus",
@@ -16869,7 +16869,7 @@ test("Workflow conversion keeps errors inside the dialog and supports retry", as
   await expect(page.getByTestId("portfolio-error")).toHaveCount(0);
 });
 
-test("Workflow conversion discards late responses after closing and reopening", async ({ page }) => {
+test("Workflow conversion keeps running after closing and reopening", async ({ page }) => {
   await enterApp(page);
   await page.evaluate(() => {
     const core = (window as any).__TAURI__.core;
@@ -16896,11 +16896,121 @@ test("Workflow conversion discards late responses after closing and reopening", 
   await expect(page.getByTestId("workflow-studio")).toBeVisible();
   await page.getByTestId("portfolio-planner-open").click();
   await page.evaluate(() => (window as any).__finishConversion());
-  await expect(page.getByTestId("portfolio-empty")).toBeVisible();
-  await expect(page.getByTestId("portfolio-plan-card")).toHaveCount(0);
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect(page.getByTestId("portfolio-request")).toHaveValue("Old research question");
   await page.getByTestId("portfolio-request").fill("New research question");
   await page.getByTestId("portfolio-generate").click();
   await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+});
+
+async function holdWorkflowConversion(page: Page) {
+  await page.evaluate(() => {
+    const core = (window as any).__TAURI__.core;
+    const original = core.invoke;
+    core.invoke = async (cmd: string, args: any) => {
+      const result = await original(cmd, args);
+      if (cmd !== "plan_skill_portfolio") return result;
+      return new Promise((resolve, reject) => {
+        (window as any).__finishConversion = () => resolve(result);
+        (window as any).__failConversion = () => reject(new Error("Conversion timed out"));
+      });
+    };
+  });
+}
+
+test("Workflow conversion reports real progress and retains its draft after leaving settings", async ({ page }) => {
+  await enterApp(page);
+  await holdWorkflowConversion(page);
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Background research question");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("conversion-progress")).toContainText("Preparing conversion");
+  const { conversionId, expectedProjectId } = await lastInvokeArgs(page, "plan_skill_portfolio");
+  expect(expectedProjectId).toBe("default");
+  for (const [stage, text] of [
+    ["selecting_sources", "Matching source Skills"],
+    ["reading_sources", "Reading method documents"],
+    ["generating", "Generating node instructions"],
+    ["validating", "Checking dependencies"],
+    ["repairing", "Correcting nodes after validation"],
+  ]) {
+    await emitTauriEvent(page, "workflow-conversion-progress", { conversion_id: conversionId, stage });
+    await expect(page.getByTestId("conversion-progress")).toContainText(text);
+  }
+  await expect(page.getByTestId("conversion-progress").locator(".conversion-elapsed")).not.toHaveText("Elapsed 0:00");
+  await page.getByRole("dialog").screenshot({ path: test.info().outputPath("conversion-progress.png") });
+  await page.getByTestId("portfolio-background").click();
+  await expect(page.getByTestId("portfolio-planner-overlay")).toBeHidden();
+  await expect(page.getByTestId("workflow-studio")).toBeVisible();
+  await expect(page.getByTestId("conversion-notice")).toContainText("Correcting nodes");
+  await page.getByTestId("workflow-studio-back").click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workflow-studio")).toHaveCount(0);
+  await emitTauriEvent(page, "workflow-conversion-progress", { conversion_id: conversionId, stage: "saving" });
+  await expect(page.getByTestId("conversion-notice")).toContainText("Saving source provenance");
+  await page.evaluate(() => (window as any).__finishConversion());
+  await expect(page.getByTestId("conversion-notice")).toContainText("Workflow draft ready for review");
+  await page.screenshot({ path: test.info().outputPath("conversion-background-ready.png") });
+  await page.getByTestId("conversion-open").click();
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect(page.getByTestId("portfolio-request")).toHaveValue("Background research question");
+  await expect.poll(() => invokeCount(page, "plan_skill_portfolio")).toBe(1);
+  await page.getByTestId("portfolio-edit-studio").click();
+  await expect(page.getByTestId("conversion-notice")).toHaveCount(0);
+  await page.getByTestId("workflow-save").click();
+  await expect.poll(() => lastInvokeArgs(page, "save_workflow_template")).toMatchObject({ conversionSourceSha256: "fixture-conversion-source" });
+});
+
+test("Workflow background failure can retry and ignores another request's progress", async ({ page }) => {
+  await enterApp(page);
+  await holdWorkflowConversion(page);
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Retry conversion");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-loading")).toBeVisible();
+  const oldId = (await lastInvokeArgs(page, "plan_skill_portfolio")).conversionId;
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workflow-studio")).toBeVisible();
+  await page.evaluate(() => (window as any).__failConversion());
+  await expect(page.getByTestId("conversion-notice")).toContainText("Workflow conversion failed");
+  await page.getByTestId("conversion-open").click();
+  await expect(page.getByTestId("portfolio-error")).toContainText("Conversion timed out");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-loading")).toBeVisible();
+  const newId = (await lastInvokeArgs(page, "plan_skill_portfolio")).conversionId;
+  expect(newId).not.toBe(oldId);
+  await emitTauriEvent(page, "workflow-conversion-progress", { conversion_id: newId, stage: "reading_sources" });
+  await emitTauriEvent(page, "workflow-conversion-progress", { conversion_id: oldId, stage: "repairing" });
+  await expect(page.getByTestId("conversion-progress")).toContainText("Reading method documents");
+  await expect(page.getByTestId("portfolio-error")).toHaveCount(0);
+  await page.evaluate(() => (window as any).__finishConversion());
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+});
+
+test("Workflow background draft returns to its source project", async ({ page }) => {
+  await enterApp(page);
+  await holdWorkflowConversion(page);
+  await openSettingsSection(page, "Workflows");
+  await page.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("portfolio-request").fill("Original project conversion");
+  await page.getByTestId("portfolio-generate").click();
+  await expect(page.getByTestId("portfolio-loading")).toBeVisible();
+  await page.getByTestId("portfolio-background").click();
+  await page.getByTestId("workflow-studio-back").click();
+  await page.keyboard.press("Escape");
+  await page.locator(".proj-switch").click();
+  await page.locator(".proj-menu").getByRole("button", { name: "Other project" }).click();
+  await expect(page.locator(".proj-name")).toHaveText("Other project");
+  await page.evaluate(() => (window as any).__finishConversion());
+  await expect(page.getByTestId("conversion-notice")).toContainText("Workflow draft ready");
+  await openSettingsSection(page, "Workflows");
+  await expect(page.getByTestId("portfolio-planner-open")).toBeDisabled();
+  await page.getByTestId("conversion-open").click();
+  await expect(page.locator(".proj-name")).toHaveText("wisp-science");
+  await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
+  await expect(page.getByTestId("portfolio-request")).toHaveValue("Original project conversion");
 });
 
 for (const missing of ["Sources", "Models"]) {

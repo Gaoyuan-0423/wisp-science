@@ -6,6 +6,7 @@ use crate::dto::*;
 use crate::i18n::{t, tf, Locale};
 use crate::text::{dom_value, event_target_checked, event_target_value, md_to_html};
 use crate::window_capture_escape;
+use crate::workflow_conversion::{ConversionProgress, ConversionState};
 use leptos::{ev, *};
 use serde_json::Value;
 use serde_wasm_bindgen::to_value;
@@ -2800,19 +2801,21 @@ pub(super) fn workflow_studio(
     let saving = create_rw_signal(false);
     let selected_task_key = create_rw_signal::<Option<u32>>(None);
     let connect_from_key = create_rw_signal::<Option<u32>>(None);
-    let portfolio_open = create_rw_signal(false);
-    let portfolio_request = create_rw_signal(String::new());
-    let portfolio_model_id = create_rw_signal(String::new());
-    let portfolio_draft = create_rw_signal::<Option<SkillPortfolioDraft>>(None);
-    let portfolio_loading = create_rw_signal(false);
-    let portfolio_sources = create_rw_signal::<Vec<String>>(vec![]);
-    let portfolio_auto_sources = create_rw_signal(true);
-    let portfolio_source_search = create_rw_signal(String::new());
-    let portfolio_error = create_rw_signal::<Option<String>>(None);
-    let portfolio_generation = create_rw_signal(0_u64);
+    let conversion = expect_context::<ConversionState>();
+    let portfolio_open = conversion.open;
+    let portfolio_request = conversion.request;
+    let portfolio_model_id = conversion.model_id;
+    let portfolio_draft = conversion.draft;
+    let portfolio_loading = conversion.loading;
+    let portfolio_sources = conversion.sources;
+    let portfolio_auto_sources = conversion.auto_sources;
+    let portfolio_source_search = conversion.source_search;
+    let portfolio_error = conversion.error;
     let portfolio_review_ref = create_node_ref::<html::Div>();
-    let portfolio_legacy_template = create_rw_signal::<Option<String>>(None);
-    let portfolio_legacy_workflow = create_rw_signal::<Option<String>>(None);
+    let studio_alive = create_rw_signal(true);
+    on_cleanup(move || studio_alive.set(false));
+    let portfolio_legacy_template = conversion.legacy_template;
+    let portfolio_legacy_workflow = conversion.legacy_workflow;
     let conversion_source_sha256 = create_rw_signal::<Option<String>>(None);
     let portfolio_legacy = create_memo(move |_| {
         portfolio_legacy_template.get().is_some() || portfolio_legacy_workflow.get().is_some()
@@ -2829,22 +2832,23 @@ pub(super) fn workflow_studio(
                 || (!state.options.get().skills.is_empty()
                     && (portfolio_auto_sources.get() || !portfolio_sources.get().is_empty())))
     });
-    // A draft belongs to the exact conversion inputs and open dialog instance.
-    // Closing/reopening or editing inputs must never apply an older response.
     create_effect(move |_| {
-        let _inputs = (
-            portfolio_open.get(),
-            portfolio_request.get(),
-            portfolio_model_id.get(),
-            portfolio_sources.get(),
-            portfolio_auto_sources.get(),
-            portfolio_legacy_template.get(),
-            portfolio_legacy_workflow.get(),
-        );
-        portfolio_generation.update(|generation| *generation += 1);
-        portfolio_draft.set(None);
-        portfolio_error.set(None);
-        portfolio_loading.set(false);
+        if portfolio_open.get() && portfolio_draft.get().is_some() {
+            request_animation_frame(move || {
+                if studio_alive.try_get_untracked() != Some(true) {
+                    return;
+                }
+                let narrow = web_sys::window()
+                    .and_then(|window| window.inner_width().ok())
+                    .and_then(|width| width.as_f64())
+                    .is_some_and(|width| width <= 720.0);
+                if narrow {
+                    if let Some(review) = portfolio_review_ref.get_untracked() {
+                        review.scroll_into_view_with_bool(true);
+                    }
+                }
+            });
+        }
     });
     let legacy_form = create_memo(move |_| {
         state.dynamic_form.with(|form| {
@@ -2854,6 +2858,9 @@ pub(super) fn workflow_studio(
         })
     });
     create_effect(move |_| {
+        if conversion.id.get_untracked().is_some() {
+            return;
+        }
         if let Some(id) = state.legacy_conversion_requested.get() {
             let goal = state
                 .workflows
@@ -2873,12 +2880,11 @@ pub(super) fn workflow_studio(
         }
     });
 
-    // Escape stack for the studio surface (registered while Workflows is open):
-    // close conversion dialog → cancel in-progress connect → leave studio.
+    // App-owned conversion dialogs defer to the app Escape stack. Otherwise,
+    // this scoped listener handles connect → leave studio.
     window_capture_escape(move || {
         if portfolio_open.get_untracked() {
-            portfolio_open.set(false);
-            return true;
+            return false;
         }
         if connect_from_key.get_untracked().is_some() {
             connect_from_key.set(None);
@@ -2889,6 +2895,9 @@ pub(super) fn workflow_studio(
     });
 
     create_effect(move |_| {
+        if conversion.id.get_untracked().is_some() {
+            return;
+        }
         let available = state.options.get().models;
         let profiles = models.get();
         let current = portfolio_model_id.get_untracked();
@@ -2922,50 +2931,18 @@ pub(super) fn workflow_studio(
         }
         portfolio_error.set(None);
         portfolio_draft.set(None);
-        portfolio_loading.set(true);
-        let generation = portfolio_generation.get_untracked();
-        let args = serde_json::json!({"request":SkillPortfolioRequest {
-            request:request_text,model_id,
-            source_skill_ids:if portfolio_auto_sources.get_untracked() || portfolio_legacy.get_untracked() {
+        conversion.start(SkillPortfolioRequest {
+            request: request_text,
+            model_id,
+            source_skill_ids: if portfolio_auto_sources.get_untracked()
+                || portfolio_legacy.get_untracked()
+            {
                 vec![]
             } else {
                 portfolio_sources.get_untracked()
             },
-            legacy_template_id:portfolio_legacy_template.get_untracked(),
-            legacy_workflow_id:portfolio_legacy_workflow.get_untracked(),
-        }});
-        spawn_local(async move {
-            let result = invoke_checked("plan_skill_portfolio", to_value(&args).unwrap()).await;
-            if portfolio_generation.try_get_untracked() != Some(generation) {
-                return;
-            }
-            match result {
-                Ok(value) => match serde_wasm_bindgen::from_value::<SkillPortfolioDraft>(value) {
-                    Ok(draft) => {
-                        portfolio_draft.set(Some(draft));
-                        portfolio_error.set(None);
-                        // In stacked windows the review is below the inputs.
-                        // Bring the new draft into view once it has rendered.
-                        request_animation_frame(move || {
-                            if portfolio_generation.try_get_untracked() != Some(generation) {
-                                return;
-                            }
-                            let narrow = web_sys::window()
-                                .and_then(|window| window.inner_width().ok())
-                                .and_then(|width| width.as_f64())
-                                .is_some_and(|width| width <= 720.0);
-                            if narrow {
-                                if let Some(review) = portfolio_review_ref.get_untracked() {
-                                    review.scroll_into_view_with_bool(true);
-                                }
-                            }
-                        });
-                    }
-                    Err(error) => portfolio_error.set(Some(error.to_string())),
-                },
-                Err(error) => portfolio_error.set(Some(js_error_text(error))),
-            }
-            portfolio_loading.set(false);
+            legacy_template_id: portfolio_legacy_template.get_untracked(),
+            legacy_workflow_id: portfolio_legacy_workflow.get_untracked(),
         });
     };
 
@@ -3141,9 +3118,12 @@ pub(super) fn workflow_studio(
                         {move || t(locale.get(), "workflow_studio.new")}
                     </button>
                     <button type="button" class="settings-add-btn" data-testid="portfolio-planner-open"
+                        disabled=move || !conversion.belongs_to_current_project()
                         on:click=move |_| {
-                            portfolio_draft.set(None);
-                            portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
+                            if conversion.id.get_untracked().is_none() {
+                                portfolio_draft.set(None);
+                                portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
+                            }
                             portfolio_open.set(true);
                         }>
                         {compose_icon("branch")}
@@ -3278,6 +3258,7 @@ pub(super) fn workflow_studio(
                     <div class="agents-error" data-testid="workflow-legacy-warning">
                         <p>{move || t(locale.get(),"workflow_studio.legacy_warning")}</p>
                         <button type="button" class="agents-secondary" data-testid="workflow-reconvert"
+                            disabled=move || conversion.id.get().is_some()
                             on:click=move |_| {
                                 portfolio_legacy_template.set(selected_template_id.get_untracked());
                                 portfolio_legacy_workflow.set(None);portfolio_sources.set(vec![]);
@@ -3523,10 +3504,8 @@ pub(super) fn workflow_studio(
                                     </div>
                                 })}
                                 <Show when=move || portfolio_loading.get()>
-                                    <div class="portfolio-empty" role="status" data-testid="portfolio-loading">
-                                        {compose_icon("sparkles")}
-                                        <h3>{move || t(locale.get(), "workflow_studio.portfolio.planning")}</h3>
-                                        <p>{move || t(locale.get(), "workflow_studio.portfolio.loading_help")}</p>
+                                    <div data-testid="portfolio-loading" class="portfolio-progress-wrap">
+                                        <ConversionProgress state=conversion locale=locale />
                                     </div>
                                 </Show>
                                 <Show when=move || !portfolio_loading.get() && portfolio_draft.get().is_none()>
@@ -3546,8 +3525,8 @@ pub(super) fn workflow_studio(
                         </div>
                         <div class="row portfolio-footer">
                             <p>{move || t(locale.get(), "workflow_studio.portfolio.footer")}</p>
-                            <button type="button" on:click=move |_| portfolio_open.set(false)>
-                                {move || t(locale.get(), "settings.cancel")}
+                            <button type="button" data-testid="portfolio-background" on:click=move |_| portfolio_open.set(false)>
+                                {move || t(locale.get(), if portfolio_loading.get() { "workflow_studio.conversion.background" } else { "workflow_studio.portfolio.close" })}
                             </button>
                             <button type="button" class:primary=move || portfolio_draft.get().is_none()
                                 data-testid="portfolio-generate"
@@ -3577,6 +3556,9 @@ pub(super) fn workflow_studio(
                                             creating.set(false); loaded_id.set(Some(id.clone())); selected_template_id.set(Some(id));
                                         } else { creating.set(true); loaded_id.set(None); selected_template_id.set(None); }
                                         portfolio_open.set(false);
+                                        conversion.id.set(None);
+                                        conversion.project.set(None);
+                                        conversion.draft.set(None);
                                     }>{move || t(locale.get(), "workflow_studio.portfolio.edit_studio")}</button>
                             })}
                         </div>
