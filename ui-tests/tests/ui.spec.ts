@@ -9569,6 +9569,41 @@ test("composer Fast lightning hides for ACP and unsupported HTTP providers", asy
   await expect(page.getByTestId("composer-fast-toggle")).toHaveCount(0);
 });
 
+for (const [label, field, value] of [
+  ["Max output tokens", "max_tokens", "4096"],
+  ["Context window (tokens)", "context_window", "32768"],
+] as const) {
+  test(`model settings keeps ${field} focused while typing and deleting (#1243)`, async ({ page }) => {
+    await enterApp(page);
+    await openModelsSettings(page);
+    const input = page.getByLabel(label, { exact: true });
+    await input.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    // Use the keyboard after one click: fill() would hide input remounts.
+    for (let i = 0; i < value.length; i++) {
+      await page.keyboard.type(value[i]);
+      await expect(input).toBeFocused();
+      await expect(input).toHaveValue(value.slice(0, i + 1));
+    }
+    for (let length = value.length - 1; length > 0; length--) {
+      await page.keyboard.press("Backspace");
+      await expect(input).toBeFocused();
+      await expect(input).toHaveValue(value.slice(0, length));
+    }
+    await page.keyboard.type(value.slice(1));
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(value);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => lastInvokeArgs(page, "save_model"))
+      .toMatchObject({ profile: { [field]: Number(value) } });
+    const stored = await page.evaluate(async () => {
+      const models = await (window as any).__TAURI__.core.invoke("list_models");
+      return models.find((model: any) => model.model === "deepseek-v4-pro");
+    });
+    expect(stored).toMatchObject({ [field]: Number(value) });
+  });
+}
+
 test("model settings rejects max output tokens above the known ceiling", async ({ page }) => {
   await enterApp(page);
   await openModelsSettings(page);

@@ -42,6 +42,10 @@ an inline error instead of failing mid-turn with a provider 400, and a context
 window above the ceiling is clamped down on save. Models absent from the
 catalog keep manually entered values.
 
+When editing a chat model, **Max output tokens** and **Context window** support
+continuous typing and deletion without losing focus. Changes take effect when
+you save the profile; the same catalog ceilings still apply.
+
 The composer model picker binds the selected HTTP model to the current
 conversation. Switching one populated conversation asks for confirmation and
 does not change any other conversation. Empty conversations switch immediately
