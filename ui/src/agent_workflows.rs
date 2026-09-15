@@ -3196,22 +3196,24 @@ pub(super) fn workflow_studio(
                         } else {
                             t(locale.get(), "workflow_studio.edit")
                         }}</span>
-                        <strong>{move || {
-                            let name = template_name.get();
-                            if name.trim().is_empty() {
-                                t(locale.get(), "workflow_studio.untitled").into()
-                            } else {
-                                name
-                            }
-                        }}</strong>
-                        <small>{move || {
-                            let description = template_description.get();
-                            if description.trim().is_empty() {
-                                t(locale.get(), "workflow_studio.help").into()
-                            } else {
-                                description
-                            }
-                        }}</small>
+                        // Limits mirror MAX_TEMPLATE_NAME_CHARS / MAX_TEMPLATE_DESCRIPTION_CHARS
+                        // in src-tauri/src/quick_actions.rs.
+                        <label class="workflow-studio-title-field">
+                            <input type="text" data-testid="workflow-name" maxlength="100"
+                                aria-label=move || t(locale.get(), "workflow_studio.name")
+                                prop:placeholder=move || t(locale.get(), "workflow_studio.untitled")
+                                prop:value=move || template_name.get()
+                                on:input=move |event| template_name.set(event_target_value(&event)) />
+                            {compose_icon("edit")}
+                        </label>
+                        <input type="text" class="workflow-studio-description-field"
+                            data-testid="workflow-description" maxlength="500"
+                            aria-label=move || t(locale.get(), "workflow_studio.description")
+                            prop:placeholder=move || t(locale.get(), "workflow_studio.description_ph")
+                            prop:value=move || template_description.get()
+                            on:input=move |event| {
+                                template_description.set(event_target_value(&event));
+                            } />
                     </div>
                     <div class="workflow-studio-editor-status">
                         <span class="workflow-studio-policy-badge">
@@ -3268,6 +3270,10 @@ pub(super) fn workflow_studio(
                         </button>
                     </div>
                 </div>
+                // Workflow-level errors (name, graph) sit next to Save, not over the node inspector.
+                {move || state.error.get().map(|error| view! {
+                    <div class="agents-error" data-testid="workflow-studio-error">{error}</div>
+                })}
                 <Show when=move || legacy_form.get()>
                     <div class="agents-error" data-testid="workflow-legacy-warning">
                         <p>{move || t(locale.get(),"workflow_studio.legacy_warning")}</p>
@@ -3288,7 +3294,7 @@ pub(super) fn workflow_studio(
                 </Show>
                 <details class="workflow-studio-config" data-testid="workflow-studio-config">
                     <summary>
-                        <span>{compose_icon("settings")}</span>
+                        <span>{compose_icon("gear")}</span>
                         <span>
                             <strong>{move || t(locale.get(), "workflow_studio.configuration")}</strong>
                             <small>{move || t(locale.get(), "workflow_studio.configuration_help")}</small>
@@ -3305,22 +3311,6 @@ pub(super) fn workflow_studio(
                             </div>
                         })
                 })}
-                <div class="workflow-studio-meta">
-                    <label>
-                        <span>{move || t(locale.get(), "workflow_studio.name")}</span>
-                        <input type="text" data-testid="workflow-name"
-                            prop:value=move || template_name.get()
-                            on:input=move |event| template_name.set(event_target_value(&event)) />
-                    </label>
-                    <label>
-                        <span>{move || t(locale.get(), "workflow_studio.description")}</span>
-                        <input type="text" data-testid="workflow-description"
-                            prop:value=move || template_description.get()
-                            on:input=move |event| {
-                                template_description.set(event_target_value(&event));
-                            } />
-                    </label>
-                </div>
                 <label>
                     <span>{move || t(locale.get(), "agents.goal")}</span>
                     <textarea data-testid="workflow-goal"
@@ -3330,13 +3320,6 @@ pub(super) fn workflow_studio(
                             form.goal = event_target_value(&event);
                         })></textarea>
                 </label>
-                {roundtable_template_editor(
-                    state,
-                    editor_enabled,
-                    specialists,
-                    models,
-                    locale,
-                )}
                 <div class="dynamic-agent-policy-row">
                     <label>
                         <span>{move || t(locale.get(), "agents.approval_policy")}</span>
@@ -3377,6 +3360,14 @@ pub(super) fn workflow_studio(
                             form.context = event_target_value(&event);
                         })></textarea>
                 </details>
+                // The roundtable generator replaces the graph, so it sits after the settings.
+                {roundtable_template_editor(
+                    state,
+                    editor_enabled,
+                    specialists,
+                    models,
+                    locale,
+                )}
                     </div>
                 </details>
                 <section class="workflow-studio-graph">
@@ -3395,9 +3386,6 @@ pub(super) fn workflow_studio(
                         locale,
                     )}
                 </section>
-                {move || state.error.get().map(|error| view! {
-                    <div class="agents-error" data-testid="workflow-studio-error">{error}</div>
-                })}
             </form>
             {move || portfolio_open.get().then(|| view! {
                 <div class="overlay portfolio-planner-overlay" role="presentation" data-testid="portfolio-planner-overlay"
@@ -3579,7 +3567,7 @@ pub(super) fn workflow_studio(
                                         connect_from_key.set(None);
                                         state.dynamic_form.set(form);
                                         state.error.set(None);
-                                        template_name.set(draft.proposal.goal.clone());
+                                        template_name.set(short_workflow_name(&draft.proposal.goal));
                                         template_description.set(tf(locale.get_untracked(), "workflow_studio.portfolio.template_description", &[("model", &draft.plan.planner_model_label)]));
                                         conversion_source_sha256.set(draft.plan.source_sha256.clone());
                                         if let Some(id) = portfolio_legacy_template.get_untracked() {
@@ -3597,6 +3585,19 @@ pub(super) fn workflow_studio(
             })}
         </div>
     }
+}
+
+/// Converted goals are often a whole paragraph; seed the name with a short,
+/// saveable label (the backend caps names at 100 chars) the user can rename.
+fn short_workflow_name(goal: &str) -> String {
+    const MAX_CHARS: usize = 60;
+    let line = goal.trim().lines().next().unwrap_or_default().trim();
+    if line.chars().count() <= MAX_CHARS {
+        return line.to_string();
+    }
+    let mut name: String = line.chars().take(MAX_CHARS - 1).collect();
+    name.push('…');
+    name
 }
 
 /// Review the actual converted proposal; source summaries are provenance only.
@@ -4515,6 +4516,14 @@ mod tests {
         assert_eq!(clamp_workflow_inspector_width(120, 1200.0), 280);
         assert_eq!(clamp_workflow_inspector_width(900, 1200.0), 640);
         assert_eq!(clamp_workflow_inspector_width(500, 727.0), 400);
+    }
+
+    #[test]
+    fn converted_goal_seeds_a_saveable_workflow_name() {
+        assert_eq!(short_workflow_name("  Design a study \nDetails"), "Design a study");
+        let name = short_workflow_name(&"对用户输入的一句话".repeat(20));
+        assert_eq!(name.chars().count(), 60);
+        assert!(name.ends_with('…'));
     }
 
     #[test]
