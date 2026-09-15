@@ -23,7 +23,7 @@ Every completed response exposes **Start exploration**. While a round is unresol
 
 ## Ordinary conversation branches
 
-Ordinary conversation branches use a branch icon in the sidebar and also appear directly below the message checkpoint where they were created. The main conversation remains free to continue while every branch develops its own later context.
+Ordinary conversation branches use a branch icon in the sidebar and also appear directly below the message checkpoint where they were created. New branches inherit their source conversation's current folder and nest beneath that conversation in the same sidebar folder; branches of ungrouped conversations remain ungrouped. You can still move a branch to another folder separately afterward. The main conversation remains free to continue while every branch develops its own later context.
 
 Right-click a branch and choose **Merge back** when its focused work is ready. Wisp reads only the branch messages created after its checkpoint and drafts a self-contained summary. The user reviews and edits that draft; the approved text is appended to the current end of main as normal readable conversation context. Mainline turns created after the checkpoint are never compared, truncated, replaced, or included in the branch summary.
 

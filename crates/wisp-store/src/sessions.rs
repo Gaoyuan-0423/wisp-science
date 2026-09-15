@@ -2175,8 +2175,9 @@ impl Store {
         Ok(())
     }
 
-    /// Mark a branch created by the current checkpoint-aware flow. Legacy rows
-    /// with only `branched_from` deliberately do not participate.
+    /// Mark a branch created by the current checkpoint-aware flow, inheriting
+    /// its source's folder so the sidebar can nest it beneath that source.
+    /// Legacy rows with only `branched_from` deliberately do not participate.
     pub async fn set_session_branch_point(
         &self,
         frame_id: &str,
@@ -2188,12 +2189,15 @@ impl Store {
             anyhow::bail!("Invalid conversation branch checkpoint kind");
         }
         sqlx::query(
-            "UPDATE frames SET branched_from=?,branch_point_user_index=?,branch_point_kind=? \
+            "UPDATE frames SET branched_from=?,branch_point_user_index=?,branch_point_kind=?, \
+             folder_id=(SELECT source.folder_id FROM frames source \
+                        WHERE source.id=? AND source.project_id=frames.project_id) \
              WHERE id=?",
         )
         .bind(source_id)
         .bind(i64::try_from(checkpoint_user_index)?)
         .bind(checkpoint_kind)
+        .bind(source_id)
         .bind(frame_id)
         .execute(&self.pool)
         .await?;
