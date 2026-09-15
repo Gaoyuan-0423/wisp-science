@@ -4376,11 +4376,11 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
       ? Math.round(resized.width - inspectorBeforeResize.width)
       : 0;
   }).toBeGreaterThan(60);
-  await expect(studio.getByTestId("workflow-graph-minimap")).toBeVisible();
+  const fitZoom = Number((await studio.getByTestId("workflow-graph-fit").innerText()).replace("%", ""));
   await studio.getByTestId("workflow-graph-zoom-in").click();
-  await expect(studio.getByTestId("workflow-graph-fit")).toHaveText("110%");
+  await expect(studio.getByTestId("workflow-graph-fit")).toHaveText(`${Math.min(fitZoom + 10, 140)}%`);
   await studio.getByTestId("workflow-graph-fit").click();
-  await expect(studio.getByTestId("workflow-graph-fit")).toHaveText("100%");
+  await expect(studio.getByTestId("workflow-graph-fit")).toHaveText(`${fitZoom}%`);
   await expect(studio.getByTestId("workflow-save")).toHaveText("Save as copy");
   const typography = await studio.evaluate((root) => {
     const save = root.querySelector('[data-testid="workflow-save"]')!;
@@ -4569,9 +4569,11 @@ test("Workflow graph edits nodes and dependencies directly on the canvas", async
   const inspector = studio.getByTestId("workflow-graph-inspector");
   await inspector.getByTestId("dynamic-task-id").fill("fetch_a");
   await inspector.getByTestId("dynamic-task-instruction").fill("Fetch branch A");
+  await studio.getByTestId("workflow-graph-add-menu-toggle").click();
   await studio.getByTestId("workflow-graph-add-node").click();
   await inspector.getByTestId("dynamic-task-id").fill("fetch_b");
   await inspector.getByTestId("dynamic-task-instruction").fill("Fetch branch B");
+  await studio.getByTestId("workflow-graph-add-menu-toggle").click();
   await studio.getByTestId("workflow-graph-add-after").click();
   await inspector.getByTestId("dynamic-task-id").fill("merge");
   await inspector.getByTestId("dynamic-task-instruction").fill("Merge both branches");

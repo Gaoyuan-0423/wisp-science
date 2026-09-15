@@ -566,14 +566,14 @@ impl DynamicWorkflowForm {
     }
 }
 
-const WORKFLOW_GRAPH_NODE_WIDTH: i32 = 208;
-const WORKFLOW_GRAPH_NODE_HEIGHT: i32 = 112;
+const WORKFLOW_GRAPH_NODE_WIDTH: i32 = 288;
+const WORKFLOW_GRAPH_NODE_HEIGHT: i32 = 196;
 const WORKFLOW_GRAPH_COLUMN_GAP: i32 = 112;
-const WORKFLOW_GRAPH_ROW_GAP: i32 = 30;
+const WORKFLOW_GRAPH_ROW_GAP: i32 = 40;
 const WORKFLOW_GRAPH_PADDING_X: i32 = 28;
-const WORKFLOW_GRAPH_PADDING_TOP: i32 = 58;
+const WORKFLOW_GRAPH_PADDING_TOP: i32 = 68;
 const WORKFLOW_GRAPH_PADDING_BOTTOM: i32 = 28;
-const WORKFLOW_INSPECTOR_WIDTH_DEFAULT: i32 = 360;
+const WORKFLOW_INSPECTOR_WIDTH_DEFAULT: i32 = 320;
 const WORKFLOW_INSPECTOR_WIDTH_MIN: i32 = 280;
 const WORKFLOW_INSPECTOR_WIDTH_MAX: i32 = 640;
 const WORKFLOW_GRAPH_MIN_WIDTH: i32 = 320;
@@ -593,6 +593,7 @@ struct WorkflowGraphNode {
     instruction: String,
     task_kind: WorkflowTaskKind,
     capability_count: usize,
+    dependencies: Vec<String>,
     specialist_id: String,
     executor_key: String,
     level: usize,
@@ -625,6 +626,36 @@ struct WorkflowGraphLayout {
     nodes: Vec<WorkflowGraphNode>,
     edges: Vec<WorkflowGraphEdge>,
     stages: Vec<WorkflowGraphStage>,
+}
+
+// Leave breathing room around the graph while keeping small workflows readable.
+fn workflow_graph_fit_zoom(width: i32, height: i32, viewport: (i32, i32)) -> i32 {
+    ((viewport.0 as f64 * 0.9 / width.max(1) as f64)
+        .min(viewport.1 as f64 * 0.9 / height.max(1) as f64)
+        * 100.0)
+        .floor()
+        .clamp(25.0, 140.0) as i32
+}
+
+fn workflow_graph_summary(layout: &WorkflowGraphLayout, locale: Locale) -> String {
+    tf(
+        locale,
+        "workflow_studio.structure",
+        &[
+            ("tasks", &layout.nodes.len().to_string()),
+            ("stages", &layout.stages.len().to_string()),
+            (
+                "parallel",
+                &layout
+                    .stages
+                    .iter()
+                    .map(|stage| stage.count)
+                    .max()
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+        ],
+    )
 }
 
 fn workflow_graph_edge_path(x1: i32, y1: i32, x2: i32, y2: i32) -> String {
@@ -796,6 +827,7 @@ fn workflow_graph_layout(tasks: &[DynamicTaskForm]) -> WorkflowGraphLayout {
             instruction: task.instruction.clone(),
             task_kind: task.task_kind,
             capability_count: task.capabilities.len(),
+            dependencies: task.depends_on.clone(),
             specialist_id: task.specialist_id.clone(),
             executor_key: task.executor_key.clone(),
             level: levels[index],
@@ -1520,13 +1552,49 @@ fn dynamic_task_editor(
                     </select>
                 </label>
             </div>
-            <fieldset class="dynamic-agent-choice-group"
+            <label prop:hidden=move || task_value(
+                state.dynamic_form,
+                key,
+                |task| task.task_kind,
+            ) == WorkflowTaskKind::RunActivity>
+                <span>{move || t(locale.get(), "agents.task.specialist")}</span>
+                <select data-testid="dynamic-task-specialist"
+                    on:change=move |event| update_task(state.dynamic_form, key, |task| {
+                        task.specialist_id = dom_value(&event);
+                    })>
+                    <option value="" prop:selected=move || task_value(state.dynamic_form, key, |task| task.specialist_id.clone()).is_empty()>
+                        {move || t(locale.get(), "agents.task.temporary")}
+                    </option>
+                    <For each=move || specialists.get() key=|specialist| specialist.id.clone()
+                        children=move |specialist| {
+                            let id = specialist.id.clone();
+                            let selected_id = id.clone();
+                            view! {
+                                <option value=id prop:selected=move || {
+                                    task_value(state.dynamic_form, key, |task| task.specialist_id.clone()) == selected_id
+                                }>{specialist.name}</option>
+                            }
+                        }
+                    />
+                </select>
+            </label>
+            <details class="dynamic-agent-choice-group dynamic-task-capability-group" data-testid="dynamic-task-capability-group"
                 prop:hidden=move || task_value(
                     state.dynamic_form,
                     key,
                     |task| task.task_kind,
                 ) == WorkflowTaskKind::RunActivity>
-                <legend>{move || t(locale.get(), "agents.task.capabilities")}</legend>
+                <summary>
+                    <strong>{move || t(locale.get(), "agents.task.capabilities")}</strong>
+                    <span class="workflow-capability-summary" data-testid="workflow-capability-summary">{move || {
+                        let ids = task_value(state.dynamic_form, key, |task| task.capabilities.clone());
+                        let options = state.options.get();
+                        let names = ids.iter().take(3).map(|id| options.capabilities.iter()
+                            .find(|capability| capability.id == *id).map(|capability| capability.display_name.clone())
+                            .unwrap_or_else(|| id.clone())).collect::<Vec<_>>().join(" · ");
+                        if ids.len() > 3 { format!("{names} +{}", ids.len() - 3) } else { names }
+                    }}</span>
+                </summary>
                 <div class="dynamic-agent-checks" data-testid="dynamic-task-capabilities">
                     <For each=move || state.options.get().capabilities
                         key=|capability| capability.id.clone()
@@ -1560,7 +1628,7 @@ fn dynamic_task_editor(
                         }
                     />
                 </div>
-            </fieldset>
+            </details>
             <fieldset class="dynamic-agent-choice-group run-activity-config"
                 data-testid="run-activity-config"
                 prop:hidden=move || task_value(
@@ -1680,8 +1748,34 @@ fn dynamic_task_editor(
                     </label>
                 </div>
             </fieldset>
-            <fieldset class="dynamic-agent-choice-group">
-                <legend>{move || t(locale.get(), "agents.task.dependencies")}</legend>
+            <div class="workflow-graph-incoming">
+                <span>{move || t(locale.get(), "workflow_studio.graph_incoming")}</span>
+                <div>{move || {
+                    let dependencies = state.dynamic_form.with(|form| {
+                        form.tasks.iter().find(|task| task.key == key).map(|task| {
+                            task.depends_on.iter().filter_map(|id| form.tasks.iter()
+                                .find(|source| source.id == *id).map(|source| (source.key, id.clone())))
+                                .collect::<Vec<_>>()
+                        }).unwrap_or_default()
+                    });
+                    if dependencies.is_empty() {
+                        view! { <small>{t(locale.get(), "workflow_studio.graph_root")}</small> }.into_view()
+                    } else {
+                        dependencies.into_iter().map(|(source_key, dependency)| view! {
+                            <button type="button" data-testid="workflow-graph-remove-edge"
+                                title=move || t(locale.get(), "workflow_studio.graph_remove_edge")
+                                on:click=move |_| {
+                                    state.dynamic_form.update(|form| { form.remove_dependency(source_key, key); });
+                                    state.error.set(None);
+                                }>
+                                <code>{dependency}</code>{compose_icon("close")}
+                            </button>
+                        }).collect_view()
+                    }
+                }}</div>
+            </div>
+            <details class="dynamic-agent-choice-group dynamic-task-dependency-group">
+                <summary>{move || t(locale.get(), "workflow_studio.edit_dependencies")}</summary>
                 <div class="dynamic-agent-checks dynamic-dependency-checks">
                     {move || {
                         let choices = state.dynamic_form.with(|form| {
@@ -1731,33 +1825,7 @@ fn dynamic_task_editor(
                         }
                     }}
                 </div>
-            </fieldset>
-            <label prop:hidden=move || task_value(
-                state.dynamic_form,
-                key,
-                |task| task.task_kind,
-            ) == WorkflowTaskKind::RunActivity>
-                <span>{move || t(locale.get(), "agents.task.specialist")}</span>
-                <select data-testid="dynamic-task-specialist"
-                    on:change=move |event| update_task(state.dynamic_form, key, |task| {
-                        task.specialist_id = dom_value(&event);
-                    })>
-                    <option value="" prop:selected=move || task_value(state.dynamic_form, key, |task| task.specialist_id.clone()).is_empty()>
-                        {move || t(locale.get(), "agents.task.temporary")}
-                    </option>
-                    <For each=move || specialists.get() key=|specialist| specialist.id.clone()
-                        children=move |specialist| {
-                            let id = specialist.id.clone();
-                            let selected_id = id.clone();
-                            view! {
-                                <option value=id prop:selected=move || {
-                                    task_value(state.dynamic_form, key, |task| task.specialist_id.clone()) == selected_id
-                                }>{specialist.name}</option>
-                            }
-                        }
-                    />
-                </select>
-            </label>
+            </details>
             <details class="dynamic-agent-advanced"
                 prop:hidden=move || task_value(
                     state.dynamic_form,
@@ -1906,6 +1974,8 @@ fn workflow_graph_editor(
     state: AgentPanelState,
     selected_task_key: RwSignal<Option<u32>>,
     connect_from_key: RwSignal<Option<u32>>,
+    add_menu_open: RwSignal<bool>,
+    selected_template_id: RwSignal<Option<String>>,
     specialists: RwSignal<Vec<Specialist>>,
     models: RwSignal<Vec<ModelProfile>>,
     locale: RwSignal<Locale>,
@@ -1917,6 +1987,10 @@ fn workflow_graph_editor(
     let selected_edge = create_rw_signal::<Option<(u32, u32)>>(None);
     let entering_node_keys = create_rw_signal(HashSet::<u32>::new());
     let canvas_ref = create_node_ref::<leptos::html::Div>();
+    let viewport_ref = create_node_ref::<leptos::html::Div>();
+    let viewport_size = create_rw_signal((0_i32, 0_i32));
+    let auto_fit = create_rw_signal(true);
+    let hovered_edge = create_rw_signal::<Option<(u32, u32)>>(None);
     let workspace_ref = create_node_ref::<leptos::html::Div>();
     let inspector_width = create_rw_signal(WORKFLOW_INSPECTOR_WIDTH_DEFAULT);
     let inspector_resizing = create_rw_signal(false);
@@ -1924,6 +1998,64 @@ fn workflow_graph_editor(
         state
             .dynamic_form
             .with(|form| workflow_graph_layout(&form.tasks))
+    });
+
+    // Observe the actual viewport: window, inspector and configuration changes
+    // can all resize it. Disconnect with the component owner.
+    create_effect(move |_| {
+        let Some(viewport) = viewport_ref.get() else {
+            return;
+        };
+        let measured_viewport = viewport.clone();
+        let callback = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+            viewport_size.set((
+                measured_viewport.client_width(),
+                measured_viewport.client_height(),
+            ));
+        });
+        if let Ok(observer) = web_sys::ResizeObserver::new(callback.as_ref().unchecked_ref()) {
+            observer.observe(&viewport);
+            on_cleanup(move || {
+                observer.disconnect();
+                drop(callback);
+            });
+        }
+    });
+    let geometry = create_memo(move |_| {
+        let graph = layout.get();
+        (
+            graph.width,
+            graph.height,
+            graph
+                .nodes
+                .iter()
+                .map(|node| (node.key, node.x, node.y))
+                .collect::<Vec<_>>(),
+        )
+    });
+    create_effect(move |_| {
+        geometry.get();
+        selected_template_id.get();
+        auto_fit.set(true);
+        add_menu_open.set(false);
+    });
+    let fit_view = move || {
+        let current = layout.get_untracked();
+        let size = viewport_size.get_untracked();
+        if size.0 > 0 && size.1 > 0 {
+            graph_zoom.set(workflow_graph_fit_zoom(current.width, current.height, size));
+            if let Some(viewport) = viewport_ref.get_untracked() {
+                viewport.set_scroll_left(0);
+                viewport.set_scroll_top(0);
+            }
+        }
+    };
+    create_effect(move |_| {
+        viewport_size.get();
+        geometry.get();
+        if auto_fit.get() {
+            fit_view();
+        }
     });
 
     let cancel_connect = move || {
@@ -2059,9 +2191,13 @@ fn workflow_graph_editor(
         }
     };
 
-    let add_node = move |_| create_parallel_node();
+    let add_node = move |_| {
+        add_menu_open.set(false);
+        create_parallel_node();
+    };
 
     let add_after_selected = move |_| {
+        add_menu_open.set(false);
         let Some(source_key) = selected_task_key.get_untracked() else {
             return;
         };
@@ -2090,40 +2226,35 @@ fn workflow_graph_editor(
             )>
             <div class="workflow-graph-main">
                 <div class="workflow-graph-toolbar">
-                    <div class="workflow-graph-legend">
-                        <span class="workflow-graph-legend-item">
-                            <i class="parallel"></i>
-                            {move || t(locale.get(), "workflow_studio.graph_parallel")}
-                        </span>
-                        <span class="workflow-graph-legend-item">
-                            <i class="serial"></i>
-                            {move || t(locale.get(), "workflow_studio.graph_serial")}
-                        </span>
-                    </div>
+                    <span class="workflow-graph-summary" data-testid="workflow-graph-summary">
+                        {move || workflow_graph_summary(&layout.get(), locale.get())}
+                    </span>
                     <div class="workflow-graph-toolbar-actions">
                         <div class="workflow-graph-zoom" aria-label=move || {
                             t(locale.get(), "workflow_studio.graph_zoom_controls")
                         }>
                             <button type="button" data-testid="workflow-graph-zoom-out"
                                 title=move || t(locale.get(), "workflow_studio.graph_zoom_out")
-                                disabled=move || { graph_zoom.get() <= 60 }
+                                disabled=move || { graph_zoom.get() <= 25 }
                                 on:click=move |_| {
-                                    graph_zoom.update(|zoom| *zoom = (*zoom - 10).max(60));
+                                    auto_fit.set(false);
+                                    graph_zoom.update(|zoom| *zoom = (*zoom - 10).max(25));
                                 }>
-                                {"−"}
+                                {compose_icon("minus")}
                             </button>
                             <button type="button" data-testid="workflow-graph-fit"
                                 title=move || t(locale.get(), "workflow_studio.graph_fit")
-                                on:click=move |_| graph_zoom.set(100)>
+                                on:click=move |_| { auto_fit.set(true); fit_view(); }>
                                 {move || format!("{}%", graph_zoom.get())}
                             </button>
                             <button type="button" data-testid="workflow-graph-zoom-in"
                                 title=move || t(locale.get(), "workflow_studio.graph_zoom_in")
                                 disabled=move || { graph_zoom.get() >= 140 }
                                 on:click=move |_| {
+                                    auto_fit.set(false);
                                     graph_zoom.update(|zoom| *zoom = (*zoom + 10).min(140));
                                 }>
-                                {"+"}
+                                {compose_icon("plus")}
                             </button>
                         </div>
                         {move || connect_from_key.get().and_then(|key| {
@@ -2148,32 +2279,40 @@ fn workflow_graph_editor(
                                 })
                             })
                         })}
-                        <button type="button" class="workflow-graph-tool-btn workflow-graph-add-after"
-                            data-testid="workflow-graph-add-after"
-                            disabled=move || selected_task_key.get().is_none()
-                            title=move || t(locale.get(), "workflow_studio.graph_add_after")
-                            on:click=add_after_selected>
-                            {compose_icon("plus")}
-                            <span>{move || t(locale.get(), "workflow_studio.graph_add_after")}</span>
-                        </button>
-                        <button type="button" class="workflow-graph-tool-btn workflow-graph-add-node"
-                            data-testid="workflow-graph-add-node"
-                            title=move || t(locale.get(), "workflow_studio.graph_add_parallel")
-                            on:click=add_node>
-                            {compose_icon("plus")}
-                            <span>{move || t(locale.get(), "workflow_studio.graph_add_node")}</span>
-                        </button>
+                        <div class="workflow-graph-add-control">
+                            <button type="button" class="workflow-graph-tool-btn workflow-graph-add-node"
+                                data-testid="workflow-graph-add-menu-toggle"
+                                aria-expanded=move || add_menu_open.get().to_string()
+                                on:click=move |_| add_menu_open.update(|open| *open = !*open)>
+                                {compose_icon("plus")}
+                                <span>{move || t(locale.get(), "workflow_studio.add_task")}</span>
+                            </button>
+                            <Show when=move || add_menu_open.get()>
+                                <div class="workflow-graph-add-menu" data-testid="workflow-graph-add-menu">
+                                    <button type="button" data-testid="workflow-graph-add-node" on:click=add_node>
+                                        {compose_icon("branch")}
+                                        {move || t(locale.get(), "workflow_studio.independent_task")}
+                                    </button>
+                                    <button type="button" data-testid="workflow-graph-add-after"
+                                        disabled=move || selected_task_key.get().is_none()
+                                        on:click=add_after_selected>
+                                        {compose_icon("arrow-right")}
+                                        {move || t(locale.get(), "workflow_studio.after_task")}
+                                    </button>
+                                </div>
+                            </Show>
+                        </div>
                     </div>
                 </div>
-                <div class="workflow-graph-viewport" data-testid="workflow-graph-viewport">
+                <div class="workflow-graph-viewport" node_ref=viewport_ref data-testid="workflow-graph-viewport">
                     <div class="workflow-graph-canvas-space"
                         style=move || {
                             let current = layout.get();
                             let zoom = graph_zoom.get();
                             format!(
                                 "width:{}px;height:{}px",
-                                current.width * zoom / 100,
-                                current.height * zoom / 100,
+                                (current.width * zoom / 100).max(viewport_size.get().0),
+                                (current.height * zoom / 100).max(viewport_size.get().1),
                             )
                         }>
                         <div class="workflow-graph-canvas"
@@ -2181,10 +2320,12 @@ fn workflow_graph_editor(
                             data-testid="workflow-graph-canvas"
                             class:connecting=move || connect_from_key.get().is_some()
                             style=move || format!(
-                                "width:{}px;height:{}px;transform:scale({});",
+                                "width:{}px;height:{}px;transform:scale({});left:{}px;top:{}px",
                                 layout.get().width,
                                 layout.get().height,
                                 graph_zoom.get() as f64 / 100.0,
+                                ((viewport_size.get().0 - layout.get().width * graph_zoom.get() / 100) / 2).max(0),
+                                ((viewport_size.get().1 - layout.get().height * graph_zoom.get() / 100) / 2).max(0),
                             )
                             aria-label=move || t(locale.get(), "workflow_studio.graph_dblclick_add")
                             on:dblclick=move |event: web_sys::MouseEvent| {
@@ -2274,9 +2415,13 @@ fn workflow_graph_editor(
                             aria-hidden="true">
                             <defs>
                                 <marker id="workflow-graph-arrow" viewBox="0 0 10 10"
-                                    refX="9" refY="5" markerWidth="7" markerHeight="7"
+                                    refX="12" refY="5" markerWidth="8" markerHeight="8"
                                     orient="auto-start-reverse">
                                     <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                                </marker>
+                                <marker id="workflow-graph-arrow-active" viewBox="0 0 10 10"
+                                    refX="12" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                                    <path class="workflow-graph-arrow-active" d="M 0 0 L 10 5 L 0 10 z"></path>
                                 </marker>
                             </defs>
                             {move || {
@@ -2322,6 +2467,9 @@ fn workflow_graph_editor(
                                                 selected_edge.get()
                                                     == Some((source_key, target_key))
                                             }
+                                            class:related=move || selected_task_key.get().is_some_and(|key| key == source_key || key == target_key)
+                                            on:mouseenter=move |_| hovered_edge.set(Some((source_key, target_key)))
+                                            on:mouseleave=move |_| hovered_edge.set(None)
                                             data-testid="workflow-graph-edge-group"
                                             data-source=source_id.clone()
                                             data-target=target_id.clone()>
@@ -2352,7 +2500,11 @@ fn workflow_graph_editor(
                                                 data-source=source_id
                                                 data-target=target_id
                                                 d=path
-                                                marker-end="url(#workflow-graph-arrow)"></path>
+                                                marker-end=move || if selected_task_key.get().is_some_and(|key| key == source_key || key == target_key)
+                                                    || selected_edge.get() == Some((source_key, target_key))
+                                                    || hovered_edge.get() == Some((source_key, target_key)) {
+                                                    "url(#workflow-graph-arrow-active)"
+                                                } else { "url(#workflow-graph-arrow)" }></path>
                                             <foreignObject
                                                 class="workflow-graph-edge-delete-wrap"
                                                 x=mid_x - 11
@@ -2395,6 +2547,10 @@ fn workflow_graph_editor(
                                     WORKFLOW_GRAPH_NODE_WIDTH,
                                 );
                                 view! {
+                                    <div class="workflow-graph-stage-region" style=move || format!(
+                                        "left:{}px;width:{}px;height:{}px", stage.x - 16,
+                                        WORKFLOW_GRAPH_NODE_WIDTH + 32, layout.get().height - 24,
+                                    )></div>
                                     <div class="workflow-graph-stage-label" style=style>
                                         <span>{tf(
                                             locale.get(),
@@ -2414,7 +2570,7 @@ fn workflow_graph_editor(
                         />
                         <For each=move || layout.get().nodes
                             key=|node| format!(
-                                "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}",
                                 node.key,
                                 node.id,
                                 node.x,
@@ -2424,6 +2580,7 @@ fn workflow_graph_editor(
                                 node.specialist_id,
                                 node.executor_key,
                                 node.task_kind == WorkflowTaskKind::RunActivity,
+                                node.dependencies,
                             )
                             children=move |node| {
                                 let key = node.key;
@@ -2449,13 +2606,17 @@ fn workflow_graph_editor(
                                 } else {
                                     node.specialist_id.clone()
                                 };
-                                let executor = if node.executor_key.is_empty() {
-                                    t(locale.get_untracked(), "agents.task.auto").into()
-                                } else {
-                                    node.executor_key.clone()
-                                };
                                 view! {
                                     <div class="workflow-graph-node"
+                                        class:related=move || hovered_edge.get().is_some_and(|(source, target)| source == key || target == key)
+                                        class:dimmed=move || {
+                                            if let Some((source, target)) = hovered_edge.get() {
+                                                return source != key && target != key;
+                                            }
+                                            selected_task_key.get().is_some_and(|selected| selected != key && !layout.get().edges.iter().any(|edge| {
+                                                (edge.source_key == selected && edge.target_key == key) || (edge.target_key == selected && edge.source_key == key)
+                                            }))
+                                        }
                                         class:run-activity=is_run_activity
                                         class:selected=move || {
                                             selected_task_key.get() == Some(key)
@@ -2533,8 +2694,8 @@ fn workflow_graph_editor(
                                                 }
                                             }>
                                             <span class="workflow-graph-node-title">
-                                                <strong>{node_id}</strong>
-                                                <small>{format!("#{}", node.level + 1)}</small>
+                                                <strong title=node_id.clone()>{node_id}</strong>
+                                                <small class="workflow-task-status">{move || t(locale.get(), "workflow_studio.not_run")}</small>
                                             </span>
                                             <span class="workflow-graph-node-instruction">
                                                 {node.instruction}
@@ -2542,13 +2703,19 @@ fn workflow_graph_editor(
                                             <span class="workflow-graph-node-meta">
                                                 <code>{role}</code>
                                                 {(!is_run_activity).then(|| view! {
-                                                    <code>{executor}</code>
                                                     <code>{tf(
                                                         locale.get(),
-                                                        "workflow_studio.graph_capabilities",
+                                                        if node.capability_count == 1 { "workflow_studio.graph_capability" } else { "workflow_studio.graph_capabilities" },
                                                         &[("count", &node.capability_count.to_string())],
                                                     )}</code>
                                                 })}
+                                            </span>
+                                            <span class="workflow-graph-node-dependencies" title=node.dependencies.join(", ")>
+                                                {if node.dependencies.is_empty() {
+                                                    t(locale.get(), "workflow_studio.graph_root").to_string()
+                                                } else {
+                                                    format!("{}: {}", t(locale.get(), "agents.task.dependencies"), node.dependencies.join(", "))
+                                                }}
                                             </span>
                                         </button>
                                         <button type="button" class="workflow-graph-port output"
@@ -2587,34 +2754,6 @@ fn workflow_graph_editor(
                                             on:click=move |event: web_sys::MouseEvent| {
                                                 event.stop_propagation();
                                             }></button>
-                                        {move || (selected_task_key.get() == Some(key)).then(|| {
-                                            let source_key = key;
-                                            view! {
-                                                <button type="button"
-                                                    class="workflow-graph-add-next"
-                                                    data-testid="workflow-graph-add-next"
-                                                    title=move || t(
-                                                        locale.get(),
-                                                        "workflow_studio.graph_add_after",
-                                                    )
-                                                    on:click=move |event: web_sys::MouseEvent| {
-                                                        event.stop_propagation();
-                                                        let mut new_key = None;
-                                                        state.dynamic_form.update(|form| {
-                                                            new_key = form.add_task_after(source_key);
-                                                        });
-                                                        if let Some(key) = new_key {
-                                                            mark_node_entering(key);
-                                                            selected_task_key.set(Some(key));
-                                                            selected_edge.set(None);
-                                                            cancel_connect();
-                                                            state.error.set(None);
-                                                        }
-                                                    }>
-                                                    {compose_icon("plus")}
-                                                </button>
-                                            }
-                                        })}
                                         <button type="button" class="workflow-graph-node-delete"
                                             data-testid="workflow-graph-delete-node"
                                             title=move || t(locale.get(), "agents.task.remove")
@@ -2642,6 +2781,7 @@ fn workflow_graph_editor(
                         </div>
                     </div>
                 </div>
+                <Show when=move || { layout.get().nodes.len() > 8 || graph_zoom.get() < 70 }>
                 <svg class="workflow-graph-minimap"
                     data-testid="workflow-graph-minimap"
                     viewBox=move || format!(
@@ -2665,6 +2805,7 @@ fn workflow_graph_editor(
                         }
                     />
                 </svg>
+                </Show>
             </div>
             <div class="workflow-graph-resizer"
                 class:dragging=move || inspector_resizing.get()
@@ -2726,64 +2867,20 @@ fn workflow_graph_editor(
                     ));
                 }></div>
             <aside class="workflow-graph-inspector" data-testid="workflow-graph-inspector">
-                {move || selected_task_key.get().and_then(|key| {
-                    state.dynamic_form.with(|form| {
-                        form.tasks.iter().find(|task| task.key == key).cloned()
-                    }).map(|task| {
-                        let target_key = task.key;
-                        let task_id = task.id.clone();
-                        let dependencies = state.dynamic_form.with(|form| {
-                            task.depends_on.iter().filter_map(|dependency| {
-                                form.tasks.iter()
-                                    .find(|candidate| candidate.id == *dependency)
-                                    .map(|source| (source.key, dependency.clone()))
-                            }).collect::<Vec<_>>()
-                        });
-                        view! {
-                            <div class="workflow-graph-inspector-head">
-                                <div>
-                                    <span>{move || t(locale.get(), "workflow_studio.graph_selected")}</span>
-                                    <strong>{task_id}</strong>
-                                </div>
-                                <small>{move || t(locale.get(), "workflow_studio.graph_inspector_help")}</small>
+                <For each=move || { selected_task_key.get().and_then(|key| {
+                    state.dynamic_form.with(|form| form.tasks.iter().find(|task| task.key == key).cloned())
+                }).into_iter().collect::<Vec<_>>() } key=|task| task.key children=move |task| {
+                    let key = task.key;
+                    view! {
+                        <div class="workflow-graph-inspector-head">
+                            <div>
+                                <span>{move || t(locale.get(), "workflow_studio.graph_selected")}</span>
+                                <strong>{move || task_value(state.dynamic_form, key, |task| task.id.clone())}</strong>
                             </div>
-                            <div class="workflow-graph-incoming">
-                                <span>{move || t(locale.get(), "workflow_studio.graph_incoming")}</span>
-                                <div>
-                                    {if dependencies.is_empty() {
-                                        view! {
-                                            <small>{t(locale.get(), "workflow_studio.graph_root")}</small>
-                                        }.into_view()
-                                    } else {
-                                        dependencies.into_iter().map(|(source_key, dependency)| {
-                                            view! {
-                                                <button type="button"
-                                                    data-testid="workflow-graph-remove-edge"
-                                                    title=move || t(
-                                                        locale.get(),
-                                                        "workflow_studio.graph_remove_edge",
-                                                    )
-                                                    on:click=move |_| {
-                                                        state.dynamic_form.update(|form| {
-                                                            form.remove_dependency(
-                                                                source_key,
-                                                                target_key,
-                                                            );
-                                                        });
-                                                        state.error.set(None);
-                                                    }>
-                                                    <code>{dependency}</code>
-                                                    <span aria-hidden="true">{"×"}</span>
-                                                </button>
-                                            }
-                                        }).collect_view()
-                                    }}
-                                </div>
-                            </div>
-                            {dynamic_task_editor(task, state, specialists, models, locale)}
-                        }
-                    })
-                })}
+                        </div>
+                        {dynamic_task_editor(task, state, specialists, models, locale)}
+                    }
+                } />
             </aside>
         </div>
     }
@@ -2805,6 +2902,21 @@ pub(super) fn workflow_studio(
     let saving = create_rw_signal(false);
     let selected_task_key = create_rw_signal::<Option<u32>>(None);
     let connect_from_key = create_rw_signal::<Option<u32>>(None);
+    let add_menu_open = create_rw_signal(false);
+    let add_menu_listener = window_event_listener(leptos::ev::pointerdown, move |event| {
+        if add_menu_open.get_untracked()
+            && workflow_graph_event_element(event.as_ref()).is_some_and(|target| {
+                target
+                    .closest(".workflow-graph-add-control")
+                    .ok()
+                    .flatten()
+                    .is_none()
+            })
+        {
+            add_menu_open.set(false);
+        }
+    });
+    on_cleanup(move || add_menu_listener.remove());
     let conversion = expect_context::<ConversionState>();
     let portfolio_open = conversion.open;
     let portfolio_request = conversion.request;
@@ -2889,6 +3001,10 @@ pub(super) fn workflow_studio(
     window_capture_escape(move || {
         if portfolio_open.get_untracked() {
             return false;
+        }
+        if add_menu_open.get_untracked() {
+            add_menu_open.set(false);
+            return true;
         }
         if connect_from_key.get_untracked().is_some() {
             connect_from_key.set(None);
@@ -3139,7 +3255,8 @@ pub(super) fn workflow_studio(
                         children=move |template| {
                             let id = template.id.clone();
                             let selected_id = id.clone();
-                            let task_count = template.proposal.tasks.len();
+                            let template_layout = workflow_graph_layout(&template.proposal.tasks.iter().cloned().enumerate()
+                                .map(|(index, task)| DynamicTaskForm::from_proposal(index as u32, task)).collect::<Vec<_>>());
                             view! {
                                 <button type="button" class="workflow-template-card"
                                     class:active=move || {
@@ -3160,11 +3277,10 @@ pub(super) fn workflow_studio(
                                         })}
                                     </span>
                                     <span>{template.description}</span>
-                                    <code>{move || tf(
-                                        locale.get(),
-                                        "workflow_studio.tasks",
-                                        &[("count", &task_count.to_string())],
-                                    )}</code>
+                                    <code>{move || tf(locale.get(), "workflow_studio.library_structure", &[
+                                        ("tasks", &template_layout.nodes.len().to_string()),
+                                        ("stages", &template_layout.stages.len().to_string()),
+                                    ])}</code>
                                 </button>
                             }
                         }
@@ -3228,10 +3344,6 @@ pub(super) fn workflow_studio(
                                     </button>
                                 })
                         })}
-                        <button type="button" class="agents-secondary"
-                            on:click=start_new>
-                            {move || t(locale.get(), "workflow_studio.reset")}
-                        </button>
                         <button type="submit" class="agents-primary" data-testid="workflow-save"
                             disabled=move || {
                                 saving.get()
@@ -3282,7 +3394,6 @@ pub(super) fn workflow_studio(
                         <span>{compose_icon("gear")}</span>
                         <span>
                             <strong>{move || t(locale.get(), "workflow_studio.configuration")}</strong>
-                            <small>{move || t(locale.get(), "workflow_studio.configuration_help")}</small>
                         </span>
                         <span class="workflow-studio-config-chevron">{compose_icon("chevron-right")}</span>
                     </summary>
@@ -3356,16 +3467,12 @@ pub(super) fn workflow_studio(
                     </div>
                 </details>
                 <section class="workflow-studio-graph">
-                    <div class="workflow-studio-section-head">
-                        <div>
-                            <strong>{move || t(locale.get(), "workflow_studio.graph")}</strong>
-                            <span>{move || t(locale.get(), "workflow_studio.graph_help")}</span>
-                        </div>
-                    </div>
                     {workflow_graph_editor(
                         state,
                         selected_task_key,
                         connect_from_key,
+                        add_menu_open,
+                        selected_template_id,
                         specialists,
                         models,
                         locale,

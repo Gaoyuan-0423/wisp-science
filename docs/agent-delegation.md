@@ -589,6 +589,37 @@ budgets, and output schemas there. Turning Delegation off disables approvals,
 runs, and retries while leaving supported dynamic history and cancellation
 available in the activity panel.
 
+### Editing a research workflow
+
+Workflow Studio centers and fits the existing tasks when a template opens or the
+structure changes. While fit mode is active, resizing the window or the properties
+panel refits the graph. The zoom buttons switch to manual zoom; click the percentage
+(**Fit workflow to viewport**) to return to automatic fitting. Editing instructions preserves
+manual zoom and input focus.
+
+Task cards show the instruction, Agent assignment, capabilities, dependencies, and
+**Not run** template status. Stage backgrounds group tasks by dependency depth;
+the summary reports task count, stage count and the widest stage. This is the
+parallel task count within a stage, not a prediction of peak live concurrency. Selecting a task highlights its incoming and
+outgoing edges; hovering an edge highlights its endpoints. The minimap appears for
+more than eight tasks or zoom below 70%.
+
+Use **Add task → Independent task** for a new root, or **After selected task** for
+a dependent task. Escape closes the add menu first, then cancels an active connection,
+then leaves the studio. Capability choices are collapsed initially, with up to three
+selected capability names and an additional count visible. Expand the section to
+edit them. Dependency choices and advanced settings expand separately. Workflow-wide
+settings remain in the compact **Workflow configuration** section.
+
+Manual layout smoke check: open Literature evidence review at 1280×800 and
+1920×1080, confirm all three task cards are centered and readable, resize the
+properties panel, then zoom manually and edit an instruction. Expand capabilities,
+toggle a choice, and confirm the section stays open. Open Add task and immediately
+press Escape: the editor must remain open. Add an independent task and a task after
+it, then save a copy and verify the dependency survives reopening. Check both light
+and dark themes. These layout changes apply to the template editor; live execution
+status remains in the Agents activity panel.
+
 Only schema-version-2 dynamic plans are part of the product surface. Earlier
 fixed-plan records are not migrated or deleted, but the Agents panel does not
 list them and workflow actions reject them before approval, retry, or execution.
