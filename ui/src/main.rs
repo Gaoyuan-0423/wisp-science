@@ -9547,6 +9547,7 @@ fn App() -> impl IntoView {
     // window-scoped: the generic event listener is app-wide, so a targeted
     // completion navigation would otherwise repoint every project window.
     let event_open_project = open_project_transition;
+    let event_load_session = load_session.clone();
     let open_session_cb = Closure::wrap(Box::new(move |payload: JsValue| {
         let Ok(target) = serde_wasm_bindgen::from_value::<serde_json::Value>(payload) else {
             return;
@@ -9557,6 +9558,21 @@ fn App() -> impl IntoView {
         let Some(session_id) = target.get("sessionId").and_then(serde_json::Value::as_str) else {
             return;
         };
+        // The backend replays a turn-end notification target on the next
+        // window focus. When this window already shows that project, a full
+        // project transition would tear down and rebuild the shell the user is
+        // looking at (visible flash on the first click after a reply), so only
+        // switch conversations — or do nothing when it is already open.
+        let same_project = !show_projects.get_untracked()
+            && project_info
+                .get_untracked()
+                .is_some_and(|project| project.id == project_id);
+        if same_project {
+            if active_session.get_untracked().as_deref() != Some(session_id) {
+                event_load_session.call(session_id.to_string());
+            }
+            return;
+        }
         event_open_project.call((project_id.to_string(), Some(session_id.to_string())));
     }) as Box<dyn FnMut(JsValue)>);
     let open_session_js = open_session_cb

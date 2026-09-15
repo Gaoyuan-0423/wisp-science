@@ -111,7 +111,7 @@ pub(super) async fn notify_user(
     body: String,
     session_id: String,
 ) -> Result<(), String> {
-    if app_has_focus() || !load_notifications_enabled(&state.store).await {
+    if app_is_foreground(window.app_handle()) || !load_notifications_enabled(&state.store).await {
         return Ok(());
     }
     // The done/attention agent events are broadcast to every window, so every

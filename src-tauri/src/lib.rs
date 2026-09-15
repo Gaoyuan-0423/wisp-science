@@ -4753,6 +4753,34 @@ fn app_has_focus() -> bool {
     !focused_windows().lock().unwrap().is_empty()
 }
 
+/// Whether the user is looking at one of this app's windows.
+///
+/// On Windows the WebView2 child HWND owns keyboard focus, so the top-level
+/// window reports `Focused(false)` right after every `Focused(true)` and the
+/// recorded set is empty while the user is actively using the app. The
+/// foreground window is the reliable signal there: it names exactly one
+/// top-level window no matter which child holds focus.
+fn app_is_foreground(app: &AppHandle) -> bool {
+    if app_has_focus() {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+        let foreground = unsafe { GetForegroundWindow() }.0 as usize;
+        if foreground != 0 {
+            return app.workspace_surfaces().values().any(|window| {
+                window
+                    .hwnd()
+                    .is_ok_and(|hwnd| hwnd.0 as usize == foreground)
+            });
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+    false
+}
+
 /// The `open-session` payload a window's most recent desktop notification was
 /// about, held until that window next gains focus. This lets a taskbar/Dock click
 /// navigate to the relevant session (#434). Native notification callbacks also
