@@ -4228,6 +4228,25 @@ pub struct SkillPortfolioDraft {
     pub proposal: DynamicAgentWorkflowProposal,
 }
 
+/// Actual conversion stages, reported by the host rather than estimated percentages.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowConversionStage {
+    Preparing,
+    SelectingSources,
+    ReadingSources,
+    Generating,
+    Validating,
+    Repairing,
+    Saving,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowConversionProgress {
+    pub conversion_id: String,
+    pub stage: WorkflowConversionStage,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentExecutorSummary {
     pub kind: String,

@@ -120,6 +120,17 @@ pub async fn convert(
     registry: &CapabilityRegistry,
     host: &DelegationHostPolicy,
 ) -> Result<DynamicAgentWorkflowProposal> {
+    convert_with_progress(source, provider, registry, host, &|_| {}).await
+}
+
+pub async fn convert_with_progress(
+    source: &WorkflowSource,
+    provider: &dyn Provider,
+    registry: &CapabilityRegistry,
+    host: &DelegationHostPolicy,
+    progress: &(dyn Fn(wisp_dto::WorkflowConversionStage) + Send + Sync),
+) -> Result<DynamicAgentWorkflowProposal> {
+    use wisp_dto::WorkflowConversionStage;
     let input = json!({"source":source,"capabilities":registry.available_ids(host),
         "execution_environment":{"os":std::env::consts::OS,"context_id":"local"}});
     let mut messages = vec![
@@ -129,7 +140,13 @@ pub async fn convert(
     // One repair attempt, with the precise host validation error. No guessing
     // of permissions or silent schema repair after the model has generated it.
     for attempt in 0..2 {
+        progress(if attempt == 0 {
+            WorkflowConversionStage::Generating
+        } else {
+            WorkflowConversionStage::Repairing
+        });
         let response = provider.complete(&messages, &[]).await?;
+        progress(WorkflowConversionStage::Validating);
         let parsed = parse_proposal(&response.content).and_then(|proposal| {
             resolve(&proposal, "conversion-check", "", registry, host)?;
             Ok(proposal)
@@ -298,6 +315,111 @@ pub fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wisp_dto::WorkflowConversionStage::{Generating, Repairing, Validating};
+    use wisp_llm::{ScriptedCompletion, ScriptedProvider};
+
+    #[tokio::test]
+    async fn conversion_progress_tracks_generation_validation_and_one_repair() {
+        let registry = CapabilityRegistry::builtins();
+        let host = DelegationHostPolicy {
+            revision: "test".into(),
+            enabled_capabilities: vec!["reasoning".into()],
+            models: vec![crate::ModelProfilePolicy {
+                id: "test".into(),
+                features: vec![],
+                external: false,
+                enabled: true,
+            }],
+            executors: vec![crate::ExecutorProfilePolicy {
+                executor: crate::AgentExecutorRef::Native,
+                features: vec![],
+                model_ids: vec!["test".into()],
+                enabled: true,
+            }],
+            default_model_id: Some("test".into()),
+            ..Default::default()
+        };
+        let source = WorkflowSource {
+            skill_name: "test".into(),
+            sha256: "test".into(),
+            files: BTreeMap::new(),
+        };
+        let contract = json!({"type":"object","required":["summary","status","artifacts"],
+            "properties":{"summary":{"type":"string"},"status":{"const":"succeeded"},"artifacts":{"type":"array","items":{"type":"string"}}}});
+        let valid = json!({"goal":"Analyze and verify", "context":"", "approval_policy":"review_all", "tasks":[
+            {"id":"analyze", "instruction":"Analyze the question", "depends_on":[], "capabilities":["reasoning"], "skill_ids":[], "isolated":false, "output_schema":contract},
+            {"id":"verify", "instruction":"Verify the reasoning", "depends_on":["analyze"], "capabilities":["reasoning"], "skill_ids":[], "isolated":false, "output_schema":contract}
+        ]}).to_string();
+        resolve(
+            &parse_proposal(&valid).unwrap(),
+            "fixture",
+            "",
+            &registry,
+            &host,
+        )
+        .unwrap();
+        for (responses, expected, succeeds) in [
+            (vec![valid.clone()], vec![Generating, Validating], true),
+            (
+                vec!["invalid JSON".into(), valid],
+                vec![Generating, Validating, Repairing, Validating],
+                true,
+            ),
+            (
+                vec!["invalid JSON".into(), "still invalid".into()],
+                vec![Generating, Validating, Repairing, Validating],
+                false,
+            ),
+        ] {
+            let provider = ScriptedProvider::new(
+                "test",
+                responses
+                    .into_iter()
+                    .map(|content| ScriptedCompletion {
+                        content,
+                        ..Default::default()
+                    })
+                    .collect(),
+            );
+            let stages = std::sync::Mutex::new(Vec::new());
+            let result = convert_with_progress(&source, &provider, &registry, &host, &|stage| {
+                stages.lock().unwrap().push(stage)
+            })
+            .await;
+            assert_eq!(result.is_ok(), succeeds, "{result:?}");
+            assert_eq!(*stages.lock().unwrap(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_failure_does_not_report_validation_or_repair() {
+        let provider = ScriptedProvider::new(
+            "test",
+            vec![ScriptedCompletion {
+                api_error: Some(wisp_llm::ScriptedApiError {
+                    status: 500,
+                    body: "offline fixture".into(),
+                }),
+                ..Default::default()
+            }],
+        );
+        let stages = std::sync::Mutex::new(Vec::new());
+        let source = WorkflowSource {
+            skill_name: "test".into(),
+            sha256: "test".into(),
+            files: BTreeMap::new(),
+        };
+        assert!(convert_with_progress(
+            &source,
+            &provider,
+            &CapabilityRegistry::builtins(),
+            &DelegationHostPolicy::default(),
+            &|stage| stages.lock().unwrap().push(stage)
+        )
+        .await
+        .is_err());
+        assert_eq!(*stages.lock().unwrap(), vec![Generating]);
+    }
     #[test]
     fn unmaterialized_package_resources_fail_instead_of_becoming_live_dependencies() {
         let root = std::env::temp_dir().join(format!("workflow-source-{}", uuid::Uuid::new_v4()));

@@ -2,9 +2,10 @@
 use crate::{active_skill_index, delegation_runtime, dynamic_workflow, models, AppState};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, time::Duration};
-use tauri::State;
+use tauri::{Emitter, State};
 use wisp_core::workflow_conversion::WorkflowSource;
 pub(crate) use wisp_dto::SkillPortfolioRequest;
+use wisp_dto::{WorkflowConversionProgress, WorkflowConversionStage};
 use wisp_llm::{Message, Provider};
 const PLANNER_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -41,7 +42,22 @@ pub(crate) async fn plan_skill_portfolio(
     state: State<'_, AppState>,
     window: crate::workspace_surface::WorkspaceSurface,
     request: SkillPortfolioRequest,
+    conversion_id: Option<String>,
+    expected_project_id: Option<String>,
 ) -> Result<SkillPortfolioDraft, String> {
+    let progress = |stage| {
+        if let Some(conversion_id) = &conversion_id {
+            let _ = window.emit_to(
+                window.label(),
+                "workflow-conversion-progress",
+                WorkflowConversionProgress {
+                    conversion_id: conversion_id.clone(),
+                    stage,
+                },
+            );
+        }
+    };
+    progress(WorkflowConversionStage::Preparing);
     if request.request.trim().is_empty() || request.request.chars().count() > 10000 {
         return Err("Research request must contain 1 to 10000 characters".into());
     }
@@ -55,6 +71,12 @@ pub(crate) async fn plan_skill_portfolio(
         );
     }
     let project = state.require_active(window.label())?;
+    if expected_project_id
+        .as_ref()
+        .is_some_and(|id| id != &project.id)
+    {
+        return Err("The active project changed before conversion started. Return to the source project and retry.".into());
+    }
     let frame_id = state.active_frame(window.label());
     let policy = delegation_runtime::dynamic_delegation_policy_for_project(
         &state.store,
@@ -125,6 +147,7 @@ pub(crate) async fn plan_skill_portfolio(
         return Err("This Workflow has no legacy Skill bindings to convert".into());
     }
     let rationale = if selected.is_empty() {
+        progress(WorkflowConversionStage::SelectingSources);
         let catalog = index
             .all()
             .iter()
@@ -145,6 +168,7 @@ pub(crate) async fn plan_skill_portfolio(
         "Convert the selected method documents into independent, reviewable node instructions and contracts.".into()
     };
     let mut seen = HashSet::new();
+    progress(WorkflowConversionStage::ReadingSources);
     selected.retain(|id| seen.insert(id.clone()));
     if selected.is_empty() || selected.len() > wisp_core::MAX_DELEGATION_TASKS {
         return Err("Select 1 to 8 source Skills".into());
@@ -154,7 +178,9 @@ pub(crate) async fn plan_skill_portfolio(
         WorkflowSource::read(skill).map_err(|e|format!("Source '{id}': {e}"))
     }).collect::<Result<Vec<_>,String>>()?;
     let source = WorkflowSource::combine(&sources, &context).map_err(|e| format!("{e:#}"))?;
-    let proposal = convert_source(&source, provider.as_ref(), &policy).await?;
+    let proposal =
+        convert_source_with_progress(&source, provider.as_ref(), &policy, &progress).await?;
+    progress(WorkflowConversionStage::Saving);
     // Draft provenance survives even before the user chooses a template name.
     state
         .store
@@ -194,9 +220,24 @@ pub(crate) async fn convert_source(
     provider: &dyn Provider,
     policy: &delegation_runtime::ProjectDelegationPolicy,
 ) -> Result<dynamic_workflow::DynamicAgentWorkflowProposal, String> {
+    convert_source_with_progress(source, provider, policy, &|_| {}).await
+}
+
+async fn convert_source_with_progress(
+    source: &WorkflowSource,
+    provider: &dyn Provider,
+    policy: &delegation_runtime::ProjectDelegationPolicy,
+    progress: &(dyn Fn(WorkflowConversionStage) + Send + Sync),
+) -> Result<dynamic_workflow::DynamicAgentWorkflowProposal, String> {
     let converted = tokio::time::timeout(
         PLANNER_TIMEOUT,
-        wisp_core::workflow_conversion::convert(source, provider, &policy.registry, &policy.host),
+        wisp_core::workflow_conversion::convert_with_progress(
+            source,
+            provider,
+            &policy.registry,
+            &policy.host,
+            progress,
+        ),
     )
     .await
     .map_err(|_| "Workflow conversion timed out")?

@@ -9,6 +9,24 @@
 use serde_json::json;
 
 #[test]
+fn workflow_conversion_progress_preserves_request_identity_and_stage() {
+    use wisp_dto::{WorkflowConversionProgress, WorkflowConversionStage};
+    let progress = WorkflowConversionProgress {
+        conversion_id: "conversion-window-a-1".into(),
+        stage: WorkflowConversionStage::Repairing,
+    };
+    let wire = serde_json::to_value(&progress).unwrap();
+    assert_eq!(
+        wire,
+        json!({"conversion_id":"conversion-window-a-1", "stage":"repairing"})
+    );
+    assert_eq!(
+        serde_json::from_value::<WorkflowConversionProgress>(wire).unwrap(),
+        progress
+    );
+}
+
+#[test]
 fn mcp_app_isolation_dtos_keep_js_camel_case_and_page_generation() {
     let handle = wisp_dto::McpAppChildHandle {
         owner_epoch: "page-1".into(),

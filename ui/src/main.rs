@@ -29,6 +29,7 @@ mod skill_store;
 mod text;
 mod trajectory;
 mod window_titlebar;
+mod workflow_conversion;
 
 use agent_workflows::{
     agent_workflows_panel, refresh_agent_resources, refresh_agent_workflows, AgentPanelState,
@@ -1624,6 +1625,8 @@ fn App() -> impl IntoView {
     });
     let agent_panel = AgentPanelState::new(active_session);
     let workflow_studio_state = AgentPanelState::new(active_session);
+    let workflow_conversion = workflow_conversion::ConversionState::new(project_info);
+    provide_context(workflow_conversion);
     create_effect(move |_| {
         if project_info.get().is_none() {
             return;
@@ -5498,6 +5501,16 @@ fn App() -> impl IntoView {
             _ => {}
         }
     };
+    create_effect(move |_| {
+        if workflow_conversion.open_requested.get()
+            && workflow_conversion.belongs_to_current_project()
+        {
+            workflow_conversion.open_requested.set(false);
+            go_settings_section("workflows");
+            show_settings.set(true);
+            workflow_conversion.open.set(true);
+        }
+    });
 
     let open_settings_fn = move |section: Option<String>| {
         show_settings.set(true);
@@ -8888,6 +8901,14 @@ fn App() -> impl IntoView {
         if inbox_open.get() {
             ev.prevent_default();
             inbox_open.set(false);
+            return;
+        }
+        if show_settings.get()
+            && settings_section.get() == "workflows"
+            && workflow_conversion.open.get()
+        {
+            ev.prevent_default();
+            workflow_conversion.open.set(false);
             return;
         }
         if show_settings.get() && !settings_busy.get() {
@@ -16607,6 +16628,16 @@ fn App() -> impl IntoView {
                     on_library_changed=refresh_library_items />
             }
         })}
+        <workflow_conversion::ConversionNotice state=workflow_conversion locale=locale
+            visible=Signal::derive(move || !(show_settings.get() && settings_section.get() == "workflows" && workflow_conversion.open.get()))
+            on_open=Callback::new(move |_| {
+                if let Some((id, _)) = workflow_conversion.project.get_untracked() {
+                    if project_info.get_untracked().is_none_or(|project| project.id != id) {
+                        open_project_transition.call((id, None));
+                    }
+                }
+                workflow_conversion.open_requested.set(true);
+            }) />
         <SettingsView
             external_link_confirm=external_link_confirm
             state=SettingsViewState {
