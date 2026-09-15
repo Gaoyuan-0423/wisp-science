@@ -16,5 +16,11 @@ url = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.7"
+
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
+
 [dev-dependencies]
 tokio = { workspace = true }

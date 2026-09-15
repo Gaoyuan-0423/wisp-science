@@ -37,6 +37,11 @@ for (const locale of ["en", "zh"]) {
     const search = nav.getByRole("searchbox");
     await search.fill("  API KEY  ");
     await expect(nav.getByRole("group").locator("button")).toHaveText(zh ? ["模型", "凭据"] : ["Models", "Credentials"]);
+    // Network / proxy settings live under General, not Models (#1252).
+    await search.fill(zh ? "proxy" : "代理");
+    await expect(nav.getByRole("group").locator("button")).toHaveText(zh ? ["常规"] : ["General"]);
+    await search.fill(zh ? "网络" : "network");
+    await expect(nav.getByTestId("settings-nav-general")).toBeVisible();
     await expect(page.locator(".model-settings-pane")).toBeVisible();
     await search.fill("no-such-setting");
     await expect(nav.getByRole("status")).toBeVisible();

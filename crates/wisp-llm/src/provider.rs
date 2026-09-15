@@ -171,15 +171,26 @@ pub fn ambient_proxy_env() -> Vec<(String, String)> {
         .collect()
 }
 
-/// How the current proxy setting / leftover env should be named in an error.
-pub fn leftover_proxy_note(configured: Option<&str>, env: &[(String, String)]) -> Option<String> {
+/// How the current proxy setting / leftover env / OS system proxy should be
+/// named in an error. `system` is the platform proxy (macOS/Windows), not env.
+pub fn leftover_proxy_note(
+    configured: Option<&str>,
+    env: &[(String, String)],
+    system: Option<&str>,
+) -> Option<String> {
     match configured.map(str::trim) {
         Some("none") => None,
         Some(url) if !url.is_empty() => Some(format!("via Model API proxy {url}")),
         _ => env
             .iter()
             .find(|(_, value)| !value.trim().is_empty())
-            .map(|(key, value)| format!("via leftover {key}={value}")),
+            .map(|(key, value)| format!("via leftover {key}={value}"))
+            .or_else(|| {
+                system
+                    .map(str::trim)
+                    .filter(|url| !url.is_empty())
+                    .map(|url| format!("via system proxy {url}"))
+            }),
     }
 }
 
@@ -209,6 +220,7 @@ pub fn is_fail_fast_transport(message: &str) -> bool {
         || (m.contains("proxy")
             && (m.contains("refused") || m.contains("tunnel") || m.contains("unreachable")))
         || m.contains("via leftover")
+        || m.contains("via system proxy")
 }
 
 /// Append the active / leftover proxy so the UI can point at Settings.
@@ -220,7 +232,11 @@ pub fn annotate_transport_error(
     if !is_model_transport_failure(message) {
         return message.to_string();
     }
-    let Some(note) = leftover_proxy_note(configured, env) else {
+    let Some(note) = leftover_proxy_note(
+        configured,
+        env,
+        crate::system_proxy::ambient_system_proxy().as_deref(),
+    ) else {
         return message.to_string();
     };
     if message.contains(&note) {
@@ -1118,17 +1134,34 @@ mod tests {
 
     #[test]
     fn leftover_proxy_note_names_env_or_setting() {
-        assert_eq!(leftover_proxy_note(Some("none"), &[]), None);
+        assert_eq!(leftover_proxy_note(Some("none"), &[], None), None);
         assert_eq!(
-            leftover_proxy_note(Some("http://127.0.0.1:7890"), &[]).as_deref(),
+            leftover_proxy_note(Some("http://127.0.0.1:7890"), &[], None).as_deref(),
             Some("via Model API proxy http://127.0.0.1:7890")
         );
         let env = vec![("HTTPS_PROXY".into(), "http://127.0.0.1:7890".into())];
         assert_eq!(
-            leftover_proxy_note(None, &env).as_deref(),
+            leftover_proxy_note(None, &env, None).as_deref(),
             Some("via leftover HTTPS_PROXY=http://127.0.0.1:7890")
         );
-        assert_eq!(leftover_proxy_note(Some("none"), &env), None);
+        assert_eq!(leftover_proxy_note(Some("none"), &env, None), None);
+        assert_eq!(
+            leftover_proxy_note(None, &[], Some("http://127.0.0.1:10080")).as_deref(),
+            Some("via system proxy http://127.0.0.1:10080")
+        );
+        assert_eq!(
+            leftover_proxy_note(None, &env, Some("http://127.0.0.1:10080")).as_deref(),
+            Some("via leftover HTTPS_PROXY=http://127.0.0.1:7890"),
+            "env leftover is more specific than the OS system proxy"
+        );
+        assert_eq!(
+            leftover_proxy_note(Some("none"), &[], Some("http://127.0.0.1:10080")),
+            None
+        );
+        let raw = "http: error sending request: tunnel error: Connection refused (os error 61)";
+        assert!(is_fail_fast_transport(&format!(
+            "{raw} (via system proxy http://127.0.0.1:10080)"
+        )));
     }
 
     #[test]

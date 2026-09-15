@@ -25,6 +25,11 @@ only for **Custom proxy**; **System** and **Direct** do not show an address fiel
 proxy environment variables; they do not automatically read operating system
 proxy settings. **Direct** bypasses proxy discovery. **Custom proxy** accepts an
 HTTP, HTTPS or SOCKS5 URL. **Clear** selects System; click **Save** to apply.
+
+Model API connection errors that mention a leftover `HTTP_PROXY`/`HTTPS_PROXY`
+or an OS system proxy (macOS/Windows) should be resolved here: set Model API to
+**Direct**, or enter a proxy that is still running. The error names the proxy in
+use. This page is under **Settings → General**, not Models.
 Saving one row does not save edits in other rows or in Package mirror. Network
 settings can be saved before a model/API key has been configured.
 

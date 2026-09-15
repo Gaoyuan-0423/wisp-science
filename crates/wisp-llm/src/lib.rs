@@ -16,6 +16,7 @@ pub mod provider;
 pub mod responses;
 pub mod routed;
 pub mod scripted;
+mod system_proxy;
 
 pub use message::{
     tool_call_pairing, Completion, Content, FunctionCall, ImageUrl, Message, Part, Role, ToolCall,
@@ -32,3 +33,4 @@ pub use scripted::{
     ScriptedApiError, ScriptedCompletion, ScriptedProvider, ScriptedProviderSnapshot,
     ScriptedRequest, ScriptedToolCall,
 };
+pub use system_proxy::ambient_system_proxy;
