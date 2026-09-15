@@ -4305,6 +4305,9 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
   const viewport = page.viewportSize()!;
   expect(studioBox?.width ?? 0).toBeGreaterThan(viewport.width * 0.95);
   expect(studioBox?.height ?? 0).toBeGreaterThan(viewport.height * 0.85);
+  // The name is edited in the header, without opening Workflow configuration.
+  await expect(studio.getByTestId("workflow-name")).toBeVisible();
+  await expect(studio.getByTestId("workflow-name")).toHaveAttribute("maxlength", "100");
   await expect(studio.getByTestId("workflow-name"))
     .toHaveValue("Literature evidence review");
   const nodes = studio.getByTestId("workflow-graph-node");

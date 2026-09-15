@@ -643,8 +643,6 @@ body:has(.settings-page) .projects-screen { display: none; }
   font-size: 11px;
   line-height: 1.45;
 }
-.workflow-studio-meta { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(240px, 1fr); gap: 10px; }
-.workflow-studio-meta label { display: grid; gap: 5px; }
 .workflow-studio-graph { display: grid; gap: 10px; }
 .workflow-studio-section-head { align-items: center; }
 .workflow-studio-section-head > div { display: grid; gap: 3px; }
@@ -1511,10 +1509,11 @@ button.workflow-graph-port.output.active {
 .workflow-studio-editor-identity {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  column-gap: 8px;
+  align-items: center;
+  column-gap: 6px;
+  flex: 1 1 auto;
   min-width: 180px;
-  max-width: min(42vw, 520px);
+  max-width: 640px;
 }
 .workflow-studio-editor-identity > span {
   grid-column: 1;
@@ -1526,23 +1525,54 @@ button.workflow-graph-port.output.active {
   font-weight: 700;
   text-transform: uppercase;
 }
-.workflow-studio-editor-identity strong {
+/* Name and description are edited in place (border + pencil). This selector
+   outranks `.settings-page label`, which stacks label content in a column. */
+.workflow-studio-editor .workflow-studio-title-field {
   grid-column: 2;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workflow-studio-editor-identity small {
-  grid-column: 1 / -1;
-  overflow: hidden;
-  margin-top: 3px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--text-faint);
-  font-size: 10.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: text;
 }
+.workflow-studio-title-field svg { width: 13px; height: 13px; flex-shrink: 0; }
+.workflow-studio-editor .workflow-studio-title-field input[type="text"],
+.workflow-studio-editor input[type="text"].workflow-studio-description-field {
+  padding: 3px 0;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text);
+  /* Size follows the user's UI font setting (global :where(input) rule); weight and color set the hierarchy. */
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+.workflow-studio-editor input[type="text"].workflow-studio-description-field {
+  grid-column: 1 / -1;
+  margin-top: 3px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.workflow-studio-title-field:hover,
+.workflow-studio-editor input[type="text"].workflow-studio-description-field:hover {
+  border-color: var(--border);
+}
+.workflow-studio-title-field:focus-within,
+.workflow-studio-editor input[type="text"].workflow-studio-description-field:focus {
+  border-color: var(--clay);
+  background: var(--bg-app);
+}
+.workflow-studio-title-field:hover svg,
+.workflow-studio-title-field:focus-within svg { color: var(--clay); }
 .workflow-studio-editor-status {
   display: flex;
   align-items: center;
@@ -1616,6 +1646,8 @@ button.workflow-graph-port.output.active {
   border-top: 1px solid var(--border);
 }
 .workflow-studio-config-body > .workflow-studio-builtin-note { margin-top: 11px; }
+/* A neutral panel: the tinted roundtable block dominated the settings. */
+.workflow-studio-config-body .dynamic-roundtable { border-color: var(--border); background: var(--bg-sunken); }
 .workflow-studio-graph {
   display: flex;
   flex: 1;
@@ -1640,17 +1672,12 @@ button.workflow-graph-port.output.active {
 .workflow-graph-viewport { min-height: 0; }
 .workflow-graph-inspector { max-height: none; }
 .workflow-studio-editor > .agents-error {
-  position: absolute;
-  z-index: 12;
-  right: 16px;
-  bottom: 16px;
-  max-width: min(460px, calc(100% - 32px));
-  box-shadow: var(--shadow-md);
+  flex-shrink: 0;
+  margin: 10px 16px 0;
 }
 @media (max-width: 980px) {
   .workflow-studio { grid-template-columns: 210px minmax(0, 1fr); }
   .settings-page.workflow-studio-mode .workflow-studio { grid-template-columns: 210px minmax(0, 1fr); }
-  .workflow-studio-meta,
   .workflow-studio .roundtable-assignment { grid-template-columns: 1fr; }
   .workflow-graph-inspector {
     max-height: none;
