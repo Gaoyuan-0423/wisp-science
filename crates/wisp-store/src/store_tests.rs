@@ -1921,6 +1921,86 @@ async fn branched_from_survives_listing() {
 }
 
 #[tokio::test]
+async fn conversation_branches_inherit_source_folder_at_creation() {
+    let tmp = std::env::temp_dir().join(format!(
+        "wisp_branch_folder_{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let store = Store::open(&tmp).await.unwrap();
+    store.create_project("p", "proj", "").await.unwrap();
+    store.create_folder("d1", "p", "Research").await.unwrap();
+    for (source, folder) in [("grouped", Some("d1")), ("ungrouped", None)] {
+        store
+            .create_frame(source, "p", "OPERON", "m")
+            .await
+            .unwrap();
+        store.rename_session(source, "p", source).await.unwrap();
+        store
+            .move_session_to_folder(source, "p", folder)
+            .await
+            .unwrap();
+        for kind in ["before_user", "after_response"] {
+            let branch = format!("{source}-{kind}");
+            store
+                .create_frame(&branch, "p", "OPERON", "m")
+                .await
+                .unwrap();
+            // A branch before the first user message is listed by its title.
+            store.rename_session(&branch, "p", &branch).await.unwrap();
+            store
+                .set_session_branch_point(&branch, source, 0, kind)
+                .await
+                .unwrap();
+        }
+    }
+
+    store.pool.close().await;
+    let store = Store::open(&tmp).await.unwrap();
+    let listed = store.list_sessions("p").await.unwrap();
+    assert_eq!(listed.len(), 6);
+    for (source, folder) in [("grouped", Some("d1")), ("ungrouped", None)] {
+        for kind in ["before_user", "after_response"] {
+            let branch = format!("{source}-{kind}");
+            let row = listed.iter().find(|row| row.0 == branch).unwrap();
+            assert_eq!(row.3.as_deref(), folder, "folder for {branch}");
+            assert_eq!(row.4.as_deref(), Some(source));
+        }
+    }
+
+    store
+        .set_session_pinned("grouped-after_response", "p", true)
+        .await
+        .unwrap();
+    let pinned = store.list_pinned_sessions("p").await.unwrap();
+    assert_eq!(pinned[0].3.as_deref(), Some("d1"));
+    assert_eq!(pinned[0].4.as_deref(), Some("grouped"));
+
+    // Inheritance happens at creation; users can still move a branch separately.
+    store
+        .move_session_to_folder("grouped-before_user", "p", None)
+        .await
+        .unwrap();
+    let listed = store.list_sessions("p").await.unwrap();
+    assert!(listed
+        .iter()
+        .find(|row| row.0 == "grouped-before_user")
+        .unwrap()
+        .3
+        .is_none());
+    assert_eq!(
+        listed
+            .iter()
+            .find(|row| row.0 == "grouped")
+            .unwrap()
+            .3
+            .as_deref(),
+        Some("d1")
+    );
+    store.pool.close().await;
+    let _ = std::fs::remove_file(tmp);
+}
+
+#[tokio::test]
 async fn main_session_cannot_be_deleted_until_its_conversation_branches_are_deleted() {
     let tmp = std::env::temp_dir().join(format!(
         "wisp_branch_delete_guard_{}.sqlite",
