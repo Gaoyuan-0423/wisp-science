@@ -5583,6 +5583,33 @@ test("selected workspace code tells the agent to edit its source and refreshes a
   await expect(preview.locator(".rp-code-body code")).toContainText("plot(df$x, df$y)");
 });
 
+test("same-value writes never remount the right pane or center preview", async ({ page }) => {
+  await enterApp(page);
+  const filesButton = page.locator(".side-btn", { hasText: "Files" });
+  await filesButton.click();
+  await page.locator('[data-workspace-path="analysis.R"]').click({ button: "right" });
+  await page.locator(".ctx-menu").getByRole("button", { name: "Open in center" }).click();
+  const preview = page.locator('.center-file-preview[data-file-path="analysis.R"]');
+  await expect(preview.locator(".rp-code-body code")).toContainText("plot(1:3)");
+  await expect(page.locator(".rightpane")).toBeVisible();
+  await page.evaluate(() => {
+    (document.querySelector(".rightpane") as any).__mounted = true;
+    (document.querySelector(".center-file-preview") as any).__mounted = true;
+  });
+
+  // Both surfaces animate in from opacity 0; rebuilding them for an unchanged
+  // value is the visible flash. Re-opening the already-open Files tab and a
+  // FileChanged for some other path are both same-value writes for them.
+  await filesButton.click();
+  await emitTauriEvent(page, "agent", { kind: "FileChanged", frame_id: "t1", path: "/mock/root/other.txt" });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+  expect(await page.evaluate(() => [
+    Boolean((document.querySelector(".rightpane") as any)?.__mounted),
+    Boolean((document.querySelector(".center-file-preview") as any)?.__mounted),
+  ])).toEqual([true, true]);
+  await expect(preview).toHaveAttribute("data-file-revision", "0");
+});
+
 test("notebook preview renders saved rich outputs without active content", async ({ page }) => {
   await enterApp(page);
   await page.getByRole("button", { name: "Files" }).click();

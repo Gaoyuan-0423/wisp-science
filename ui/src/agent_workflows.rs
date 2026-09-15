@@ -979,7 +979,11 @@ pub(super) fn refresh_agent_workflows(state: AgentPanelState) {
             Ok(value) => {
                 match serde_wasm_bindgen::from_value::<Vec<AgentWorkflowSnapshot>>(value) {
                     Ok(items) => {
-                        state.workflows.set(items);
+                        // Polled every second while the Agents tab is open; an
+                        // unchanged snapshot must not rebuild every group.
+                        if state.workflows.with_untracked(|current| current != &items) {
+                            state.workflows.set(items);
+                        }
                         state.error.set(None);
                     }
                     Err(parse_error) => state.error.set(Some(parse_error.to_string())),

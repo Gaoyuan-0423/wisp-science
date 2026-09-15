@@ -1009,6 +1009,9 @@ fn App() -> impl IntoView {
                     .get_untracked()
                     .as_deref()
                     != Some(target.as_str())
+                    // Polled every 2s: an unchanged verdict must not rebuild the banner.
+                    && browser_extension_status
+                        .with_untracked(|current| current.as_ref() != Some(&status))
                 {
                     browser_extension_status.set(Some(status));
                 }
@@ -8047,11 +8050,10 @@ fn App() -> impl IntoView {
             let arg = to_value(&serde_json::json!({ "query": "", "limit": 50 })).unwrap();
             let v = invoke("search_sessions", arg).await;
             if let Ok(rows) = serde_wasm_bindgen::from_value::<Vec<SessionSearchInfo>>(v) {
-                inbox_sessions.set(
-                    rows.into_iter()
-                        .filter(|s| s.status == "needs_you")
-                        .collect(),
-                );
+                let rows: Vec<_> = rows.into_iter().filter(|s| s.status == "needs_you").collect();
+                if inbox_sessions.with_untracked(|current| current != &rows) {
+                    inbox_sessions.set(rows);
+                }
             }
         });
     };
@@ -10487,6 +10489,28 @@ fn App() -> impl IntoView {
         });
     });
 
+    // Leptos 0.6 signals notify on every `set`, even with an equal value. The
+    // right pane and the center preview mount surfaces that animate in from
+    // opacity 0, so remounting them for nothing is a visible flash. Key both
+    // on memos: `ensure_right_tab` on an already-open pane, or a FileChanged
+    // for some other path, must not rebuild what is on screen.
+    let right_pane_visible =
+        create_memo(move |_| show_right.get() && !scratch_open.get() && !demo_mode.get());
+    let center_preview = create_memo(move |_| {
+        let path = (!demo_mode.get()).then(|| center_file.get()).flatten()?;
+        let file = center_files.with(|files| files.iter().find(|file| file.path == path).cloned())?;
+        let revision = center_file_revisions
+            .with(|revisions| revisions.get(&path).copied().unwrap_or_default());
+        let display_path = project_info
+            .with(|project| {
+                project
+                    .as_ref()
+                    .and_then(|project| workspace_relative_path(&project.root, &path))
+            })
+            .unwrap_or_else(|| path.replace('\\', "/"));
+        Some((file, revision, display_path))
+    });
+
     view! {
         {is_windows().then(|| view! {
             <WindowTitlebar locale=locale has_current_project=has_current_project
@@ -11111,20 +11135,11 @@ fn App() -> impl IntoView {
                 </div>
             </div>
 
-            {move || (!demo_mode.get()).then(|| center_file.get()).flatten().and_then(|path| {
-                center_files.get().into_iter().find(|file| file.path == path)
-            }).map(|file| {
+            {move || center_preview.get().map(|(file, revision, display_path)| {
                 let path = file.path.clone();
-                let display_path = project_info
-                    .get()
-                    .and_then(|project| workspace_relative_path(&project.root, &path))
-                    .unwrap_or_else(|| path.replace('\\', "/"));
                 let heading_path = path.clone();
                 let heading_name = file.name.clone();
-                let heading_display = display_path.clone();
-                let revision = center_file_revisions.with(|revisions| {
-                    revisions.get(&path).copied().unwrap_or_default()
-                });
+                let heading_display = display_path;
                 // Including the revision in the preview identity disposes the
                 // old async loader and mounts a fresh read after FileChanged.
                 let dom_id = format!("center-file-{}-{revision}", file.path);
@@ -14626,7 +14641,7 @@ fn App() -> impl IntoView {
             </div>
         </main>
 
-        {move || (show_right.get() && !scratch_open.get() && !demo_mode.get()).then(|| view! {
+        {move || right_pane_visible.get().then(|| view! {
             <div class="resizer" on:mousedown=on_resize_start></div>
             <button type="button" class="rightpane-backdrop"
                 aria-label=move || t(locale.get(), "right.close")
