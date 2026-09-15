@@ -14768,7 +14768,7 @@ test("context-limit recovery can continue in a new session with the old one atta
   });
 });
 
-test("a leftover proxy connect error points at Model API proxy", async ({ page }) => {
+test("a leftover proxy connect error points at General Network settings", async ({ page }) => {
   await enterApp(page);
   await composer(page).fill("hello");
   await page.getByRole("button", { name: "Send" }).click();
@@ -14783,8 +14783,10 @@ test("a leftover proxy connect error points at Model API proxy", async ({ page }
 
   const card = page.locator(".finding.err");
   await expect(card).toBeVisible();
-  await expect(card.locator(".finding-body")).toContainText("Model API proxy");
-  await expect(card.locator(".finding-body")).toContainText("none");
+  await expect(card.locator(".finding-title")).toContainText("via leftover HTTPS_PROXY=http://127.0.0.1:7890");
+  await expect(card.locator(".finding-body")).toContainText("Settings → General → Network");
+  await expect(card.locator(".finding-body")).toContainText("Direct");
+  await expect(card.locator(".finding-body")).not.toContainText("Settings → Models");
 });
 
 test("pet stays off until the user explicitly configures its directory", async ({ page }) => {
