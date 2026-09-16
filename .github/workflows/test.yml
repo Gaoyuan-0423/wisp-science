@@ -97,6 +97,33 @@ jobs:
           path: target/headless-agent-eval
           if-no-files-found: error
 
+  windows-native-input:
+    name: Windows native input reentrancy
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      WISP_CATALOG_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: windows-native-input
+      - name: Build desktop and native regression with the locked runtime
+        run: cargo build --locked -p wisp-tauri --bin wisp-tauri --example windows_input_reentrancy_smoke
+      # Each invocation owns a hidden native window and has a 45-second
+      # watchdog. No WebView, real keyboard input, or user profile is involved.
+      - name: Repeat sent-message reentry and serial controls
+        shell: pwsh
+        run: |
+          for ($trial = 1; $trial -le 5; $trial++) {
+            & .\target\debug\examples\windows_input_reentrancy_smoke.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & .\target\debug\examples\windows_input_reentrancy_smoke.exe --control
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
   rust:
     runs-on: ubuntu-latest
     strategy:

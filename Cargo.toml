@@ -18,6 +18,13 @@ members = [
     "src-tauri",
 ]
 default-members = ["crates/wisp-cli"]
+exclude = ["vendor/tauri-runtime-wry"]
+
+# Published runtime-wry still requires Tao ^0.35.0, which has the Windows
+# input reentrancy deadlock (#1265). Keep the rest of the runtime unchanged.
+# Provenance and removal criteria: vendor/tauri-runtime-wry/WISP-PATCH.md.
+[patch.crates-io]
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }
 
 [workspace.package]
 version = "1.13.0"
