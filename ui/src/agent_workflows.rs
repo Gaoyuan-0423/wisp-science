@@ -1,6 +1,6 @@
 //! Workflow Studio editor and persisted Agent workflow activity surface.
 
-use crate::app_support::compose_icon;
+use crate::app_support::{compose_icon, show_toast};
 use crate::bindings::invoke_checked;
 use crate::dto::*;
 use crate::i18n::{t, tf, Locale};
@@ -276,42 +276,52 @@ impl DynamicWorkflowForm {
         })
     }
 
-    fn ready(&self) -> bool {
-        !self.goal.trim().is_empty()
-            && !self.tasks.is_empty()
-            && self.tasks.iter().all(|task| {
-                task.legacy_skill_ids.is_empty()
-                    && !task.id.trim().is_empty()
-                    && !task.instruction.trim().is_empty()
-                    && match task.task_kind {
-                        WorkflowTaskKind::Agent => !task.capabilities.is_empty(),
-                        WorkflowTaskKind::RunActivity => {
-                            !task.run_activity_context_id.trim().is_empty()
-                                && !task.run_activity_input_task_id.trim().is_empty()
-                                && task.depends_on.contains(&task.run_activity_input_task_id)
-                                && parse_required_u32(
-                                    &task.run_activity_max_candidates,
-                                    "candidate budget",
-                                )
-                                .is_ok()
-                                && parse_required_u64(
-                                    &task.run_activity_max_wall_seconds,
-                                    "wall-time budget",
-                                )
-                                .is_ok()
-                                && parse_required_u64(
-                                    &task.run_activity_max_evaluator_seconds,
-                                    "evaluator-time budget",
-                                )
-                                .is_ok()
-                                && parse_required_u64(
-                                    &task.run_activity_max_cost_microunits,
-                                    "cost budget",
-                                )
-                                .is_ok()
-                        }
-                    }
-            })
+    fn save_block_reason(&self, locale: Locale) -> Option<String> {
+        if self.goal.trim().is_empty() {
+            return Some(t(locale, "workflow_studio.goal_required"));
+        }
+        if self.tasks.is_empty() {
+            return Some(t(locale, "workflow_studio.task_required"));
+        }
+        for (index, task) in self.tasks.iter().enumerate() {
+            let reason = if !task.legacy_skill_ids.is_empty() {
+                Some("workflow_studio.legacy_warning")
+            } else if task.id.trim().is_empty() {
+                Some("workflow_studio.task_id_required")
+            } else if task.instruction.trim().is_empty() {
+                Some("workflow_studio.instruction_required")
+            } else if task.task_kind == WorkflowTaskKind::Agent && task.capabilities.is_empty() {
+                Some("workflow_studio.capability_required")
+            } else if task.task_kind == WorkflowTaskKind::RunActivity
+                && (task.run_activity_context_id.trim().is_empty()
+                    || task.run_activity_input_task_id.trim().is_empty()
+                    || !task.depends_on.contains(&task.run_activity_input_task_id))
+            {
+                Some("workflow_studio.run_input_required")
+            } else {
+                None
+            };
+            let label = if task.id.trim().is_empty() {
+                (index + 1).to_string()
+            } else {
+                task.id.clone()
+            };
+            if let Some(reason) = reason {
+                return Some(tf(
+                    locale,
+                    "workflow_studio.task_error",
+                    &[("task", &label), ("reason", &t(locale, reason))],
+                ));
+            }
+            if let Err(error) = task.proposal() {
+                return Some(tf(
+                    locale,
+                    "workflow_studio.task_error",
+                    &[("task", &label), ("reason", &error)],
+                ));
+            }
+        }
+        None
     }
 
     fn add_task(&mut self) -> u32 {
@@ -2417,6 +2427,68 @@ fn workflow_graph_editor(
     }
 }
 
+fn workflow_panel_resizer(
+    width: RwSignal<Option<f64>>,
+    panel: NodeRef<html::Aside>,
+    right: bool,
+    locale: RwSignal<Locale>,
+) -> impl IntoView {
+    let handle = create_node_ref::<html::Div>();
+    let drag = create_rw_signal::<Option<(i32, f64, f64)>>(None);
+    let resize = move |value: f64| {
+        if let Some(panel) = panel.get_untracked() {
+            if let Some(parent) = panel.parent_element() {
+                let max =
+                    parent.get_bounding_client_rect().width() * if right { 0.52 } else { 0.32 };
+                width.set(Some(
+                    value.clamp(if right { 240.0_f64 } else { 180.0_f64 }.min(max), max),
+                ));
+            }
+        }
+    };
+    view! {
+        <div class="workflow-panel-resizer" class:right=right node_ref=handle
+            data-testid=if right { "workflow-sidebar-resizer" } else { "workflow-library-resizer" }
+            role="separator" aria-orientation="vertical" tabindex="0"
+            aria-label=move || t(locale.get(), if right { "workflow_studio.resize_sidebar" } else { "workflow_studio.resize_library" })
+            on:pointerdown=move |event: web_sys::PointerEvent| {
+                if event.button() != 0 { return; }
+                if let (Some(panel), Some(handle)) = (panel.get_untracked(), handle.get_untracked()) {
+                    event.prevent_default();
+                    let _ = handle.focus();
+                    if handle.set_pointer_capture(event.pointer_id()).is_ok() {
+                        drag.set(Some((event.pointer_id(), event.client_x() as f64, panel.get_bounding_client_rect().width())));
+                    }
+                }
+            }
+            on:pointermove=move |event: web_sys::PointerEvent| {
+                if let Some((id, x, start)) = drag.get_untracked() {
+                    if id == event.pointer_id() {
+                        resize(start + (event.client_x() as f64 - x) * if right { -1.0 } else { 1.0 });
+                    }
+                }
+            }
+            on:pointerup=move |event: web_sys::PointerEvent| {
+                drag.set(None);
+                if let Some(handle) = handle.get_untracked() { let _ = handle.release_pointer_capture(event.pointer_id()); }
+            }
+            on:pointercancel=move |_| drag.set(None)
+            on:lostpointercapture=move |_| drag.set(None)
+            on:keydown=move |event: web_sys::KeyboardEvent| {
+                let delta = match event.key().as_str() {
+                    "ArrowLeft" => -20.0,
+                    "ArrowRight" => 20.0,
+                    _ => return,
+                };
+                event.prevent_default();
+                event.stop_propagation();
+                if let Some(panel) = panel.get_untracked() {
+                    resize(panel.get_bounding_client_rect().width() + delta * if right { -1.0 } else { 1.0 });
+                }
+            }></div>
+    }
+}
+
 pub(super) fn workflow_studio(
     state: AgentPanelState,
     templates: RwSignal<Vec<WorkflowTemplate>>,
@@ -2431,6 +2503,38 @@ pub(super) fn workflow_studio(
     let creating = create_rw_signal(false);
     let loaded_id = create_rw_signal::<Option<String>>(None);
     let saving = create_rw_signal(false);
+    let library_width = create_rw_signal::<Option<f64>>(None);
+    let sidebar_width = create_rw_signal::<Option<f64>>(None);
+    let library_ref = create_node_ref::<html::Aside>();
+    let sidebar_ref = create_node_ref::<html::Aside>();
+    let save_block_reason = create_memo(move |_| {
+        if template_name.get().trim().is_empty() {
+            Some(t(locale.get(), "workflow_studio.name_required"))
+        } else {
+            state
+                .dynamic_form
+                .with(|form| form.save_block_reason(locale.get()))
+        }
+    });
+    let delete_target = create_rw_signal::<Option<(String, String)>>(None);
+    let delete_button_ref = create_node_ref::<html::Button>();
+    let delete_cancel_ref = create_node_ref::<html::Button>();
+    let delete_confirm_ref = create_node_ref::<html::Button>();
+    let close_delete_dialog = move || {
+        delete_target.set(None);
+        if let Some(button) = delete_button_ref.get_untracked() {
+            let _ = button.focus();
+        }
+    };
+    create_effect(move |_| {
+        if delete_target.get().is_some() {
+            request_animation_frame(move || {
+                if let Some(button) = delete_cancel_ref.get_untracked() {
+                    let _ = button.focus();
+                }
+            });
+        }
+    });
     let selected_task_key = create_rw_signal::<Option<u32>>(None);
     let editing_task_key = create_rw_signal::<Option<u32>>(None);
     let task_dialog_ref = create_node_ref::<html::Div>();
@@ -2577,6 +2681,10 @@ pub(super) fn workflow_studio(
         if portfolio_open.get_untracked() {
             return false;
         }
+        if delete_target.get_untracked().is_some() {
+            close_delete_dialog();
+            return true;
+        }
         if new_dialog_open.get_untracked() {
             close_new_dialog();
             return true;
@@ -2704,6 +2812,10 @@ pub(super) fn workflow_studio(
         if saving.get_untracked() {
             return;
         }
+        if let Some(reason) = save_block_reason.get_untracked() {
+            state.error.set(Some(reason));
+            return;
+        }
         let name = template_name.get_untracked().trim().to_string();
         if name.is_empty() {
             state.error.set(Some(
@@ -2761,6 +2873,7 @@ pub(super) fn workflow_studio(
                         loaded_id.set(None);
                         selected_template_id.set(Some(saved_id));
                         state.error.set(None);
+                        show_toast(&t(locale.get_untracked(), "workflow_studio.saved"));
                     }
                     Err(error) => state.error.set(Some(error.to_string())),
                 },
@@ -2771,7 +2884,10 @@ pub(super) fn workflow_studio(
     };
 
     let remove_selected = move |_| {
-        let Some(template_id) = selected_template_id.get_untracked() else {
+        if saving.get_untracked() {
+            return;
+        }
+        let Some((template_id, _)) = delete_target.get_untracked() else {
             return;
         };
         if templates.with_untracked(|items| {
@@ -2781,6 +2897,7 @@ pub(super) fn workflow_studio(
         }) {
             return;
         }
+        close_delete_dialog();
         saving.set(true);
         spawn_local(async move {
             let args = serde_json::json!({ "templateId": template_id });
@@ -2803,8 +2920,12 @@ pub(super) fn workflow_studio(
     };
 
     view! {
-        <div class="workflow-studio" data-testid="workflow-studio">
-            <aside class="workflow-studio-library">
+        <div class="workflow-studio" data-testid="workflow-studio"
+            style=move || format!("{}{}",
+                library_width.get().map(|width| format!("--workflow-library-width:{width}px;")).unwrap_or_default(),
+                sidebar_width.get().map(|width| format!("--workflow-sidebar-width:{width}px;")).unwrap_or_default())>
+            <aside class="workflow-studio-library" node_ref=library_ref>
+                {workflow_panel_resizer(library_width, library_ref, false, locale)}
                 <button type="button" class="workflow-studio-back"
                     data-testid="workflow-studio-back"
                     on:click=move |_| on_back.call(())>
@@ -2917,19 +3038,22 @@ pub(super) fn workflow_studio(
                                 .find(|template| template.id == id && !template.builtin)
                                 .map(|_| view! {
                                     <button type="button" class="agents-danger"
+                                        node_ref=delete_button_ref
                                         data-testid="workflow-delete"
                                         disabled=move || saving.get()
-                                        on:click=remove_selected>
+                                        on:click=move |_| {
+                                            if let Some(template) = templates.with_untracked(|items| items.iter().find(|template| template.id == id).cloned()) {
+                                                delete_target.set(Some((template.id, template.name)));
+                                            }
+                                        }>
                                         {move || t(locale.get(), "workflow_studio.delete")}
                                     </button>
                                 })
                         })}
                         <button type="submit" class="agents-primary" data-testid="workflow-save"
-                            disabled=move || {
-                                saving.get()
-                                    || template_name.get().trim().is_empty()
-                                    || !state.dynamic_form.get().ready()
-                            }>
+                            aria-describedby="workflow-save-reason"
+                            title=move || save_block_reason.get().unwrap_or_default()
+                            disabled=move || saving.get() || save_block_reason.get().is_some()>
                             {move || {
                                 if saving.get() {
                                     t(locale.get(), "agents.saving")
@@ -2945,6 +3069,10 @@ pub(super) fn workflow_studio(
                             }}
                         </button>
                     </div>
+                </div>
+                <div id="workflow-save-reason" class="workflow-save-reason" data-testid="workflow-save-reason" role="status"
+                    hidden=move || save_block_reason.get().is_none()>
+                    {move || save_block_reason.get().map(|reason| tf(locale.get(), "workflow_studio.save_blocked", &[("reason", &reason)]))}
                 </div>
                 // Workflow-level errors (name, graph) sit next to Save, not over the node inspector.
                 {move || state.error.get().map(|error| view! {
@@ -2981,7 +3109,8 @@ pub(super) fn workflow_studio(
                         locale,
                     )}
                 </section>
-                <aside class="workflow-studio-sidebar" class:has-selection=move || selected_task_key.get().is_some()>
+                <aside class="workflow-studio-sidebar" node_ref=sidebar_ref class:has-selection=move || selected_task_key.get().is_some()>
+                {workflow_panel_resizer(sidebar_width, sidebar_ref, true, locale)}
                 <details class="workflow-studio-config" data-testid="workflow-studio-config" open>
                     <summary class="workflow-studio-config-head">
                         <span>{compose_icon("gear")}</span>
@@ -3082,6 +3211,32 @@ pub(super) fn workflow_studio(
                 </aside>
                 </div>
             </form>
+            <Show when=move || delete_target.get().is_some()>
+                <div class="overlay" data-testid="workflow-delete-overlay" on:click=move |_| close_delete_dialog()>
+                    <div class="modal workflow-delete-dialog" data-testid="workflow-delete-dialog"
+                        role="dialog" aria-modal="true" aria-labelledby="workflow-delete-title" aria-describedby="workflow-delete-description"
+                        on:keydown=move |event: web_sys::KeyboardEvent| {
+                            if event.key() == "Tab" {
+                                event.prevent_default();
+                                let on_cancel = event.target().and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+                                    .is_some_and(|target| target.get_attribute("data-testid").as_deref() == Some("workflow-delete-cancel"));
+                                if let Some(button) = if on_cancel { delete_confirm_ref.get_untracked() } else { delete_cancel_ref.get_untracked() } {
+                                    let _ = button.focus();
+                                }
+                            }
+                        }
+                        on:click=move |event| event.stop_propagation()>
+                        <h2 id="workflow-delete-title">{move || t(locale.get(), "workflow_studio.delete_title")}</h2>
+                        <p id="workflow-delete-description">{move || tf(locale.get(), "workflow_studio.delete_description", &[("name", &delete_target.get().map(|(_, name)| name).unwrap_or_default())])}</p>
+                        <div class="workflow-delete-actions">
+                            <button type="button" class="agents-secondary" node_ref=delete_cancel_ref data-testid="workflow-delete-cancel"
+                                on:click=move |_| close_delete_dialog()>{move || t(locale.get(), "workflow_studio.delete_cancel")}</button>
+                            <button type="button" class="agents-danger" node_ref=delete_confirm_ref data-testid="workflow-delete-confirm"
+                                on:click=remove_selected>{move || t(locale.get(), "workflow_studio.delete")}</button>
+                        </div>
+                    </div>
+                </div>
+            </Show>
             <Show when=move || editing_task_key.get().is_some()>
                 <div class="overlay workflow-node-overlay" data-testid="workflow-node-overlay"
                     on:click=move |_| close_task_dialog()>
@@ -4293,6 +4448,63 @@ pub(super) fn agent_workflows_panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_validation_identifies_tasks_and_rejects_invalid_optional_fields() {
+        let mut form = DynamicWorkflowForm::default();
+        assert!(form
+            .save_block_reason(Locale::Zh)
+            .unwrap()
+            .contains("委派目标"));
+        form.goal = "Review evidence".into();
+        assert!(form
+            .save_block_reason(Locale::Zh)
+            .unwrap()
+            .contains("task_1"));
+        form.tasks[0].instruction = "Check sources".into();
+        assert_eq!(form.save_block_reason(Locale::En), None);
+        form.tasks[0].max_tokens = "-1".into();
+        assert!(form
+            .save_block_reason(Locale::En)
+            .unwrap()
+            .contains("token budget"));
+        form.tasks[0].max_tokens = "0".into();
+        form.tasks[0].output_schema = "{".into();
+        assert!(form
+            .save_block_reason(Locale::En)
+            .unwrap()
+            .contains("output schema"));
+        form.tasks[0].output_schema.clear();
+        form.tasks[0].capabilities.clear();
+        assert!(form.save_block_reason(Locale::Zh).unwrap().contains("能力"));
+        form.tasks.clear();
+        assert!(form
+            .save_block_reason(Locale::Zh)
+            .unwrap()
+            .contains("至少添加一个任务"));
+    }
+
+    #[test]
+    fn save_validation_explains_run_activity_inputs_and_budgets() {
+        let mut form = DynamicWorkflowForm::default();
+        form.goal = "Evaluate candidates".into();
+        let task = &mut form.tasks[0];
+        task.instruction = "Evaluate".into();
+        task.task_kind = WorkflowTaskKind::RunActivity;
+        assert!(form
+            .save_block_reason(Locale::Zh)
+            .unwrap()
+            .contains("执行环境"));
+        let task = &mut form.tasks[0];
+        task.run_activity_context_id = "local".into();
+        task.run_activity_input_task_id = "prepare".into();
+        task.depends_on = vec!["prepare".into()];
+        task.run_activity_max_candidates = "invalid".into();
+        assert!(form
+            .save_block_reason(Locale::En)
+            .unwrap()
+            .contains("candidate budget"));
+    }
 
     #[test]
     fn converted_goal_seeds_a_saveable_workflow_name() {

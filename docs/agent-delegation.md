@@ -69,6 +69,15 @@ Cancelling the dialog preserves the current draft. The configuration panel no
 longer contains a Roundtable generator; Roundtable is available in the template
 chooser alongside other workflows.
 
+On desktop, drag the inner edges of the library and configuration panels to
+adjust their widths, or focus a separator and use the left/right arrow keys.
+Panel widths are bounded to keep the graph usable; narrow windows keep the
+stacked layout. When saving is unavailable, a message below the header explains
+the missing field or invalid task. Successful saves show a confirmation toast;
+backend errors stay visible in the editor. Deleting a custom workflow requires
+confirmation in a dialog naming the saved workflow. Cancel, clicking outside,
+or Escape dismisses only that dialog and preserves the workflow and draft.
+
 The composer `/` picker searches both enabled Skills and Workflow templates.
 Selecting a Workflow adds a typed Workflow chip instead of copying prose into
 the message. On send, Wisp resolves the template by stable ID, injects its

@@ -27,6 +27,124 @@ async function graphBounds(page: Page) {
   });
 }
 
+async function workflowInvokeCount(page: Page, command: string) {
+  return page.evaluate(command => ((window as any).__skillInvokeLog ?? [])
+    .filter((call: any) => call.cmd === command).length, command);
+}
+
+test("both workflow panels resize by drag and keyboard, with a usable graph and narrow layout", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openWorkflow(page);
+  for (const [side, selector, direction] of [
+    ["library", ".workflow-studio-library", 1],
+    ["sidebar", ".workflow-studio-sidebar", -1],
+  ] as const) {
+    const panel = page.locator(selector);
+    const original = (await panel.boundingBox())!.width;
+    const handle = page.getByTestId(`workflow-${side}-resizer`);
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + direction * 100, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(original + 100, 0);
+    await handle.focus();
+    await page.keyboard.press(direction === 1 ? "ArrowRight" : "ArrowLeft");
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(original + 120, 0);
+  }
+  await expect.poll(async () => (await graphBounds(page)).inside).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("workflow-resized.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 800, height: 800 });
+  expect((await page.locator(".workflow-studio-graph").boundingBox())!.width).toBeGreaterThan(240);
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(page.getByTestId("workflow-library-resizer")).toBeHidden();
+  await expect(page.getByTestId("workflow-sidebar-resizer")).toBeHidden();
+  expect(await page.getByTestId("workflow-studio").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+for (const locale of ["en", "zh"]) {
+  test(`save explains missing fields and confirms successful creation and updates (${locale})`, async ({ page }, testInfo) => {
+    await openWorkflow(page, locale);
+    await page.getByTestId("workflow-new").click();
+    await page.getByTestId("workflow-new-scratch").click();
+    const save = page.getByTestId("workflow-save");
+    const reason = page.getByTestId("workflow-save-reason");
+    await expect(save).toBeDisabled();
+    await expect(reason).toContainText(locale === "zh" ? "名称" : "name");
+    await page.getByTestId("workflow-name").fill("My test workflow");
+    await expect(reason).toContainText(locale === "zh" ? "委派目标" : "delegation goal");
+    await page.getByTestId("workflow-goal").fill("Collect and check evidence.");
+    await expect(reason).toContainText("task_1");
+    await expect(reason).toContainText(locale === "zh" ? "任务指令" : "instructions");
+    await page.screenshot({ path: testInfo.outputPath(`workflow-validation-${locale}.png`), animations: "disabled" });
+    await page.getByTestId("workflow-graph-node-select").first().dblclick();
+    await page.getByTestId("dynamic-task-instruction").fill("Check the available evidence and cite sources.");
+    await page.keyboard.press("Escape");
+    await expect(reason).toBeHidden();
+    await save.click();
+    await expect(page.locator("#copy-toast")).toHaveText(locale === "zh" ? "工作流保存成功。" : "Workflow saved.");
+    await expect(page.getByTestId("workflow-template-card").filter({ hasText: "My test workflow" })).toHaveCount(1);
+    await page.locator("#copy-toast").waitFor({ state: "detached" });
+    await page.getByTestId("workflow-description").fill("Updated description");
+    await save.click();
+    await expect(page.locator("#copy-toast")).toHaveText(locale === "zh" ? "工作流保存成功。" : "Workflow saved.");
+    await expect.poll(() => workflowInvokeCount(page, "save_workflow_template")).toBe(2);
+    await expect(page.getByTestId("workflow-template-card").filter({ hasText: "My test workflow" })).toHaveCount(1);
+  });
+
+  test(`deleting a saved copy requires confirmation and cancellation preserves the draft (${locale})`, async ({ page }, testInfo) => {
+    await openWorkflow(page, locale);
+    await expect(page.getByTestId("workflow-delete")).toHaveCount(0);
+    await page.getByTestId("workflow-name").fill("Disposable copy");
+    await page.getByTestId("workflow-save").click();
+    await expect(page.locator("#copy-toast")).toBeVisible();
+    await page.getByTestId("workflow-description").fill("Unsaved edits");
+    const remove = page.getByTestId("workflow-delete");
+    await remove.click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("workflow-delete-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("workflow-studio")).toBeVisible();
+    await expect(remove).toBeFocused();
+    await remove.click();
+    await expect(page.getByTestId("workflow-delete-dialog")).toContainText("Disposable copy");
+    await expect(page.getByTestId("workflow-delete-cancel")).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.getByTestId("workflow-delete-confirm")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("workflow-delete-cancel")).toBeFocused();
+    await expect(page.getByTestId("workflow-delete-dialog")).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: testInfo.outputPath(`workflow-delete-${locale}.png`), animations: "disabled" });
+    await page.getByTestId("workflow-delete-cancel").click();
+    await expect(page.getByTestId("workflow-description")).toHaveValue("Unsaved edits");
+    await remove.click();
+    await page.getByTestId("workflow-delete-overlay").click({ position: { x: 10, y: 10 } });
+    await expect(page.getByTestId("workflow-delete-dialog")).toHaveCount(0);
+    expect(await workflowInvokeCount(page, "remove_workflow_template")).toBe(0);
+    await remove.click();
+    await page.getByTestId("workflow-delete-confirm").click();
+    await expect.poll(() => workflowInvokeCount(page, "remove_workflow_template")).toBe(1);
+    await expect(page.getByTestId("workflow-template-card").filter({ hasText: "Disposable copy" })).toHaveCount(0);
+    await expect(page.getByTestId("workflow-template-card").filter({ hasText: "Literature evidence review" })).toHaveCount(1);
+  });
+}
+
+test("failed saves keep the draft and show the backend error without a success toast", async ({ page }) => {
+  await openWorkflow(page);
+  await page.evaluate(() => {
+    const invoke = (window as any).__TAURI__.core.invoke;
+    (window as any).__TAURI__.core.invoke = (cmd: string, args: any) => {
+      if (cmd === "save_workflow_template") return Promise.reject("Cannot write workflow: disk is full.");
+      return invoke(cmd, args);
+    };
+  });
+  await page.getByTestId("workflow-name").fill("Keep my draft");
+  await page.getByTestId("workflow-save").click();
+  await expect(page.getByTestId("workflow-studio-error")).toContainText("disk is full");
+  await expect(page.getByTestId("workflow-name")).toHaveValue("Keep my draft");
+  await expect(page.getByTestId("workflow-save")).toBeEnabled();
+  await expect(page.locator("#copy-toast")).toHaveCount(0);
+});
+
 for (const width of [1280, 1920]) {
   test(`workflow fits and centers task cards at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });

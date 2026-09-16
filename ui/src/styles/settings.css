@@ -543,6 +543,8 @@ body:has(.settings-page) .projects-screen { display: none; }
   font-family: var(--font-ui);
 }
 .workflow-studio-library {
+  position: relative;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1423,7 +1425,7 @@ button.workflow-graph-port.output {
   overflow: hidden;
 }
 .settings-page.workflow-studio-mode .workflow-studio {
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: min(var(--workflow-library-width, 240px), 32%) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   border: 0;
@@ -1664,13 +1666,14 @@ button.workflow-graph-port.output {
 /* Workflow settings and the selected-node summary share the right column. */
 .workflow-studio-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) min(var(--workflow-sidebar-width, 300px), 52%);
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
 }
 .workflow-studio-sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1716,10 +1719,12 @@ button.workflow-graph-port.output {
 .workflow-new-templates { display: grid; gap: 10px; margin-top: 14px; }
 .workflow-new-templates .workflow-template-card { padding: 14px; }
 @media (max-width: 1280px) {
-  .settings-page.workflow-studio-mode .workflow-studio { grid-template-columns: 210px minmax(0, 1fr); }
-  .workflow-studio-body { grid-template-columns: minmax(0, 1fr) 260px; }
+  .settings-page.workflow-studio-mode .workflow-studio { grid-template-columns: min(var(--workflow-library-width, 210px), 32%) minmax(0, 1fr); }
+  .workflow-studio-body { grid-template-columns: minmax(0, 1fr) min(var(--workflow-sidebar-width, 260px), 52%); }
 }
 @media (max-width: 720px) {
+  .settings-page.workflow-studio-mode .workflow-studio { grid-template-columns: minmax(0, 1fr); }
+  .workflow-panel-resizer { display: none; }
   .workflow-studio-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 620px auto; overflow: visible; }
   .workflow-studio-sidebar { border-left: 0; border-top: 1px solid var(--border); }
   .workflow-studio-config-body { max-height: 400px; }
@@ -1727,6 +1732,25 @@ button.workflow-graph-port.output {
   .workflow-node-dialog .dynamic-task-instruction { grid-row: auto; }
   .workflow-new-options { grid-template-columns: minmax(0, 1fr); }
 }
+.workflow-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 7px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.workflow-panel-resizer.right { left: 0; right: auto; }
+.workflow-panel-resizer:hover,
+.workflow-panel-resizer:focus-visible { background: var(--clay); outline: none; }
+.workflow-save-reason { padding: 8px 18px; color: var(--text-muted); background: var(--bg-sunken); border-bottom: 1px solid var(--border); font-size: 12px; overflow-wrap: anywhere; }
+.workflow-save-reason[hidden] { display: none; }
+.workflow-delete-dialog { width: min(440px, calc(100vw - 32px)); }
+.workflow-delete-dialog p { color: var(--text-muted); overflow-wrap: anywhere; line-height: 1.6; }
+.workflow-delete-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .settings-content:has(.settings-appearance-pane) .settings-head { width: min(calc(100% - 48px), 1152px); border-bottom: none; padding: 28px 0 0; }
 .settings-content:has(.settings-appearance-pane) .settings-head h2 { font-size: 30px; font-weight: 500; }
 .settings-appearance-pane { gap: 24px; padding: 34px 0 48px; width: min(calc(100% - 48px), 1152px); }
