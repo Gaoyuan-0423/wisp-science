@@ -4578,8 +4578,13 @@ async fn store_open_records_migrations_and_seeds_local_context() {
         .await
         .unwrap()
         .is_some());
+    // The public list is chronological. When opening crosses a timestamp
+    // boundary, application order can differ from version order; this check
+    // verifies the recorded versions, independently of wall-clock timing.
+    let mut recorded_versions = store.schema_migrations().await.unwrap();
+    recorded_versions.sort();
     assert_eq!(
-        store.schema_migrations().await.unwrap(),
+        recorded_versions,
         vec![
             INITIAL_SCHEMA_MIGRATION.to_string(),
             CONTROL_PLANE_MIGRATION.to_string(),
