@@ -11,6 +11,61 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+/// The submission result is the durable link between a transcript row and a Run.
+/// Never infer ownership from a command, title, or nearby timestamp.
+pub(crate) fn submitted_run_id(name: &str, output: &str) -> Option<String> {
+    if !matches!(name, "run_in_context" | "wisp_run_in_context") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(output).ok()?;
+    value
+        .get("run_id")
+        .or_else(|| value.get("id"))?
+        .as_str()
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_owned)
+}
+
+pub(crate) fn completed_run_owners(
+    items: &[ChatItem],
+    runs: &[RunSummary],
+    frame_id: &str,
+) -> HashMap<String, usize> {
+    let mut owners = HashMap::new();
+    for (index, item) in items.iter().enumerate() {
+        let ChatItem::Tool { name, output, .. } = item else {
+            continue;
+        };
+        let Some(id) = submitted_run_id(name, output) else {
+            continue;
+        };
+        let fallback = serde_json::from_str::<RunRecord>(output).ok();
+        let run = runs
+            .iter()
+            .find(|run| run.id == id)
+            .cloned()
+            .or_else(|| fallback.as_ref().map(RunSummary::from));
+        if run.is_some_and(|run| {
+            run.frame_id.as_deref() == Some(frame_id)
+                && matches!(
+                    run.status.as_str(),
+                    "succeeded" | "failed" | "cancelled" | "timed_out" | "lost"
+                )
+        }) {
+            owners.entry(id).or_insert(index);
+        }
+    }
+    owners
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CompletedRunCards {
+    pub owners: Memo<HashMap<String, usize>>,
+    pub runs: RwSignal<Vec<RunSummary>>,
+    pub clock: ReadSignal<i64>,
+    pub dismissed: RwSignal<HashSet<String>>,
+}
+
 /// True for items whose `render_item` produces an empty view, so the thread
 /// loop can drop their wrapper `<div>` and avoid a dangling `.thread` gap (#19).
 pub(crate) fn renders_nothing(item: &ChatItem) -> bool {
@@ -829,6 +884,17 @@ fn render_step_row(
             let has_input = !input.is_empty();
             let has_output = !output.is_empty();
             let has_body = has_input || has_output;
+            let completed_card = submitted_run_id(name, output)
+                .zip(use_context::<CompletedRunCards>())
+                .map(|(id, context)| {
+                    let owner_id = id.clone();
+                    let owned = create_memo(move |_| {
+                        context
+                            .owners
+                            .with(|owners| owners.get(&owner_id) == Some(&index))
+                    });
+                    (id, context, owned)
+                });
             let icon = match ok {
                 Some(true) => view! { <span class="step-icon ok">"✓"</span> }.into_view(),
                 Some(false) => view! { <span class="step-icon fail">"✗"</span> }.into_view(),
@@ -870,6 +936,18 @@ fn render_step_row(
                         });
                         view! {
                             <div class="step-body">
+                                {completed_card.clone().map(|(id, context, owned)| {
+                                    let output = output.clone();
+                                    view! {
+                                        {move || owned.get().then(|| view! {
+                                            <div class="completed-run-monitor" data-testid="completed-run-monitor">
+                                                <RunMonitorCard run_id=id.clone() runs=context.runs
+                                                    clock=context.clock tool_ok=None tool_output=output.clone()
+                                                    dismissed_runs=context.dismissed embedded=true />
+                                            </div>
+                                        })}
+                                    }
+                                })}
                                 {has_input.then(|| view! { <pre class="tool-input">{input}</pre> })}
                                 {has_output.then(|| view! { <pre class="tool-output">{output}</pre> })}
                             </div>
@@ -1384,8 +1462,11 @@ pub(crate) fn RunMonitorCard(
     /// which must never interrupt with a review modal (#897).
     #[prop(optional)]
     auto_review: bool,
+    #[prop(optional)]
+    embedded: bool,
 ) -> impl IntoView {
     let locale = use_locale();
+    let completed_cards = use_context::<CompletedRunCards>();
     let fallback = serde_json::from_str::<RunRecord>(&tool_output).ok();
     let detail = create_rw_signal(fallback.clone());
     let lookup_id = run_id.clone();
@@ -1480,7 +1561,12 @@ pub(crate) fn RunMonitorCard(
     }
     view! {
         {move || {
-            if dismissed_runs.with(|ids| ids.contains(&run_id)) {
+            if !embedded
+                && (dismissed_runs.with(|ids| ids.contains(&run_id))
+                    || completed_cards.is_some_and(|context| {
+                        context.owners.with(|owners| owners.contains_key(&run_id))
+                    }))
+            {
                 return view! {}.into_view();
             }
             let run = selected_run.get();
@@ -1617,7 +1703,7 @@ pub(crate) fn RunMonitorCard(
                                     >{compose_icon("folder")}</button>
                                 }
                             }))}
-                        {dismissible.then(|| {
+                        {(dismissible && !embedded).then(|| {
                             let tip = t(locale.get(), "runs.dismiss");
                             let dismiss_id = run.id.clone();
                             view! {
