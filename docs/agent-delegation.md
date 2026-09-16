@@ -50,16 +50,24 @@ directly on the canvas. Every graph interaction updates the ordinary
 rejected before save.
 
 Workflow Studio replaces the normal Settings chrome with a dedicated
-full-window editor. Its stable layout keeps the template library on the left,
-save and lifecycle controls in the top bar, the DAG canvas in the center, and
-the selected-node inspector on the right. Drag the divider between the canvas
-and inspector to allocate space to either side. Workflow-level fields live in
-a collapsible configuration strip so they do not permanently reduce the
-canvas. The node inspector edits independent task instructions, capabilities
-and output contracts. Source Skills are selected in the conversion dialog,
-not bound to executable nodes. The canvas includes zoom controls, a reset-to-100% action, a
-dotted orientation grid, and a minimap; large graphs remain scrollable without
-shrinking the inspector.
+full-window editor. The template library stays on the left, the DAG canvas in
+the center, and **Workflow configuration** on the right. Goal, approval policy,
+and shared context live in a collapsible section alongside the canvas. Save and
+lifecycle controls stay in the top bar. No node is selected initially. A single
+click shows a read-only task summary at the bottom of the right column without
+resizing the canvas. Double-click a node (or choose **Edit node** in its summary)
+to edit instructions, capabilities, output contracts, Specialist, executor and
+model in a modal. Closing the modal keeps the selected-node summary and returns
+focus to the node; edits stay in the workflow draft until Save Workflow. Source
+Skills are selected in the conversion dialog, not bound to executable nodes.
+
+The library has a single **New workflow** button. It opens a dialog with **Blank**,
+**From a template**, and **From Skills**. Blank starts with one empty task; a
+template creates an editable copy; From Skills opens the existing conversion
+workspace.
+Cancelling the dialog preserves the current draft. The configuration panel no
+longer contains a Roundtable generator; Roundtable is available in the template
+chooser alongside other workflows.
 
 The composer `/` picker searches both enabled Skills and Workflow templates.
 Selecting a Workflow adds a typed Workflow chip instead of copying prose into
@@ -173,29 +181,12 @@ automatically.
 
 ## Roundtable template
 
-Workflow Studio can generate a structured Roundtable without introducing a
-second workflow or chat protocol. Expand **Roundtable template**, choose two or
-three discussion seats, and assign each seat an optional Specialist plus a
-Native or ACP executor. A Native seat may also select a Wisp model; an ACP
-seat's model and reasoning settings remain owned by that ACP Agent profile.
-Configure the chair separately, then apply the template.
-
-The generated proposal uses the ordinary dynamic workflow contract:
-
-1. Every seat produces an independent opening position. These tasks have no
-   dependencies and may run in parallel.
-2. Every seat then reviews all opening positions, records agreements and
-   conflicts, and revises its recommendation.
-3. The chair receives all second-round reviews and synthesizes the shared
-   conclusions, unresolved disagreements, evidence gaps, risks, and next steps.
-
-The same Specialist, executor, and model assignment is copied into both rounds
-for each seat. Enter the overall goal before applying the template; Wisp embeds
-that goal into every generated task so detached children receive the actual
-discussion topic. Applying preserves the goal, shared context, and approval
-policy, and replaces only the task cards. Reapply after changing the goal.
-After generation, every task remains editable, including its capabilities,
-dependencies, budgets, and output schema.
+Choose **New workflow → From a template → Roundtable** to create a copy of the
+built-in five-task graph: two parallel opening positions, two cross-reviews,
+and a neutral chair synthesis. Edit the goal and double-click each node to customize
+its instructions, Specialist, executor, model, capabilities and output contract.
+The task instructions are copied from the template; changing the workflow goal
+does not rewrite them. Add nodes and dependencies for additional perspectives.
 
 This is a bounded DAG, not a live multi-model group chat. Temporary children do
 not share hidden transcripts or freely message peers; dependency results are
@@ -463,7 +454,7 @@ the coordination paths.
 
 ## Convert Skills into independent Workflows
 
-In Workflow Studio, **Convert Skills** opens a conversion workspace with three
+In Workflow Studio, **New workflow → From Skills** opens a conversion workspace with three
 stages: choose sources, convert to nodes, and review the draft. Enter the research
 question, available inputs and expected deliverables on the left. Choose up to
 eight installed source Skills using the searchable checklist, or let the model
@@ -592,8 +583,9 @@ available in the activity panel.
 ### Editing a research workflow
 
 Workflow Studio centers and fits the existing tasks when a template opens or the
-structure changes. While fit mode is active, resizing the window or the properties
-panel refits the graph. The zoom buttons switch to manual zoom; click the percentage
+structure changes. While fit mode is active, resizing the window refits the graph.
+Selecting nodes, folding configuration, and opening the node editor preserve the
+canvas dimensions. The zoom buttons switch to manual zoom; click the percentage
 (**Fit workflow to viewport**) to return to automatic fitting. Editing instructions preserves
 manual zoom and input focus.
 
@@ -606,17 +598,24 @@ more than eight tasks or zoom below 70%.
 
 Use **Add task → Independent task** for a new root, or **After selected task** for
 a dependent task. Escape closes the add menu first, then cancels an active connection,
-then leaves the studio. Capability choices are collapsed initially, with up to three
+then clears the selected-node summary, then leaves the studio. A node-editing or
+new-workflow dialog closes before these underlying surfaces. Capability choices
+are collapsed initially, with up to three
 selected capability names and an additional count visible. Expand the section to
 edit them. Dependency choices and advanced settings expand separately. Workflow-wide
-settings remain in the compact **Workflow configuration** section.
+settings remain in the right-hand **Workflow configuration** column.
 
 Manual layout smoke check: open Literature evidence review at 1280×800 and
 1920×1080, confirm all three task cards are centered and readable, resize the
-properties panel, then zoom manually and edit an instruction. Expand capabilities,
+window, then zoom manually and edit an instruction. Expand capabilities,
 toggle a choice, and confirm the section stays open. Open Add task and immediately
 press Escape: the editor must remain open. Add an independent task and a task after
-it, then save a copy and verify the dependency survives reopening. Check both light
+it, then save a copy and verify the dependency survives reopening. Test New workflow
+with all three creation options and cancel. Single-click a node for its summary,
+double-click it to edit, and verify Escape closes only the modal. Fold and unfold
+configuration without changing the canvas dimensions. At 1280×800, 1920×1080 and 3840×2160,
+confirm the zoom percentage and classic scrollbar visibility settle instead of
+oscillating. Manual zoom must still allow scrolling; Fit resets the scroll position. Check both light
 and dark themes. These layout changes apply to the template editor; live execution
 status remains in the Agents activity panel.
 
