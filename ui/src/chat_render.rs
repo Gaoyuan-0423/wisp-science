@@ -1020,8 +1020,99 @@ fn render_step_row(
             }
             .into_view()
         }
+        Some(item @ (ChatItem::Usage { .. } | ChatItem::Compaction { .. })) => {
+            view! { <div class=class_for(item)>{render_process_metadata(item, locale)}</div> }.into_view()
+        }
         _ => view! {}.into_view(),
     })
+}
+
+// Shared by standalone metadata rows and metadata between folded phases.
+fn render_process_metadata(item: &ChatItem, locale: ReadSignal<Locale>) -> View {
+    match item {
+        ChatItem::Usage {
+            input,
+            output,
+            reasoning,
+            cached,
+            ..
+        } => {
+            let (input, output, reasoning, cached) = (*input, *output, *reasoning, *cached);
+            view! {
+                <div class="usage-line" title=move || t(locale.get(), "msg.usage_title")>
+                    {move || {
+                        let loc = locale.get();
+                        let mut s = tf(loc, "msg.usage", &[
+                            ("in", &fmt_tokens(input)),
+                            ("out", &fmt_tokens(output)),
+                        ]);
+                        if cached > 0 {
+                            s.push_str(&tf(loc, "msg.usage.cached", &[("c", &fmt_tokens(cached))]));
+                        }
+                        if reasoning > 0 {
+                            s.push_str(&tf(loc, "msg.usage.reasoning", &[("r", &fmt_tokens(reasoning))]));
+                        }
+                        s
+                    }}
+                </div>
+            }.into_view()
+        }
+        ChatItem::Compaction {
+            before,
+            after,
+            strategy,
+        } => {
+            if strategy == "auto_continue" {
+                let count = before.to_string();
+                let limit = after.to_string();
+                view! {
+                    <div class="context-compaction-flag auto" data-testid="auto-continue-flag">
+                        {compose_icon("sync")}
+                        <span>{move || tf(
+                            locale.get(),
+                            "chat.auto_continued",
+                            &[("count", count.as_str()), ("limit", limit.as_str())],
+                        )}</span>
+                    </div>
+                }
+                .into_view()
+            } else {
+                let automatic = strategy == "auto";
+                let counts = format!(
+                    "{} → {} tokens",
+                    fmt_tokens(*before as u64),
+                    fmt_tokens(*after as u64)
+                );
+                let reduction = (*before > *after).then(|| {
+                    let percent = ((*before - *after) as f64 / *before as f64 * 100.0).round();
+                    format!("{percent:.0}")
+                });
+                view! {
+                    <div class="context-compaction-status context-compaction-complete" data-testid="context-compaction-flag">
+                        <span class="context-compaction-mark" aria-hidden="true">{compose_icon("check")}</span>
+                        <span class="context-compaction-copy">
+                        <strong>{move || t(
+                            locale.get(),
+                            if automatic {
+                                "chat.context_auto_compacted"
+                            } else {
+                                "chat.context_compacted"
+                            },
+                        )}</strong>
+                        <span class="context-compaction-detail">
+                            <span class="context-compaction-count">{counts}</span>
+                            {reduction.map(|percent| view! {
+                                <span class="context-compaction-reduction">{move || tf(locale.get(), "chat.compaction_reduction", &[("percent", &percent)])}</span>
+                            })}
+                        </span>
+                        </span>
+                        <span class="context-compaction-rule" aria-hidden="true"></span>
+                    </div>
+                }.into_view()
+            }
+        }
+        _ => view! {}.into_view(),
+    }
 }
 
 /// Latest step of a live run as "name · detail", shown in the collapsed
@@ -1462,8 +1553,7 @@ pub(crate) fn RunMonitorCard(
     /// which must never interrupt with a review modal (#897).
     #[prop(optional)]
     auto_review: bool,
-    #[prop(optional)]
-    embedded: bool,
+    #[prop(optional)] embedded: bool,
 ) -> impl IntoView {
     let locale = use_locale();
     let completed_cards = use_context::<CompletedRunCards>();
@@ -2030,86 +2120,8 @@ pub(crate) fn render_item(
             <ToolBlock name=name.clone() ok=*ok input=input.clone() output=output.clone() />
         }
         .into_view(),
-        ChatItem::Usage {
-            input,
-            output,
-            reasoning,
-            cached,
-            ..
-        } => {
-            let (input, output, reasoning, cached) = (*input, *output, *reasoning, *cached);
-            view! {
-                <div class="usage-line" title=move || t(locale.get(), "msg.usage_title")>
-                    {move || {
-                        let loc = locale.get();
-                        let mut s = tf(loc, "msg.usage", &[
-                            ("in", &fmt_tokens(input)),
-                            ("out", &fmt_tokens(output)),
-                        ]);
-                        if cached > 0 {
-                            s.push_str(&tf(loc, "msg.usage.cached", &[("c", &fmt_tokens(cached))]));
-                        }
-                        if reasoning > 0 {
-                            s.push_str(&tf(loc, "msg.usage.reasoning", &[("r", &fmt_tokens(reasoning))]));
-                        }
-                        s
-                    }}
-                </div>
-            }.into_view()
-        }
-        ChatItem::Compaction {
-            before,
-            after,
-            strategy,
-        } => {
-            if strategy == "auto_continue" {
-                let count = before.to_string();
-                let limit = after.to_string();
-                view! {
-                    <div class="context-compaction-flag auto" data-testid="auto-continue-flag">
-                        {compose_icon("sync")}
-                        <span>{move || tf(
-                            locale.get(),
-                            "chat.auto_continued",
-                            &[("count", count.as_str()), ("limit", limit.as_str())],
-                        )}</span>
-                    </div>
-                }
-                .into_view()
-            } else {
-                let automatic = strategy == "auto";
-                let counts = format!(
-                    "{} → {} tokens",
-                    fmt_tokens(*before as u64),
-                    fmt_tokens(*after as u64)
-                );
-                let reduction = (*before > *after).then(|| {
-                    let percent = ((*before - *after) as f64 / *before as f64 * 100.0).round();
-                    format!("{percent:.0}")
-                });
-                view! {
-                    <div class="context-compaction-status context-compaction-complete" data-testid="context-compaction-flag">
-                        <span class="context-compaction-mark" aria-hidden="true">{compose_icon("check")}</span>
-                        <span class="context-compaction-copy">
-                        <strong>{move || t(
-                            locale.get(),
-                            if automatic {
-                                "chat.context_auto_compacted"
-                            } else {
-                                "chat.context_compacted"
-                            },
-                        )}</strong>
-                        <span class="context-compaction-detail">
-                            <span class="context-compaction-count">{counts}</span>
-                            {reduction.map(|percent| view! {
-                                <span class="context-compaction-reduction">{move || tf(locale.get(), "chat.compaction_reduction", &[("percent", &percent)])}</span>
-                            })}
-                        </span>
-                        </span>
-                        <span class="context-compaction-rule" aria-hidden="true"></span>
-                    </div>
-                }.into_view()
-            }
+        ChatItem::Usage { .. } | ChatItem::Compaction { .. } => {
+            render_process_metadata(item, locale)
         }
         ChatItem::AcpTool {
             title,

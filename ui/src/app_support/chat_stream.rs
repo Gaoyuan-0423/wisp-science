@@ -642,6 +642,45 @@ mod start_user_turn_tests {
 
         assert_eq!(completed_activity_end(&items, 1, false), Some(6));
         assert_eq!(completed_activity_end(&items, 1, true), None);
+
+        // Persisted transcripts contain per-round usage between tool phases.
+        let mut recorded = items.clone();
+        recorded.insert(
+            4,
+            ChatItem::Usage {
+                input: 100,
+                output: 10,
+                reasoning: 0,
+                cached: 0,
+                ctx_tokens: 0,
+                max_context: 0,
+                context_usage: ContextUsage::default(),
+            },
+        );
+        recorded.insert(
+            5,
+            ChatItem::Compaction {
+                before: 100,
+                after: 50,
+                strategy: "auto".into(),
+            },
+        );
+        assert_eq!(completed_activity_end(&recorded, 1, false), Some(8));
+        assert_eq!(completed_activity_end(&recorded, 1, true), None);
+        // Final report and trailing metadata stay outside the disclosure.
+        recorded.push(recorded[4].clone());
+        assert_eq!(completed_activity_end(&recorded, 1, false), Some(8));
+        recorded.push(ChatItem::User("next question".into()));
+        assert_eq!(completed_activity_end(&recorded, 1, true), Some(8));
+        recorded.insert(
+            6,
+            ChatItem::ApprovalPending {
+                tool: "write".into(),
+                preview: "results".into(),
+                message: "Approve?".into(),
+            },
+        );
+        assert_eq!(completed_activity_end(&recorded, 1, false), Some(4));
     }
 
     #[test]
@@ -816,7 +855,10 @@ pub(crate) fn is_commentary_at(items: &[ChatItem], index: usize) -> bool {
         .find(|item| {
             !matches!(
                 item,
-                ChatItem::Reasoning(_) | ChatItem::Usage { .. } | ChatItem::FileChanged(_)
+                ChatItem::Reasoning(_)
+                    | ChatItem::Usage { .. }
+                    | ChatItem::Compaction { .. }
+                    | ChatItem::FileChanged(_)
             )
         })
         .is_some_and(is_tool_activity)
@@ -851,16 +893,20 @@ pub(crate) fn completed_activity_end(
 
     let turn_end = boundary.unwrap_or(items.len());
     let mut end = start;
-    while end < turn_end {
-        if is_turn_activity_at(items, end)
-            || matches!(&items[end], ChatItem::Assistant { text, .. } if text.trim().is_empty())
-            || matches!(&items[end], ChatItem::FileChanged(_))
+    for index in start..turn_end {
+        if is_turn_activity_at(items, index) {
+            end = index + 1;
+        } else if !matches!(
+            &items[index],
+            ChatItem::Usage { .. } | ChatItem::Compaction { .. } | ChatItem::FileChanged(_)
+        ) && !matches!(&items[index], ChatItem::Assistant { text, .. } if text.trim().is_empty())
+            && !matches!(&items[index], ChatItem::Tool { name, .. } if name == "attempt_completion")
         {
-            end += 1;
-        } else {
             break;
         }
     }
+    // Metadata between phases belongs inside the disclosure. Leave trailing
+    // usage/compaction outside, and never cross a final answer or action card.
     Some(end)
 }
 

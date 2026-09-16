@@ -12024,7 +12024,8 @@ fn App() -> impl IntoView {
                                     let start = i;
                                     let mut indices: Vec<usize> = Vec::new();
                                     for j in i..end {
-                                        if is_turn_activity_at(list, j) {
+                                        if is_turn_activity_at(list, j)
+                                            || matches!(list[j], ChatItem::Usage { .. } | ChatItem::Compaction { .. }) {
                                             indices.push(j);
                                         }
                                     }

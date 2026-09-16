@@ -1,5 +1,13 @@
 # Browsing conversation history
 
+After a turn finishes, its commentary, reasoning, tool calls, and execution-plan
+updates collapse into one **Processed** disclosure before the final report.
+Per-round usage and context-compaction records between phases stay inside that
+disclosure in their original order; they no longer create repeated summaries
+with the same turn duration. Expand it to inspect the full process. The final
+answer, trailing usage, approval/question cards, and dedicated run/media cards
+remain separate. Active turns continue to show live progress.
+
 Opening or reopening a conversation shows its latest messages, including when
 entering through Recent conversations in another project. Switching back to a
 conversation starts at the end instead of restoring an older reading position.
