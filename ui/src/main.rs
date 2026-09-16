@@ -1538,16 +1538,29 @@ fn App() -> impl IntoView {
                 .collect::<HashSet<_>>()
         })
     });
+    let completed_run_owners = create_memo(move |_| {
+        let Some(frame_id) = active_session.get() else {
+            return HashMap::new();
+        };
+        let _ = transcript_projection_epoch.get();
+        run_records.with(|runs| {
+            items.with_untracked(|rows| {
+                chat_render::completed_run_owners(rows, runs, &frame_id)
+            })
+        })
+    });
     let automatic_session_runs = create_memo(move |_| {
         let Some(frame_id) = active_session.get() else {
             return Vec::new();
         };
         let monitored = monitored_run_ids.get();
+        let completed = completed_run_owners.get();
         let now = js_sys::Date::now() as i64 / 1000;
         let mut runs = run_records.with(|runs| {
             runs.iter()
                 .filter(|run| run.frame_id.as_deref() == Some(frame_id.as_str()))
                 .filter(|run| !monitored.contains(&run.id))
+                .filter(|run| !completed.contains_key(&run.id))
                 .filter(|run| {
                     matches!(run.status.as_str(), "submitted" | "running" | "cancelling")
                         || run
@@ -7551,6 +7564,12 @@ fn App() -> impl IntoView {
     let runtime_environment_pinned = create_rw_signal(false);
     let runtime_environment_position = create_rw_signal((16, 16));
     let run_clock = create_rw_signal(now_secs());
+    provide_context(chat_render::CompletedRunCards {
+        owners: completed_run_owners,
+        runs: run_records,
+        clock: run_clock.read_only(),
+        dismissed: dismissed_run_cards,
+    });
     // The transfer tray needs the shared clock only while the active session
     // has an active or briefly lingering transfer. Once the last card expires,
     // this effect finds no visible transfers and drops its run_clock
