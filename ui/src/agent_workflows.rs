@@ -202,60 +202,6 @@ impl DynamicTaskForm {
     }
 }
 
-const MIN_ROUNDTABLE_PARTICIPANTS: usize = 2;
-const MAX_ROUNDTABLE_PARTICIPANTS: usize = 3;
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct RoundtableAssignmentForm {
-    specialist_id: String,
-    model_id: String,
-    executor_key: String,
-}
-
-impl RoundtableAssignmentForm {
-    fn apply_to(&self, task: &mut DynamicTaskForm) {
-        task.specialist_id.clone_from(&self.specialist_id);
-        if self.specialist_id == "reviewer"
-            && !task
-                .capabilities
-                .iter()
-                .any(|capability| capability == "review")
-        {
-            task.capabilities.push("review".into());
-        }
-        task.executor_key.clone_from(&self.executor_key);
-        task.model_id = if self.executor_key.is_empty() || self.executor_key == "native" {
-            self.model_id.clone()
-        } else {
-            String::new()
-        };
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct RoundtableTemplateForm {
-    participant_count: usize,
-    participants: Vec<RoundtableAssignmentForm>,
-    chair: RoundtableAssignmentForm,
-}
-
-impl Default for RoundtableTemplateForm {
-    fn default() -> Self {
-        Self {
-            participant_count: MIN_ROUNDTABLE_PARTICIPANTS,
-            participants: vec![RoundtableAssignmentForm::default(); MAX_ROUNDTABLE_PARTICIPANTS],
-            chair: RoundtableAssignmentForm::default(),
-        }
-    }
-}
-
-impl RoundtableTemplateForm {
-    fn set_participant_count(&mut self, participant_count: usize) {
-        self.participant_count =
-            participant_count.clamp(MIN_ROUNDTABLE_PARTICIPANTS, MAX_ROUNDTABLE_PARTICIPANTS);
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DynamicWorkflowForm {
     goal: String,
@@ -507,63 +453,6 @@ impl DynamicWorkflowForm {
         }
         false
     }
-
-    fn apply_roundtable(&mut self, template: &RoundtableTemplateForm, locale: Locale) {
-        let participant_count = template
-            .participant_count
-            .clamp(MIN_ROUNDTABLE_PARTICIPANTS, MAX_ROUNDTABLE_PARTICIPANTS);
-        let opening_ids = (1..=participant_count)
-            .map(|seat| format!("seat_{seat}_opening"))
-            .collect::<Vec<_>>();
-        let review_ids = (1..=participant_count)
-            .map(|seat| format!("seat_{seat}_review"))
-            .collect::<Vec<_>>();
-        let mut tasks = Vec::with_capacity(participant_count * 2 + 1);
-        let mut next_key = 1;
-        let goal = self.goal.trim().to_string();
-        let opening_instruction = tf(
-            locale,
-            "agents.roundtable.opening_instruction",
-            &[("goal", &goal)],
-        );
-        let review_instruction = tf(
-            locale,
-            "agents.roundtable.review_instruction",
-            &[("goal", &goal)],
-        );
-        let chair_instruction = tf(
-            locale,
-            "agents.roundtable.chair_instruction",
-            &[("goal", &goal)],
-        );
-
-        for (index, id) in opening_ids.iter().enumerate() {
-            let mut task = DynamicTaskForm::blank(next_key, id.clone());
-            next_key += 1;
-            task.instruction.clone_from(&opening_instruction);
-            template.participants[index].apply_to(&mut task);
-            tasks.push(task);
-        }
-
-        for (index, id) in review_ids.iter().enumerate() {
-            let mut task = DynamicTaskForm::blank(next_key, id.clone());
-            next_key += 1;
-            task.instruction.clone_from(&review_instruction);
-            task.depends_on.clone_from(&opening_ids);
-            template.participants[index].apply_to(&mut task);
-            tasks.push(task);
-        }
-
-        let mut chair = DynamicTaskForm::blank(next_key, "chair_synthesis".into());
-        next_key += 1;
-        chair.instruction = chair_instruction;
-        chair.depends_on = review_ids;
-        template.chair.apply_to(&mut chair);
-        tasks.push(chair);
-
-        self.tasks = tasks;
-        self.next_task_key = next_key;
-    }
 }
 
 const WORKFLOW_GRAPH_NODE_WIDTH: i32 = 288;
@@ -573,19 +462,6 @@ const WORKFLOW_GRAPH_ROW_GAP: i32 = 40;
 const WORKFLOW_GRAPH_PADDING_X: i32 = 28;
 const WORKFLOW_GRAPH_PADDING_TOP: i32 = 68;
 const WORKFLOW_GRAPH_PADDING_BOTTOM: i32 = 28;
-const WORKFLOW_INSPECTOR_WIDTH_DEFAULT: i32 = 320;
-const WORKFLOW_INSPECTOR_WIDTH_MIN: i32 = 280;
-const WORKFLOW_INSPECTOR_WIDTH_MAX: i32 = 640;
-const WORKFLOW_GRAPH_MIN_WIDTH: i32 = 320;
-const WORKFLOW_GRAPH_RESIZER_WIDTH: i32 = 7;
-
-fn clamp_workflow_inspector_width(width: i32, workspace_width: f64) -> i32 {
-    let available =
-        (workspace_width.floor() as i32 - WORKFLOW_GRAPH_MIN_WIDTH - WORKFLOW_GRAPH_RESIZER_WIDTH)
-            .clamp(WORKFLOW_INSPECTOR_WIDTH_MIN, WORKFLOW_INSPECTOR_WIDTH_MAX);
-    width.clamp(WORKFLOW_INSPECTOR_WIDTH_MIN, available)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkflowGraphNode {
     key: u32,
@@ -876,7 +752,6 @@ pub(super) struct AgentPanelState {
     pub(super) session_id: RwSignal<Option<String>>,
     pub(super) options: RwSignal<DynamicAgentEditorOptions>,
     pub(super) dynamic_form: RwSignal<DynamicWorkflowForm>,
-    roundtable_form: RwSignal<RoundtableTemplateForm>,
     pub(super) launching: RwSignal<Vec<String>>,
     retry_budgets: RwSignal<HashMap<(String, String), String>>,
     pub(super) error: RwSignal<Option<String>>,
@@ -891,7 +766,6 @@ impl AgentPanelState {
             session_id,
             options: create_rw_signal(DynamicAgentEditorOptions::default()),
             dynamic_form: create_rw_signal(DynamicWorkflowForm::default()),
-            roundtable_form: create_rw_signal(RoundtableTemplateForm::default()),
             launching: create_rw_signal(vec![]),
             retry_budgets: create_rw_signal(HashMap::new()),
             error: create_rw_signal(None),
@@ -1170,276 +1044,6 @@ fn task_value<T: Default>(
             .map(get)
             .unwrap_or_default()
     })
-}
-
-#[derive(Clone, Copy)]
-enum RoundtableAssignment {
-    Participant(usize),
-    Chair,
-}
-
-fn update_roundtable_assignment(
-    form: RwSignal<RoundtableTemplateForm>,
-    assignment: RoundtableAssignment,
-    update: impl FnOnce(&mut RoundtableAssignmentForm),
-) {
-    form.update(|form| {
-        let target = match assignment {
-            RoundtableAssignment::Participant(index) => form.participants.get_mut(index),
-            RoundtableAssignment::Chair => Some(&mut form.chair),
-        };
-        if let Some(target) = target {
-            update(target);
-        }
-    });
-}
-
-fn roundtable_assignment_value(
-    form: RwSignal<RoundtableTemplateForm>,
-    assignment: RoundtableAssignment,
-    get: impl FnOnce(&RoundtableAssignmentForm) -> String,
-) -> String {
-    form.with(|form| {
-        let target = match assignment {
-            RoundtableAssignment::Participant(index) => form.participants.get(index),
-            RoundtableAssignment::Chair => Some(&form.chair),
-        };
-        target.map(get).unwrap_or_default()
-    })
-}
-
-fn roundtable_assignment_editor(
-    assignment: RoundtableAssignment,
-    state: AgentPanelState,
-    delegation_enabled: RwSignal<bool>,
-    specialists: RwSignal<Vec<Specialist>>,
-    models: RwSignal<Vec<ModelProfile>>,
-    locale: RwSignal<Locale>,
-) -> impl IntoView {
-    view! {
-        <div class="roundtable-assignment" data-testid="roundtable-assignment">
-            <strong>{move || match assignment {
-                RoundtableAssignment::Participant(index) => tf(
-                    locale.get(),
-                    "agents.roundtable.seat",
-                    &[("number", &(index + 1).to_string())],
-                ),
-                RoundtableAssignment::Chair => t(locale.get(), "agents.roundtable.chair"),
-            }}</strong>
-            <label>
-                <span>{move || t(locale.get(), "agents.task.specialist")}</span>
-                <select data-testid="roundtable-specialist"
-                    disabled=move || !delegation_enabled.get()
-                    on:change=move |event| update_roundtable_assignment(
-                        state.roundtable_form,
-                        assignment,
-                        |target| target.specialist_id = dom_value(&event),
-                    )>
-                    <option value="" prop:selected=move || roundtable_assignment_value(
-                        state.roundtable_form,
-                        assignment,
-                        |target| target.specialist_id.clone(),
-                    ).is_empty()>
-                        {move || t(locale.get(), "agents.task.temporary")}
-                    </option>
-                    <For each=move || specialists.get() key=|specialist| specialist.id.clone()
-                        children=move |specialist| {
-                            let id = specialist.id.clone();
-                            let selected_id = id.clone();
-                            view! {
-                                <option value=id prop:selected=move || {
-                                    roundtable_assignment_value(
-                                        state.roundtable_form,
-                                        assignment,
-                                        |target| target.specialist_id.clone(),
-                                    ) == selected_id
-                                }>{specialist.name}</option>
-                            }
-                        }
-                    />
-                </select>
-            </label>
-            <label>
-                <span>{move || t(locale.get(), "agents.task.executor")}</span>
-                <select data-testid="roundtable-executor"
-                    disabled=move || !delegation_enabled.get()
-                    on:change=move |event| update_roundtable_assignment(
-                        state.roundtable_form,
-                        assignment,
-                        |target| {
-                            target.executor_key = dom_value(&event);
-                            if !target.executor_key.is_empty() && target.executor_key != "native" {
-                                target.model_id.clear();
-                            }
-                        },
-                    )>
-                    <option value="" prop:selected=move || roundtable_assignment_value(
-                        state.roundtable_form,
-                        assignment,
-                        |target| target.executor_key.clone(),
-                    ).is_empty()>
-                        {move || t(locale.get(), "agents.task.auto")}
-                    </option>
-                    <For each=move || state.options.get().executors key=|executor| executor.id.clone()
-                        children=move |executor| {
-                            let key_value = executor.id.clone();
-                            let selected_key = key_value.clone();
-                            let label = if executor.kind == "native" {
-                                executor.display_name.clone()
-                            } else {
-                                format!("{} · {}", executor.kind, executor.display_name)
-                            };
-                            let label = if executor.available {
-                                label
-                            } else {
-                                format!(
-                                    "{label} · {}",
-                                    t(locale.get_untracked(), "runtime.unavailable"),
-                                )
-                            };
-                            let supported_features = executor.supported_features.join(", ");
-                            view! {
-                                <option value=key_value title=supported_features
-                                    disabled=!executor.available
-                                    prop:selected=move || roundtable_assignment_value(
-                                        state.roundtable_form,
-                                        assignment,
-                                        |target| target.executor_key.clone(),
-                                    ) == selected_key>
-                                    {label}
-                                </option>
-                            }
-                        }
-                    />
-                </select>
-            </label>
-            <label>
-                <span>{move || t(locale.get(), "agents.task.model")}</span>
-                <select data-testid="roundtable-model"
-                    disabled=move || {
-                        if !delegation_enabled.get() {
-                            return true;
-                        }
-                        let executor = roundtable_assignment_value(
-                            state.roundtable_form,
-                            assignment,
-                            |target| target.executor_key.clone(),
-                        );
-                        !executor.is_empty() && executor != "native"
-                    }
-                    on:change=move |event| update_roundtable_assignment(
-                        state.roundtable_form,
-                        assignment,
-                        |target| target.model_id = dom_value(&event),
-                    )>
-                    <option value="" prop:selected=move || roundtable_assignment_value(
-                        state.roundtable_form,
-                        assignment,
-                        |target| target.model_id.clone(),
-                    ).is_empty()>
-                        {move || t(locale.get(), "agents.task.auto")}
-                    </option>
-                    <For each=move || state.options.get().models key=|model| model.id.clone()
-                        children=move |model_option| {
-                            let id = model_option.id.clone();
-                            let selected_id = id.clone();
-                            let label = models.get().into_iter().find(|model| model.id == id)
-                                .map(|model| model.label).unwrap_or_else(|| id.clone());
-                            view! {
-                                <option value=id prop:selected=move || roundtable_assignment_value(
-                                    state.roundtable_form,
-                                    assignment,
-                                    |target| target.model_id.clone(),
-                                ) == selected_id>
-                                    {if model_option.external {
-                                        format!("{label} · external")
-                                    } else {
-                                        label
-                                    }}
-                                </option>
-                            }
-                        }
-                    />
-                </select>
-            </label>
-        </div>
-    }
-}
-
-fn roundtable_template_editor(
-    state: AgentPanelState,
-    delegation_enabled: RwSignal<bool>,
-    specialists: RwSignal<Vec<Specialist>>,
-    models: RwSignal<Vec<ModelProfile>>,
-    locale: RwSignal<Locale>,
-) -> impl IntoView {
-    view! {
-        <details class="dynamic-roundtable" data-testid="roundtable-template">
-            <summary>{move || t(locale.get(), "agents.roundtable.title")}</summary>
-            <p>{move || t(locale.get(), "agents.roundtable.help")}</p>
-            <div class="roundtable-count-row">
-                <label>
-                    <span>{move || t(locale.get(), "agents.roundtable.participants")}</span>
-                    <select data-testid="roundtable-participant-count"
-                        disabled=move || !delegation_enabled.get()
-                        on:change=move |event| state.roundtable_form.update(|form| {
-                            let count = dom_value(&event).parse::<usize>().unwrap_or(
-                                MIN_ROUNDTABLE_PARTICIPANTS,
-                            );
-                            form.set_participant_count(count);
-                        })>
-                        <option value="2" prop:selected=move || {
-                            state.roundtable_form.get().participant_count == 2
-                        }>{"2"}</option>
-                        <option value="3" prop:selected=move || {
-                            state.roundtable_form.get().participant_count == 3
-                        }>{"3"}</option>
-                    </select>
-                </label>
-                <span>{move || t(locale.get(), "agents.roundtable.profile_hint")}</span>
-            </div>
-            <div class="roundtable-assignment-list">
-                <For each=move || 0..state.roundtable_form.get().participant_count
-                    key=|index| *index
-                    children=move |index| roundtable_assignment_editor(
-                        RoundtableAssignment::Participant(index),
-                        state,
-                        delegation_enabled,
-                        specialists,
-                        models,
-                        locale,
-                    )
-                />
-                {roundtable_assignment_editor(
-                    RoundtableAssignment::Chair,
-                    state,
-                    delegation_enabled,
-                    specialists,
-                    models,
-                    locale,
-                )}
-            </div>
-            <div class="roundtable-template-actions">
-                <span>{move || t(locale.get(), "agents.roundtable.replace_hint")}</span>
-                <button type="button" class="agents-secondary"
-                    data-testid="roundtable-apply"
-                    disabled=move || {
-                        !delegation_enabled.get()
-                            || state.dynamic_form.get().goal.trim().is_empty()
-                    }
-                    on:click=move |_| {
-                        let template = state.roundtable_form.get_untracked();
-                        let selected_locale = locale.get_untracked();
-                        state.dynamic_form.update(|form| {
-                            form.apply_roundtable(&template, selected_locale);
-                        });
-                        state.error.set(None);
-                    }>
-                    {move || t(locale.get(), "agents.roundtable.apply")}
-                </button>
-            </div>
-        </details>
-    }
 }
 
 fn dynamic_task_editor(
@@ -1973,11 +1577,10 @@ fn graph_connection_message(locale: Locale, error: &str) -> String {
 fn workflow_graph_editor(
     state: AgentPanelState,
     selected_task_key: RwSignal<Option<u32>>,
+    editing_task_key: RwSignal<Option<u32>>,
     connect_from_key: RwSignal<Option<u32>>,
     add_menu_open: RwSignal<bool>,
     selected_template_id: RwSignal<Option<String>>,
-    specialists: RwSignal<Vec<Specialist>>,
-    models: RwSignal<Vec<ModelProfile>>,
     locale: RwSignal<Locale>,
 ) -> impl IntoView {
     let graph_zoom = create_rw_signal(100_i32);
@@ -1991,27 +1594,27 @@ fn workflow_graph_editor(
     let viewport_size = create_rw_signal((0_i32, 0_i32));
     let auto_fit = create_rw_signal(true);
     let hovered_edge = create_rw_signal::<Option<(u32, u32)>>(None);
-    let workspace_ref = create_node_ref::<leptos::html::Div>();
-    let inspector_width = create_rw_signal(WORKFLOW_INSPECTOR_WIDTH_DEFAULT);
-    let inspector_resizing = create_rw_signal(false);
     let layout = create_memo(move |_| {
         state
             .dynamic_form
             .with(|form| workflow_graph_layout(&form.tasks))
     });
 
-    // Observe the actual viewport: window, inspector and configuration changes
-    // can all resize it. Disconnect with the component owner.
+    // Observe the actual viewport after window/responsive layout changes.
+    // Node summaries and dialogs never resize it. Disconnect with the owner.
     create_effect(move |_| {
         let Some(viewport) = viewport_ref.get() else {
             return;
         };
         let measured_viewport = viewport.clone();
         let callback = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-            viewport_size.set((
+            let size = (
                 measured_viewport.client_width(),
                 measured_viewport.client_height(),
-            ));
+            );
+            if viewport_size.get_untracked() != size {
+                viewport_size.set(size);
+            }
         });
         if let Ok(observer) = web_sys::ResizeObserver::new(callback.as_ref().unchecked_ref()) {
             observer.observe(&viewport);
@@ -2156,9 +1759,9 @@ fn workflow_graph_editor(
             .with(|form| form.tasks.iter().map(|task| task.key).collect::<Vec<_>>());
         if selected_task_key
             .get_untracked()
-            .is_none_or(|key| !keys.contains(&key))
+            .is_some_and(|key| !keys.contains(&key))
         {
-            selected_task_key.set(keys.first().copied());
+            selected_task_key.set(None);
         }
         if connect_from_key
             .get_untracked()
@@ -2185,6 +1788,7 @@ fn workflow_graph_editor(
         if let Some(key) = new_key {
             mark_node_entering(key);
             selected_task_key.set(Some(key));
+            editing_task_key.set(Some(key));
             selected_edge.set(None);
             cancel_connect();
             state.error.set(None);
@@ -2211,6 +1815,7 @@ fn workflow_graph_editor(
         if let Some(key) = new_key {
             mark_node_entering(key);
             selected_task_key.set(Some(key));
+            editing_task_key.set(Some(key));
             selected_edge.set(None);
             cancel_connect();
             state.error.set(None);
@@ -2218,12 +1823,7 @@ fn workflow_graph_editor(
     };
 
     view! {
-        <div class="workflow-graph-workspace" data-testid="workflow-graph-editor"
-            node_ref=workspace_ref
-            style=move || format!(
-                "--workflow-inspector-width:{}px",
-                inspector_width.get(),
-            )>
+        <div class="workflow-graph-workspace" data-testid="workflow-graph-editor">
             <div class="workflow-graph-main">
                 <div class="workflow-graph-toolbar">
                     <span class="workflow-graph-summary" data-testid="workflow-graph-summary">
@@ -2311,8 +1911,8 @@ fn workflow_graph_editor(
                             let zoom = graph_zoom.get();
                             format!(
                                 "width:{}px;height:{}px",
-                                (current.width * zoom / 100).max(viewport_size.get().0),
-                                (current.height * zoom / 100).max(viewport_size.get().1),
+                                (current.width * zoom + 99) / 100,
+                                (current.height * zoom + 99) / 100,
                             )
                         }>
                         <div class="workflow-graph-canvas"
@@ -2679,6 +2279,12 @@ fn workflow_graph_editor(
                                             }></button>
                                         <button type="button" class="workflow-graph-node-main"
                                             data-testid="workflow-graph-node-select"
+                                            title=move || t(locale.get(), "workflow_studio.node_open_hint")
+                                            on:dblclick=move |event| {
+                                                event.stop_propagation();
+                                                selected_task_key.set(Some(select_key));
+                                                editing_task_key.set(Some(select_key));
+                                            }
                                             on:click=move |_| {
                                                 if let Some(source_key) =
                                                     connect_from_key.get_untracked()
@@ -2807,81 +2413,6 @@ fn workflow_graph_editor(
                 </svg>
                 </Show>
             </div>
-            <div class="workflow-graph-resizer"
-                class:dragging=move || inspector_resizing.get()
-                data-testid="workflow-graph-resizer"
-                role="separator"
-                tabindex="0"
-                aria-orientation="vertical"
-                aria-valuemin=WORKFLOW_INSPECTOR_WIDTH_MIN
-                aria-valuemax=WORKFLOW_INSPECTOR_WIDTH_MAX
-                aria-valuenow=move || inspector_width.get()
-                aria-label=move || t(locale.get(), "workflow_studio.graph_resize_inspector")
-                title=move || t(locale.get(), "workflow_studio.graph_resize_inspector")
-                on:pointerdown=move |event: web_sys::PointerEvent| {
-                    if event.button() != 0 {
-                        return;
-                    }
-                    event.prevent_default();
-                    if let Some(target) = event.target()
-                        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-                    {
-                        let _ = target.set_pointer_capture(event.pointer_id());
-                    }
-                    inspector_resizing.set(true);
-                }
-                on:pointermove=move |event: web_sys::PointerEvent| {
-                    if !inspector_resizing.get_untracked() {
-                        return;
-                    }
-                    let Some(workspace) = workspace_ref.get() else {
-                        return;
-                    };
-                    event.prevent_default();
-                    let rect = workspace.get_bounding_client_rect();
-                    let width = (rect.right() - event.client_x() as f64).round() as i32;
-                    inspector_width.set(clamp_workflow_inspector_width(width, rect.width()));
-                }
-                on:pointerup=move |event: web_sys::PointerEvent| {
-                    if let Some(target) = event.target()
-                        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-                    {
-                        let _ = target.release_pointer_capture(event.pointer_id());
-                    }
-                    inspector_resizing.set(false);
-                }
-                on:pointercancel=move |_| inspector_resizing.set(false)
-                on:keydown=move |event: web_sys::KeyboardEvent| {
-                    let delta = match event.key().as_str() {
-                        "ArrowLeft" => 24,
-                        "ArrowRight" => -24,
-                        _ => return,
-                    };
-                    event.prevent_default();
-                    let workspace_width = workspace_ref.get()
-                        .map(|workspace| workspace.get_bounding_client_rect().width())
-                        .unwrap_or(960.0);
-                    inspector_width.set(clamp_workflow_inspector_width(
-                        inspector_width.get_untracked() + delta,
-                        workspace_width,
-                    ));
-                }></div>
-            <aside class="workflow-graph-inspector" data-testid="workflow-graph-inspector">
-                <For each=move || { selected_task_key.get().and_then(|key| {
-                    state.dynamic_form.with(|form| form.tasks.iter().find(|task| task.key == key).cloned())
-                }).into_iter().collect::<Vec<_>>() } key=|task| task.key children=move |task| {
-                    let key = task.key;
-                    view! {
-                        <div class="workflow-graph-inspector-head">
-                            <div>
-                                <span>{move || t(locale.get(), "workflow_studio.graph_selected")}</span>
-                                <strong>{move || task_value(state.dynamic_form, key, |task| task.id.clone())}</strong>
-                            </div>
-                        </div>
-                        {dynamic_task_editor(task, state, specialists, models, locale)}
-                    }
-                } />
-            </aside>
         </div>
     }
 }
@@ -2901,7 +2432,51 @@ pub(super) fn workflow_studio(
     let loaded_id = create_rw_signal::<Option<String>>(None);
     let saving = create_rw_signal(false);
     let selected_task_key = create_rw_signal::<Option<u32>>(None);
+    let editing_task_key = create_rw_signal::<Option<u32>>(None);
+    let task_dialog_ref = create_node_ref::<html::Div>();
     let connect_from_key = create_rw_signal::<Option<u32>>(None);
+    let close_task_dialog = move || {
+        editing_task_key.set(None);
+        if let Some(key) = selected_task_key.get_untracked() {
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                if let Ok(Some(button)) = document.query_selector(&format!(
+                    "[data-testid='workflow-graph-node'][data-node-key='{key}'] [data-testid='workflow-graph-node-select']"
+                )) {
+                    if let Ok(button) = button.dyn_into::<web_sys::HtmlElement>() {
+                        let _ = button.focus();
+                    }
+                }
+            }
+        }
+    };
+    create_effect(move |_| {
+        if editing_task_key.get().is_some() {
+            request_animation_frame(move || {
+                if let Some(dialog) = task_dialog_ref.get_untracked() {
+                    let _ = dialog.focus();
+                }
+            });
+        }
+    });
+    let new_dialog_open = create_rw_signal(false);
+    let choosing_template = create_rw_signal(false);
+    let new_button_ref = create_node_ref::<html::Button>();
+    let new_dialog_ref = create_node_ref::<html::Div>();
+    let close_new_dialog = move || {
+        new_dialog_open.set(false);
+        if let Some(button) = new_button_ref.get_untracked() {
+            let _ = button.focus();
+        }
+    };
+    create_effect(move |_| {
+        if new_dialog_open.get() {
+            request_animation_frame(move || {
+                if let Some(dialog) = new_dialog_ref.get_untracked() {
+                    let _ = dialog.focus();
+                }
+            });
+        }
+    });
     let add_menu_open = create_rw_signal(false);
     let add_menu_listener = window_event_listener(leptos::ev::pointerdown, move |event| {
         if add_menu_open.get_untracked()
@@ -3002,12 +2577,24 @@ pub(super) fn workflow_studio(
         if portfolio_open.get_untracked() {
             return false;
         }
+        if new_dialog_open.get_untracked() {
+            close_new_dialog();
+            return true;
+        }
+        if editing_task_key.get_untracked().is_some() {
+            close_task_dialog();
+            return true;
+        }
         if add_menu_open.get_untracked() {
             add_menu_open.set(false);
             return true;
         }
         if connect_from_key.get_untracked().is_some() {
             connect_from_key.set(None);
+            return true;
+        }
+        if selected_task_key.get_untracked().is_some() {
+            selected_task_key.set(None);
             return true;
         }
         on_back.call(());
@@ -3088,14 +2675,16 @@ pub(super) fn workflow_studio(
         template_name.set(template.name);
         template_description.set(template.description);
         let form = DynamicWorkflowForm::from_proposal(template.proposal);
-        selected_task_key.set(form.tasks.first().map(|task| task.key));
+        selected_task_key.set(None);
+        editing_task_key.set(None);
         connect_from_key.set(None);
         state.dynamic_form.set(form);
         loaded_id.set(Some(template.id));
         state.error.set(None);
     });
 
-    let start_new = move |_| {
+    let start_new = move || {
+        close_new_dialog();
         conversion_source_sha256.set(None);
         creating.set(true);
         loaded_id.set(None);
@@ -3103,10 +2692,10 @@ pub(super) fn workflow_studio(
         template_name.set(String::new());
         template_description.set(String::new());
         let form = DynamicWorkflowForm::default();
-        selected_task_key.set(form.tasks.first().map(|task| task.key));
+        selected_task_key.set(None);
+        editing_task_key.set(None);
         connect_from_key.set(None);
         state.dynamic_form.set(form);
-        state.roundtable_form.set(RoundtableTemplateForm::default());
         state.error.set(None);
     };
 
@@ -3213,7 +2802,6 @@ pub(super) fn workflow_studio(
         });
     };
 
-    let editor_enabled = create_rw_signal(true);
     view! {
         <div class="workflow-studio" data-testid="workflow-studio">
             <aside class="workflow-studio-library">
@@ -3233,21 +2821,13 @@ pub(super) fn workflow_studio(
                 </div>
                 <div class="workflow-studio-library-actions">
                     <button type="button" class="settings-add-btn" data-testid="workflow-new"
-                        on:click=start_new>
+                        node_ref=new_button_ref
+                        on:click=move |_| {
+                            choosing_template.set(false);
+                            new_dialog_open.set(true);
+                        }>
                         {compose_icon("plus")}
                         {move || t(locale.get(), "workflow_studio.new")}
-                    </button>
-                    <button type="button" class="settings-add-btn" data-testid="portfolio-planner-open"
-                        disabled=move || !conversion.belongs_to_current_project()
-                        on:click=move |_| {
-                            if conversion.id.get_untracked().is_none() {
-                                portfolio_draft.set(None);
-                                portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
-                            }
-                            portfolio_open.set(true);
-                        }>
-                        {compose_icon("branch")}
-                        {move || t(locale.get(), "workflow_studio.plan_from_skills")}
                     </button>
                 </div>
                 <div class="workflow-studio-template-list">
@@ -3389,8 +2969,21 @@ pub(super) fn workflow_studio(
                         <span>{move || t(locale.get(), "workflow_studio.portfolio.editor_notice")}</span>
                     </div>
                 </Show>
-                <details class="workflow-studio-config" data-testid="workflow-studio-config">
-                    <summary>
+                <div class="workflow-studio-body">
+                <section class="workflow-studio-graph">
+                    {workflow_graph_editor(
+                        state,
+                        selected_task_key,
+                        editing_task_key,
+                        connect_from_key,
+                        add_menu_open,
+                        selected_template_id,
+                        locale,
+                    )}
+                </section>
+                <aside class="workflow-studio-sidebar" class:has-selection=move || selected_task_key.get().is_some()>
+                <details class="workflow-studio-config" data-testid="workflow-studio-config" open>
+                    <summary class="workflow-studio-config-head">
                         <span>{compose_icon("gear")}</span>
                         <span>
                             <strong>{move || t(locale.get(), "workflow_studio.configuration")}</strong>
@@ -3456,29 +3049,125 @@ pub(super) fn workflow_studio(
                             form.context = event_target_value(&event);
                         })></textarea>
                 </details>
-                // The roundtable generator replaces the graph, so it sits after the settings.
-                {roundtable_template_editor(
-                    state,
-                    editor_enabled,
-                    specialists,
-                    models,
-                    locale,
-                )}
                     </div>
                 </details>
-                <section class="workflow-studio-graph">
-                    {workflow_graph_editor(
-                        state,
-                        selected_task_key,
-                        connect_from_key,
-                        add_menu_open,
-                        selected_template_id,
-                        specialists,
-                        models,
-                        locale,
-                    )}
-                </section>
+                <Show when=move || selected_task_key.get().is_some()>
+                    <section class="workflow-node-summary" data-testid="workflow-node-summary">
+                        <For each=move || { selected_task_key.get().into_iter().collect::<Vec<_>>() } key=|key| *key children=move |key| view! {
+                            <div class="workflow-graph-inspector-head">
+                                <div><span>{move || t(locale.get(), "workflow_studio.graph_selected")}</span>
+                                    <strong>{move || task_value(state.dynamic_form, key, |task| task.id.clone())}</strong></div>
+                                <button type="button" class="workflow-inspector-close" data-testid="workflow-summary-close"
+                                    aria-label=move || t(locale.get(), "workflow_studio.close_details")
+                                    on:click=move |_| selected_task_key.set(None)>{compose_icon("close")}</button>
+                            </div>
+                            <p class="workflow-node-summary-instruction">{move || task_value(state.dynamic_form, key, |task| task.instruction.clone())}</p>
+                            <dl>
+                                <dt>{move || t(locale.get(), "agents.task.specialist")}</dt>
+                                <dd>{move || task_value(state.dynamic_form, key, |task| if task.specialist_id.is_empty() {
+                                    t(locale.get(), "agents.task.temporary")
+                                } else { task.specialist_id.clone() })}</dd>
+                                <dt>{move || t(locale.get(), "agents.task.dependencies")}</dt>
+                                <dd>{move || task_value(state.dynamic_form, key, |task| if task.depends_on.is_empty() {
+                                    t(locale.get(), "workflow_studio.graph_root")
+                                } else { task.depends_on.join(", ") })}</dd>
+                            </dl>
+                            <button type="button" class="agents-secondary workflow-node-edit" data-testid="workflow-node-edit"
+                                on:click=move |_| editing_task_key.set(Some(key))>{compose_icon("edit")}
+                                {move || t(locale.get(), "workflow_studio.edit_node")}</button>
+                            <small>{move || t(locale.get(), "workflow_studio.node_open_hint")}</small>
+                        } />
+                    </section>
+                </Show>
+                </aside>
+                </div>
             </form>
+            <Show when=move || editing_task_key.get().is_some()>
+                <div class="overlay workflow-node-overlay" data-testid="workflow-node-overlay"
+                    on:click=move |_| close_task_dialog()>
+                    <div class="modal workflow-node-dialog workflow-graph-inspector" data-testid="workflow-graph-inspector"
+                        role="dialog" aria-modal="true" aria-labelledby="workflow-node-title"
+                        tabindex="-1" node_ref=task_dialog_ref on:click=move |event| event.stop_propagation()>
+                        <div class="ps-head">
+                            <h2 id="workflow-node-title">{move || t(locale.get(), "workflow_studio.edit_node")}</h2>
+                            <button type="button" class="ps-close" data-testid="workflow-inspector-close"
+                                aria-label=move || t(locale.get(), "workflow_studio.close_details")
+                                on:click=move |_| close_task_dialog()>{compose_icon("close")}</button>
+                        </div>
+                        <For each=move || { editing_task_key.get().and_then(|key| state.dynamic_form.with(|form| {
+                            form.tasks.iter().find(|task| task.key == key).cloned()
+                        })).into_iter().collect::<Vec<_>>() } key=|task| task.key children=move |task|
+                            dynamic_task_editor(task, state, specialists, models, locale)
+                        />
+                    </div>
+                </div>
+            </Show>
+            <Show when=move || new_dialog_open.get()>
+                <div class="overlay workflow-new-overlay" data-testid="workflow-new-overlay"
+                    on:click=move |_| close_new_dialog()>
+                    <div class="modal workflow-new-dialog" data-testid="workflow-new-dialog"
+                        role="dialog" aria-modal="true" aria-labelledby="workflow-new-title"
+                        tabindex="-1" node_ref=new_dialog_ref
+                        on:click=move |event| event.stop_propagation()>
+                        <div class="ps-head">
+                            <h2 id="workflow-new-title">{move || t(locale.get(), "workflow_studio.new")}</h2>
+                            <button type="button" class="ps-close"
+                                aria-label=move || t(locale.get(), "workflow_studio.close_new")
+                                on:click=move |_| close_new_dialog()>{compose_icon("close")}</button>
+                        </div>
+                        <Show when=move || !choosing_template.get() fallback=move || view! {
+                            <p class="hint">{move || t(locale.get(), "workflow_studio.choose_template_help")}</p>
+                            <div class="workflow-new-templates">
+                                <For each=move || templates.get() key=|template| template.id.clone()
+                                    children=move |template| {
+                                        let source = template.clone();
+                                        view! {
+                                            <button type="button" class="workflow-template-card" data-testid="workflow-new-template"
+                                                on:click=move |_| {
+                                                    start_new();
+                                                    template_name.set(source.name.clone());
+                                                    template_description.set(source.description.clone());
+                                                    state.dynamic_form.set(DynamicWorkflowForm::from_proposal(source.proposal.clone()));
+                                                }>
+                                                <strong>{template.name}</strong>
+                                                <span>{template.description}</span>
+                                            </button>
+                                        }
+                                    } />
+                            </div>
+                        }>
+                            <div class="workflow-new-options">
+                                <button type="button" data-testid="workflow-new-scratch"
+                                    on:click=move |_| start_new()>
+                                    {compose_icon("plus")}
+                                    <strong>{move || t(locale.get(), "workflow_studio.from_scratch")}</strong>
+                                    <span>{move || t(locale.get(), "workflow_studio.from_scratch_help")}</span>
+                                </button>
+                                <button type="button" data-testid="workflow-new-use-template"
+                                    on:click=move |_| choosing_template.set(true)>
+                                    {compose_icon("copy")}
+                                    <strong>{move || t(locale.get(), "workflow_studio.use_template")}</strong>
+                                    <span>{move || t(locale.get(), "workflow_studio.use_template_help")}</span>
+                                </button>
+                                <button type="button" data-testid="portfolio-planner-open"
+                                    disabled=move || !conversion.belongs_to_current_project()
+                                    on:click=move |_| {
+                                        close_new_dialog();
+                                        if conversion.id.get_untracked().is_none() {
+                                            portfolio_draft.set(None);
+                                            portfolio_legacy_template.set(None);portfolio_legacy_workflow.set(None);
+                                        }
+                                        portfolio_open.set(true);
+                                    }>
+                                    {compose_icon("branch")}
+                                    <strong>{move || t(locale.get(), "workflow_studio.from_skills")}</strong>
+                                    <span>{move || t(locale.get(), "workflow_studio.from_skills_help")}</span>
+                                </button>
+                            </div>
+                        </Show>
+                    </div>
+                </div>
+            </Show>
             {move || portfolio_open.get().then(|| view! {
                 <div class="overlay portfolio-planner-overlay" role="presentation" data-testid="portfolio-planner-overlay"
                     on:click=move |_| portfolio_open.set(false)>
@@ -3653,7 +3342,8 @@ pub(super) fn workflow_studio(
                                 <button type="button" class="primary" data-testid="portfolio-edit-studio"
                                     on:click=move |_| {
                                         let form = DynamicWorkflowForm::from_proposal(draft.proposal.clone());
-                                        selected_task_key.set(form.tasks.first().map(|task| task.key));
+                                        selected_task_key.set(None);
+                                        editing_task_key.set(None);
                                         connect_from_key.set(None);
                                         state.dynamic_form.set(form);
                                         state.error.set(None);
@@ -4605,15 +4295,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inspector_width_keeps_both_panes_usable() {
-        assert_eq!(clamp_workflow_inspector_width(120, 1200.0), 280);
-        assert_eq!(clamp_workflow_inspector_width(900, 1200.0), 640);
-        assert_eq!(clamp_workflow_inspector_width(500, 727.0), 400);
-    }
-
-    #[test]
     fn converted_goal_seeds_a_saveable_workflow_name() {
-        assert_eq!(short_workflow_name("  Design a study \nDetails"), "Design a study");
+        assert_eq!(
+            short_workflow_name("  Design a study \nDetails"),
+            "Design a study"
+        );
         let name = short_workflow_name(&"对用户输入的一句话".repeat(20));
         assert_eq!(name.chars().count(), 60);
         assert!(name.ends_with('…'));
@@ -4715,7 +4401,7 @@ mod tests {
         assert_eq!(round_tripped, proposal);
         let activity = &round_tripped.tasks[1];
         assert!(activity.capabilities.is_empty());
-        assert!(activity.legacy_skill_ids.is_empty());
+        assert!(activity.skill_ids.is_empty());
         assert!(activity.budget.is_none());
         assert!(activity.output_schema.is_none());
     }
@@ -4807,111 +4493,6 @@ mod tests {
         assert!(form.tasks[2].depends_on.is_empty());
         form.remove_task(middle_key);
         assert_eq!(form.tasks.len(), 2);
-    }
-
-    #[test]
-    fn roundtable_template_builds_parallel_openings_cross_review_and_chair() {
-        let mut template = RoundtableTemplateForm::default();
-        template.participants[0] = RoundtableAssignmentForm {
-            specialist_id: "reader".into(),
-            model_id: "native-model-that-must-be-cleared".into(),
-            executor_key: "acp:codex".into(),
-        };
-        template.participants[1] = RoundtableAssignmentForm {
-            specialist_id: "reviewer".into(),
-            model_id: "opus".into(),
-            executor_key: "native".into(),
-        };
-        template.chair = RoundtableAssignmentForm {
-            specialist_id: String::new(),
-            model_id: String::new(),
-            executor_key: "acp:kimi".into(),
-        };
-
-        let mut form = DynamicWorkflowForm::default();
-        form.goal = "Choose a website architecture".into();
-        form.context = "Mobile and desktop must share the same information model.".into();
-        form.apply_roundtable(&template, Locale::En);
-        let proposal = form.proposal().expect("roundtable proposal is valid");
-
-        assert_eq!(proposal.tasks.len(), 5);
-        assert_eq!(
-            proposal
-                .tasks
-                .iter()
-                .map(|task| task.id.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "seat_1_opening",
-                "seat_2_opening",
-                "seat_1_review",
-                "seat_2_review",
-                "chair_synthesis",
-            ]
-        );
-        assert!(proposal.tasks[..2]
-            .iter()
-            .all(|task| task.depends_on.is_empty()));
-        assert!(proposal
-            .tasks
-            .iter()
-            .all(|task| task.instruction.contains("Choose a website architecture")));
-        assert!(proposal.tasks[2..4]
-            .iter()
-            .all(|task| { task.depends_on == ["seat_1_opening", "seat_2_opening"] }));
-        assert_eq!(
-            proposal.tasks[4].depends_on,
-            ["seat_1_review", "seat_2_review"]
-        );
-        // Budgets are an advanced override: the template leaves them unset,
-        // which resolves to unlimited at planning time.
-        assert!(proposal.tasks.iter().all(|task| task.budget.is_none()));
-
-        for task in [&proposal.tasks[0], &proposal.tasks[2]] {
-            assert_eq!(task.specialist_id.as_deref(), Some("reader"));
-            assert_eq!(task.executor.as_ref().unwrap().kind, "acp");
-            assert_eq!(
-                task.executor.as_ref().unwrap().profile_id.as_deref(),
-                Some("codex")
-            );
-            assert_eq!(task.model_id, None);
-        }
-        for task in [&proposal.tasks[1], &proposal.tasks[3]] {
-            assert_eq!(task.specialist_id.as_deref(), Some("reviewer"));
-            assert!(task
-                .capabilities
-                .iter()
-                .any(|capability| capability == "review"));
-            assert_eq!(task.executor.as_ref().unwrap().kind, "native");
-            assert_eq!(task.model_id.as_deref(), Some("opus"));
-        }
-        assert_eq!(
-            proposal.tasks[4]
-                .executor
-                .as_ref()
-                .unwrap()
-                .profile_id
-                .as_deref(),
-            Some("kimi")
-        );
-    }
-
-    #[test]
-    fn roundtable_template_caps_at_three_participants_and_seven_tasks() {
-        let mut template = RoundtableTemplateForm::default();
-        template.set_participant_count(99);
-        assert_eq!(template.participant_count, MAX_ROUNDTABLE_PARTICIPANTS);
-
-        let mut form = DynamicWorkflowForm::default();
-        form.goal = "Evaluate three independent positions".into();
-        form.apply_roundtable(&template, Locale::En);
-        let proposal = form.proposal().expect("three-seat roundtable is valid");
-
-        assert_eq!(proposal.tasks.len(), 7);
-        assert_eq!(
-            proposal.tasks.last().unwrap().depends_on,
-            ["seat_1_review", "seat_2_review", "seat_3_review"]
-        );
     }
 
     #[test]

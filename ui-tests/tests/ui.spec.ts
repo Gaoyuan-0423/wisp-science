@@ -4297,10 +4297,10 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
     return {
       inside: buttons.every((button) => button.left >= bounds.left
         && button.right <= bounds.right),
-      stacked: buttons.length === 2 && buttons[1].top > buttons[0].bottom,
+      singleEntry: buttons.length === 1,
     };
   });
-  expect(libraryLayout).toEqual({ inside: true, stacked: true });
+  expect(libraryLayout).toEqual({ inside: true, singleEntry: true });
   const studioBox = await studio.boundingBox();
   const viewport = page.viewportSize()!;
   expect(studioBox?.width ?? 0).toBeGreaterThan(viewport.width * 0.95);
@@ -4329,7 +4329,7 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
 
   await nodes.filter({ hasText: "synthesize" })
     .getByTestId("workflow-graph-node-select")
-    .click();
+    .dblclick();
   const inspector = studio.getByTestId("workflow-graph-inspector");
   await expect(inspector.getByTestId("dynamic-task-id")).toHaveValue("synthesize");
   await inspector.locator("details.dynamic-agent-advanced > summary").click();
@@ -4341,41 +4341,8 @@ test("Quick Actions opens its bound graph in the standalone Workflow Studio", as
   await expect(inspector.getByTestId("dynamic-task-skills")).toHaveCount(0);
 
 
-  const resizer = studio.getByTestId("workflow-graph-resizer");
-  await expect(resizer).toHaveAttribute("role", "separator");
-  const inspectorBeforeResize = await inspector.boundingBox();
-  await resizer.evaluate((handle) => {
-    const rect = handle.getBoundingClientRect();
-    const startX = rect.left + rect.width / 2;
-    const startY = rect.top + 60;
-    handle.dispatchEvent(new PointerEvent("pointerdown", {
-      bubbles: true,
-      button: 0,
-      pointerId: 17,
-      clientX: startX,
-      clientY: startY,
-    }));
-    handle.dispatchEvent(new PointerEvent("pointermove", {
-      bubbles: true,
-      buttons: 1,
-      pointerId: 17,
-      clientX: startX - 80,
-      clientY: startY,
-    }));
-    handle.dispatchEvent(new PointerEvent("pointerup", {
-      bubbles: true,
-      button: 0,
-      pointerId: 17,
-      clientX: startX - 80,
-      clientY: startY,
-    }));
-  });
-  await expect.poll(async () => {
-    const resized = await inspector.boundingBox();
-    return inspectorBeforeResize && resized
-      ? Math.round(resized.width - inspectorBeforeResize.width)
-      : 0;
-  }).toBeGreaterThan(60);
+  await expect(inspector).toHaveAttribute("role", "dialog");
+  await page.keyboard.press("Escape");
   const fitZoom = Number((await studio.getByTestId("workflow-graph-fit").innerText()).replace("%", ""));
   await studio.getByTestId("workflow-graph-zoom-in").click();
   await expect(studio.getByTestId("workflow-graph-fit")).toHaveText(`${Math.min(fitZoom + 10, 140)}%`);
@@ -4447,7 +4414,7 @@ test("Workflow library includes the Wisp-native seven-node method-search DAG", a
     '[data-testid="workflow-graph-node"][data-node-id="method_search"]',
   );
   await expect(activityNode).toHaveClass(/run-activity/);
-  await activityNode.getByTestId("workflow-graph-node-select").click();
+  await activityNode.getByTestId("workflow-graph-node-select").dblclick();
   const inspector = studio.getByTestId("workflow-graph-inspector");
   await expect(inspector.getByTestId("dynamic-task-type"))
     .toHaveValue("run_activity");
@@ -4466,12 +4433,14 @@ test("Workflow conversion uses the selected model and opens an unbudgeted editab
   await openSettingsSection(page, "Workflows");
   const studio = page.getByTestId("workflow-studio");
 
-  await studio.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("workflow-new").click();
+  await page.getByTestId("portfolio-planner-open").click();
   await expect(page.getByTestId("portfolio-planner-overlay")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("portfolio-planner-overlay")).toBeHidden();
 
-  await studio.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("workflow-new").click();
+  await page.getByTestId("portfolio-planner-open").click();
   await expect(page.getByTestId("portfolio-planner-overlay")).toContainText(
     "Turn method documents into a reusable workflow",
   );
@@ -4495,18 +4464,18 @@ test("Workflow conversion uses the selected model and opens an unbudgeted editab
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(2);
 });
 
-test("Workflow Studio reuses the roundtable generator and saves a Quick Action binding", async ({ page }) => {
+test("Workflow Studio copies the roundtable template and saves a Quick Action binding", async ({ page }) => {
   await enterApp(page);
   await openSettingsSection(page, "Workflows");
   const studio = page.getByTestId("workflow-studio");
   await expect(studio).toBeVisible();
 
   await studio.getByTestId("workflow-new").click();
-  await studio.getByTestId("workflow-studio-config").locator(":scope > summary").click();
+  await page.getByTestId("workflow-new-use-template").click();
+  await page.getByTestId("workflow-new-template").filter({ hasText: "Roundtable" }).click();
   await studio.getByTestId("workflow-name").fill("Architecture roundtable");
   await studio.getByTestId("workflow-goal").fill("Choose a website architecture");
-  await studio.getByTestId("roundtable-template").locator("summary").click();
-  await studio.getByTestId("roundtable-apply").click();
+  await expect(studio.getByTestId("roundtable-template")).toHaveCount(0);
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(5);
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(6);
   await expect(studio.getByTestId("dynamic-task-skills")).toHaveCount(0);
@@ -4562,21 +4531,25 @@ test("Workflow graph edits nodes and dependencies directly on the canvas", async
   await openSettingsSection(page, "Workflows");
   const studio = page.getByTestId("workflow-studio");
   await studio.getByTestId("workflow-new").click();
-  await studio.getByTestId("workflow-studio-config").locator(":scope > summary").click();
+  await page.getByTestId("workflow-new-scratch").click();
   await studio.getByTestId("workflow-name").fill("Graph pipeline");
   await studio.getByTestId("workflow-goal").fill("Compare two branches");
+  await studio.getByTestId("workflow-graph-node-select").first().dblclick();
 
   const inspector = studio.getByTestId("workflow-graph-inspector");
   await inspector.getByTestId("dynamic-task-id").fill("fetch_a");
   await inspector.getByTestId("dynamic-task-instruction").fill("Fetch branch A");
+  await page.keyboard.press("Escape");
   await studio.getByTestId("workflow-graph-add-menu-toggle").click();
   await studio.getByTestId("workflow-graph-add-node").click();
   await inspector.getByTestId("dynamic-task-id").fill("fetch_b");
   await inspector.getByTestId("dynamic-task-instruction").fill("Fetch branch B");
+  await page.keyboard.press("Escape");
   await studio.getByTestId("workflow-graph-add-menu-toggle").click();
   await studio.getByTestId("workflow-graph-add-after").click();
   await inspector.getByTestId("dynamic-task-id").fill("merge");
   await inspector.getByTestId("dynamic-task-instruction").fill("Merge both branches");
+  await page.keyboard.press("Escape");
 
   const byId = (id: string) =>
     studio.locator(`[data-testid="workflow-graph-node"][data-node-id="${id}"]`);
@@ -4607,10 +4580,12 @@ test("Workflow graph edits nodes and dependencies directly on the canvas", async
   ).getByTestId("workflow-graph-edge-delete").click({ force: true });
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(1);
 
+  await byId("merge").getByTestId("workflow-graph-node-select").dblclick();
   await inspector.getByTestId("workflow-graph-remove-edge")
     .filter({ hasText: "fetch_b" })
     .click();
   await expect(studio.getByTestId("workflow-graph-edge")).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await byId("fetch_b").getByTestId("workflow-graph-connect").click();
   await byId("merge").getByTestId("workflow-graph-node-select").click();
@@ -4632,6 +4607,7 @@ test("Workflow graph edits nodes and dependencies directly on the canvas", async
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(nodeCountBeforeDblclick + 1);
   await inspector.getByTestId("dynamic-task-id").fill("fetch_c");
   await inspector.getByTestId("dynamic-task-instruction").fill("Fetch branch C");
+  await page.keyboard.press("Escape");
 
   await byId("fetch_a").getByTestId("workflow-graph-delete-node").click();
   await expect(studio.getByTestId("workflow-graph-node")).toHaveCount(3);
@@ -16813,7 +16789,8 @@ test("independent Workflow conversion selects source methods without creating Sk
   await enterApp(page);
   await openSettingsSection(page, "Workflows");
   const studio=page.getByTestId("workflow-studio");
-  await studio.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("workflow-new").click();
+  await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-source-manual").click();
   await page.locator('[data-testid="portfolio-source-skill"][value="analysis-workflow"]').check();
   await page.getByTestId("portfolio-request").fill("Convert this method into independent roles and output contracts");
@@ -16834,6 +16811,7 @@ test("independent Workflow conversion selects source methods without creating Sk
 test("Workflow conversion reviews source provenance, real node contracts and multiple selected methods", async ({ page }) => {
   await enterApp(page);
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await expect(page.getByTestId("portfolio-source-auto")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
@@ -16877,6 +16855,7 @@ test("Workflow conversion reviews source provenance, real node contracts and mul
 test("Workflow conversion invalidates a draft when the request, model or source mode changes", async ({ page }) => {
   await enterApp(page);
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Original research question");
   for (const change of [
@@ -16912,6 +16891,7 @@ test("Workflow conversion keeps errors inside the dialog and supports retry", as
     };
   });
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Convert the method");
   await page.getByTestId("portfolio-generate").click();
@@ -16939,6 +16919,7 @@ test("Workflow conversion keeps running after closing and reopening", async ({ p
     };
   });
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Old research question");
   await page.getByTestId("portfolio-generate").click();
@@ -16948,6 +16929,7 @@ test("Workflow conversion keeps running after closing and reopening", async ({ p
   await expect(page.getByTestId("portfolio-generate")).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("workflow-studio")).toBeVisible();
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.evaluate(() => (window as any).__finishConversion());
   await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
@@ -16976,6 +16958,7 @@ test("Workflow conversion reports real progress and retains its draft after leav
   await enterApp(page);
   await holdWorkflowConversion(page);
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Background research question");
   await page.getByTestId("portfolio-generate").click();
@@ -17020,6 +17003,7 @@ test("Workflow background failure can retry and ignores another request's progre
   await enterApp(page);
   await holdWorkflowConversion(page);
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Retry conversion");
   await page.getByTestId("portfolio-generate").click();
@@ -17047,6 +17031,7 @@ test("Workflow background draft returns to its source project", async ({ page })
   await enterApp(page);
   await holdWorkflowConversion(page);
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-request").fill("Original project conversion");
   await page.getByTestId("portfolio-generate").click();
@@ -17060,7 +17045,9 @@ test("Workflow background draft returns to its source project", async ({ page })
   await page.evaluate(() => (window as any).__finishConversion());
   await expect(page.getByTestId("conversion-notice")).toContainText("Workflow draft ready");
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await expect(page.getByTestId("portfolio-planner-open")).toBeDisabled();
+  await page.keyboard.press("Escape");
   await page.getByTestId("conversion-open").click();
   await expect(page.locator(".proj-name")).toHaveText("wisp-science");
   await expect(page.getByTestId("portfolio-plan-card")).toBeVisible();
@@ -17071,6 +17058,7 @@ for (const missing of ["Sources", "Models"]) {
   test(`Workflow conversion explains missing ${missing.toLowerCase()} and disables generation`, async ({ page }) => {
     await enterApp(page, `/?mockWorkflow${missing}=none`);
     await openSettingsSection(page, "Workflows");
+    await page.getByTestId("workflow-new").click();
     await page.getByTestId("portfolio-planner-open").click();
     await page.getByTestId("portfolio-request").fill("Convert a method");
     await expect(page.getByTestId(`portfolio-no-${missing.toLowerCase()}`)).toBeVisible();
@@ -17081,6 +17069,7 @@ for (const missing of ["Sources", "Models"]) {
 test("Workflow conversion limits manual selection to eight methods", async ({ page }) => {
   await enterApp(page, "/?mockWorkflowSources=many");
   await openSettingsSection(page, "Workflows");
+  await page.getByTestId("workflow-new").click();
   await page.getByTestId("portfolio-planner-open").click();
   await page.getByTestId("portfolio-source-manual").click();
   const sources = page.getByTestId("portfolio-source-skill");
@@ -17098,7 +17087,8 @@ test("Workflow conversion Escape closes the dialog before an underlying graph co
   await openSettingsSection(page, "Workflows");
   const studio = page.getByTestId("workflow-studio");
   await studio.getByTestId("workflow-graph-connect").first().click();
-  await studio.getByTestId("portfolio-planner-open").click();
+  await page.getByTestId("workflow-new").click();
+  await page.getByTestId("portfolio-planner-open").click();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("portfolio-planner-overlay")).toHaveCount(0);
   await expect(studio.getByTestId("workflow-graph-connect-hint")).toBeVisible();
@@ -17120,6 +17110,7 @@ for (const layout of [
     await page.getByRole("button", { name: zh ? "设置" : "Settings", exact: true }).click();
     await page.getByRole("button", { name: zh ? "工作流" : "Workflows", exact: true }).click();
     await page.evaluate(theme => document.documentElement.setAttribute("data-theme", theme), layout.theme);
+    await page.getByTestId("workflow-new").click();
     await page.getByTestId("portfolio-planner-open").click();
     await page.getByTestId("portfolio-request").fill(zh ? "核查开放获取论文是否获得更多引用，生成带引用的证据报告。" : "Check whether open access papers receive more citations and produce an evidence report.");
     const modal = page.getByRole("dialog");
