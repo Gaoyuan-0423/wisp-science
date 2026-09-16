@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="tutorial-article" data-title-zh="Agent Workflow · 教程 | Wisp Science" data-title-en="Agent Workflow · Tutorials | Wisp Science" data-desc-zh="Wisp Science高级用法：Agent Workflow" data-desc-en="Wisp Science Advanced: Agent Workflow">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Wisp Science高级用法：Agent Workflow">
+  <title>Agent Workflow · 教程 | Wisp Science</title>
+  <script>
+    (function () {
+      var lang = "zh";
+      try {
+        var q = new URLSearchParams(location.search).get("lang");
+        if (q === "en" || q === "zh") lang = q;
+        else {
+          var s = localStorage.getItem("wisp-pages-lang");
+          if (s === "en" || s === "zh") lang = s;
+        }
+      } catch (e) {}
+      document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+      document.documentElement.dataset.lang = lang;
+    })();
+  </script>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/tutorials.css">
+</head>
+<body class="doc-page tutorial-detail">
+  <header class="site-nav">
+    <div class="container">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Wisp Science</span>
+      </a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="页面导航">
+        <a href="../index.html#features" data-i18n="nav.features">功能</a>
+        <a href="../index.html#usecases" data-i18n="nav.usecases">场景</a>
+        <a href="../index.html#stack" data-i18n="nav.stack">生态</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" aria-current="location" data-i18n="nav.tutorials">教程</a>
+        <a href="../index.html#faq" data-i18n="nav.faq">FAQ</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/README.md" data-i18n="nav.docs">文档</a>
+      </nav>
+      <div class="nav-cta">
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="语言">
+          <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a class="btn btn-primary" href="../index.html#download"><span class="btn-label-full" data-i18n="nav.downloadFull">下载桌面版</span><span class="btn-label-short" data-i18n="nav.downloadShort">下载</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="tutorial-reader container">
+<nav class="tutorial-breadcrumb" aria-label="教程导航" data-i18n-aria="tutorials.readerNav"><a class="tutorial-back" href="../tutorials.html#wisp-science-agent-workflow" data-i18n="tutorials.back">返回教程目录</a></nav>
+<article class="tutorial-article" id="wisp-science-agent-workflow" aria-labelledby="article-title">
+<header><h1 id="article-title" data-text-zh="Wisp Science高级用法：Agent Workflow" data-text-en="Wisp Science Advanced: Agent Workflow">Wisp Science高级用法：Agent Workflow</h1>
+<a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-agent-workflow.md" data-href-zh="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-agent-workflow.md" data-href-en="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/en/wisp-science-agent-workflow.md" data-i18n="tutorials.source">查看原文</a></header>
+<div class="tutorial-body lang-zh" lang="zh-CN">
+<p>面对一个研究问题，我们经常需要同时做几件事：检查已有数据、寻找文献证据、提出不同解释，再把这些材料整理成下一步方案。如果每一步都在同一段对话里临时安排，任务之间的分工、先后顺序和交付要求就容易变得模糊。</p>
+<p>Wisp Science 的 <strong>Agent Workflow（Agent 工作流）</strong> 可以把这些安排保存为一张任务图：哪些任务独立开展，哪些任务需要等待上游结果，每一步允许使用什么能力，以及最后交付什么。</p>
+<p>这篇属于高级用法，适合已经完成模型配置、能够在项目中使用文件和工具的读者。可以先阅读 <a href="wisp-science-skills.html">Skills</a>、<a href="wisp-science-specialists.html">专家</a> 和 <a href="wisp-science-quick-actions.html">快捷动作</a>，再从一个小工作流开始尝试。</p>
+<p><strong>先理解工作流：把分工和依赖关系写清楚。</strong></p>
+<p>以文献证据审查为例，支持性证据和挑战性证据可以分别检索，等两边都完成后，再交给综合任务整理。</p>
+<pre><code class="language-text">检索支持性证据 ──┐
+                 ├── 综合证据、分歧与缺口
+检索挑战性证据 ──┘
+</code></pre>
+<p>图中的每个节点是一项任务，箭头表示依赖关系。没有前置依赖的任务可以并行；后续任务取得所依赖任务的结果后再执行。实际并行程度还受执行器、并发限制和写入约束影响。</p>
+<p>普通 Agent 节点由临时子代理执行，可以配置指令、能力、专家角色、执行器和模型。部分工作流还包含 <strong>运行活动</strong> 节点，把持续计算交给 Wisp 管理的 Run。当前内置的方法搜索就使用了这种节点。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>组成部分</th>
+<th>在任务中负责什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本轮消息与材料</td>
+<td>这次研究什么，输入在哪里，有哪些约束</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>提供一项工作的步骤、规范和参考材料</td>
+</tr>
+<tr>
+<td>专家</td>
+<td>提供可复用的角色与工作要求</td>
+</tr>
+<tr>
+<td>Agent Workflow</td>
+<td>组织任务节点、依赖关系、能力和交付要求</td>
+</tr>
+<tr>
+<td>快捷动作</td>
+<td>从选中文字等场景进入相应任务</td>
+</tr>
+<tr>
+<td>Run</td>
+<td>记录和管理一次持续运行的计算任务</td>
+</tr>
+</tbody>
+</table></div>
+<p>例如，圆桌工作流可以让不同节点承担不同视角；需要固定实验室的审查规范时，再为节点配置自己的专家。多个节点也可以使用同一个模型，不必为了使用工作流先配置多个模型。</p>
+<p><strong>先看当前自带的四个工作流。</strong></p>
+<p>进入 <strong>设置 → 工作流</strong>，打开 Workflow Studio。左侧是工作流库，中间是任务图，右侧是工作流配置与选中任务的摘要。模板名称目前使用英文，可以按下表查找。</p>
+<p><img src="../assets/tutorials/agent-workflow/01-library.png" alt="工作流库与文献证据审查任务图：左侧选择模板，中间查看依赖，右侧查看工作流配置" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 1：当前实际前端配合本地示例数据。配图中的节点说明经过简化，用于展示任务结构；没有执行检索或调用模型。</em></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>内置模板</th>
+<th>适合的任务</th>
+<th>默认结构</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Literature evidence review</code></td>
+<td>核查一个观点的支持证据、反证与适用边界</td>
+<td>两路检索 → 综合，共 3 个节点</td>
+</tr>
+<tr>
+<td><code>Roundtable</code></td>
+<td>比较研究方案、分析解释或资源投入选择</td>
+<td>两个独立立场 → 两个交叉审阅 → 主席综合，共 5 个节点</td>
+</tr>
+<tr>
+<td><code>Data-driven research design</code></td>
+<td>从已有数据现象和文献形成可检验的研究设计</td>
+<td>数据评估与文献评估 → 研究设计，共 3 个节点</td>
+</tr>
+<tr>
+<td><code>Develop computational method</code></td>
+<td>在明确评测条件下改进一个本地 Python 方法</td>
+<td>三路审计 → 准备评测合约 → 方法搜索 → 审阅 → 报告，共 7 个节点</td>
+</tr>
+</tbody>
+</table></div>
+<p>单击节点可以看摘要；双击节点，或点击摘要中的 <strong>编辑节点</strong>，可以查看完整指令和配置。内置模板的修改需要 <strong>另存为副本</strong>，不会覆盖原来的内置版本。</p>
+<p>工作流库保存的是可重复使用的模板。每次发送任务后产生的执行记录，则在对应会话的 <strong>Agents</strong> 活动面板中查看。</p>
+<p><strong>启动一个工作流：选择模板，补充任务，再发送。</strong></p>
+<p>第一次建议使用 Wisp 内置 Agent，并按下面的步骤操作：</p>
+<ol>
+<li>打开项目，新建一段会话，确认模型可正常使用。</li>
+<li>在输入框输入 <code>/</code>，在“命令、技能与工作流”选择器中输入模板名称，例如 <code>Roundtable</code>。</li>
+<li>选中“工作流”分组里的目标，确认输入框出现对应的工作流引用。</li>
+<li>填写本次目标、材料、约束和期望结果，再点击 <strong>发送</strong>。</li>
+<li>查看对话和右侧 <strong>Agents</strong> 面板。若出现待审批草稿，检查后点击 <strong>批准并运行</strong>；若已启动，直接查看节点进度。</li>
+</ol>
+<p><img src="../assets/tutorials/agent-workflow/02-composer.png" alt="输入框已附加 Roundtable 工作流，并填写本次讨论的目标与约束" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 2：工作流引用与本轮请求一起发送。截图停在发送前。</em></p>
+<p>选择模板只是把工作流附加到消息，发送后才会交给主 Agent 执行。Wisp 会把当前请求作为工作流上下文，并要求主 Agent 保留模板中的依赖关系，通过委派工具创建任务图。发送工作流引用时，会为这段内置 Agent 会话启用子代理委派。</p>
+<p>如果只想了解模板，可以先在设置里查看，也可以询问“请介绍当前有哪些工作流及其用途，暂不运行”。要执行时再附加工作流，并给出具体任务。</p>
+<p>模板有两种审批策略：<strong>每个草稿都审批</strong>，以及 <strong>安全草稿自动运行</strong>。后者仍由实际解析出的能力和策略决定是否需要确认，并不表示所有任务都直接开始。文献证据审查和圆桌默认采用后一种策略；研究设计和方法开发默认要求审阅草稿。</p>
+<p><strong>Literature evidence review：围绕一个明确观点，分别寻找支持与挑战。</strong></p>
+<p>适合的输入是一段可检验的判断，最好同时写清研究对象、条件和关注范围。过于宽泛的“帮我调研单细胞”很难让两路检索围绕同一个问题工作。</p>
+<p>选中 <code>Literature evidence review</code> 后，可以发送：</p>
+<blockquote>
+<p>请核查这个待验证的观点：“植物根系中某类细胞的比例变化，能够反映其对干旱胁迫的适应。”研究对象限定为拟南芥根系，重点关注单细胞或单核转录组研究。请分别寻找支持证据，以及相反结果、技术偏差和适用边界；区分细胞真实比例变化与解离、取样或注释造成的差异。最后用中文整理结论、文献来源与仍需验证的问题。</p>
+</blockquote>
+<p>这里的观点是教学示例，不是已经确认的科研结论。工作流会按三个节点处理：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>节点</th>
+<th>具体工作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supporting_evidence</code></td>
+<td>独立检索支持主要判断的文献，提取实际发现和相关性</td>
+</tr>
+<tr>
+<td><code>challenging_evidence</code></td>
+<td>独立查找反例、边界条件、重复失败和方法学质疑</td>
+</tr>
+<tr>
+<td><code>synthesize</code></td>
+<td>读取两路结果，去重文献，整理支持程度、分歧和缺口</td>
+</tr>
+</tbody>
+</table></div>
+<p>两路检索各保留最多 8 篇最相关文献，使用已启用且获授权的文献连接器。综合节点只使用上游结果，不会再开展一轮检索；模板也不要求向项目写入文件。因此，它适合针对具体观点开展一轮有边界的证据审查。</p>
+<p>使用前要确认文献检索工具、凭据和网络可用。完成后，重点检查论文是否真实、原文是否支持所述判断，以及综述有没有保留反面证据。需要保存 Markdown 时，可以在工作流完成后继续要求主 Agent 将结果整理到指定路径。</p>
+<p>此前教程中的内置快捷动作 <strong>文献调研</strong>，会向当前输入框附加 <code>literature-review</code> 技能。要运行这里的三节点工作流，应从 <code>/</code> 选择 <code>Literature evidence review</code>，或为它创建自定义快捷动作。</p>
+<p><strong>Roundtable：让不同视角先独立思考，再相互审阅。</strong></p>
+<p>圆桌适合有取舍的研究决策，例如先补实验还是先扩展分析、两个分析方案各有什么前提、一个现象可能存在哪些替代解释。</p>
+<p>它默认安排两个视角：一个侧重证据，一个侧重批判性检查。两者先独立提出观点，再各自读取双方的开场意见并修订建议，最后由中立主席综合。</p>
+<p><img src="../assets/tutorials/agent-workflow/03-roundtable.png" alt="Roundtable 任务图：两个开场节点、两个交叉审阅节点和一个主席综合节点" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 3：圆桌的五个节点分为三个阶段，审阅节点都依赖双方开场意见。</em></p>
+<pre><code class="language-text">证据视角开场 ──┬── 证据视角交叉审阅 ──┐
+              │                        ├── 主席综合
+批判视角开场 ──┴── 批判视角交叉审阅 ──┘
+              （每个审阅节点都读取双方开场意见）
+</code></pre>
+<p>选中 <code>Roundtable</code> 后，可以发送：</p>
+<blockquote>
+<p>我们正在为一个已有初步转录组结果的课题安排下个月工作。方案 A 是补做关键基因的功能验证，方案 B 是先分析独立公开数据，检查结果能否重复。现有条件：只有一名实验人员，预算有限，四周后要做阶段汇报；目前结果主要是相关性，还没有功能实验。请围绕这两种安排开展圆桌讨论，说明各自的前提、收益、失败风险和需要补充的信息。最后给出优先顺序，同时保留无法消除的分歧。</p>
+</blockquote>
+<p>这个内置模板的节点使用推理能力，默认不开展文献检索，也不读取整个项目。需要讨论的事实、证据摘要和约束，应在本次请求中提供；如果希望节点主动检索或读取文件，需要复制模板并配置相应能力。</p>
+<p>阅读结果时，可以先看双方的独立意见，再看交叉审阅是否真正回应了对方，最后检查主席有没有保留重要分歧。多个视角并不保证事实正确，事实依据仍应回到材料核对。</p>
+<p>想调整角色时，可以另存一份圆桌模板，为对应节点配置专家和模型。同一个参与者在开场与审阅阶段应保持一致的角色，主席则承担综合职责。</p>
+<p><strong>Data-driven research design：把观察结果推进到可检验的研究方案。</strong></p>
+<p>当你已经有初步组学结果、现象描述或候选机制，希望进一步规划验证，这个模板更合适。它并行开展数据评估与文献评估，再把两路材料综合成研究设计。</p>
+<p><img src="../assets/tutorials/agent-workflow/04-research-design.png" alt="数据驱动研究设计：数据分析与文献评估汇入研究设计节点" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 4：数据与文献两路结果共同支持后续研究设计，模板默认要求审批草稿。</em></p>
+<p>使用前，准备好可读取的数据或结果文件、样本信息、已有分析方法，以及实验条件和资源限制。数据节点具有代码执行能力，文献节点需要检索能力；实际处理依赖所选执行环境和工具配置。</p>
+<p>假设项目中已经存在下列文件，选中 <code>Data-driven research design</code> 后，可以发送：</p>
+<blockquote>
+<p>请根据 results/differential_expression.csv、metadata/samples.csv 和 notes/preliminary-observations.md 制定下一阶段研究方案。先检查差异表达结果是否可能受到批次、样本量和离群值影响，再检索候选通路相关机制的支持与反对证据。把“我们观察到了什么”和“我们推测的机制”分开。实验条件是可做 qPCR 和常规遗传学验证，暂时不能增加大规模测序。请提出能区分替代解释的实验、救援思路，以及实验不支持假设时如何调整方向。不要覆盖已有结果。</p>
+</blockquote>
+<p>请把示例路径换成实际存在的项目文件。运行前审阅草稿，尤其留意数据节点获准使用的工具和执行范围。</p>
+<p>最终设计按八个部分组织：</p>
+<ol>
+<li>数据观察与稳健性。</li>
+<li>文献共识、冲突与缺口。</li>
+<li>候选假设与替代解释。</li>
+<li>从假设推导出的可检验预测。</li>
+<li>能区分解释的实验与救援设计。</li>
+<li>验证失败后的假设迭代。</li>
+<li>转化可行性与风险。</li>
+<li>证据—主张对应关系与优先级。</li>
+</ol>
+<p>数据和文献模块分别带有 <code>[workflow:data_analysis]</code>、<code>[workflow:literature_landscape]</code> 来源标记，综合节点被要求保留这些标记。它们有助于追踪一条建议来自哪一路评估；具体结论仍需结合上游结果、原始数据和论文核验。</p>
+<p>这个工作流交付的是研究设计。实际完成哪些数据检查，应以节点工具记录和输出为准；提出一项实验也不表示它已执行。</p>
+<p><strong>Develop computational method：先固定评测条件，再开展方法搜索。</strong></p>
+<p>这是四个模板中准备要求最高的一个，适合已经有可运行基线、希望改进某个计算方法的任务。例如，在输出误差不超过指定阈值的前提下，优化一个 Python 数值计算函数的运行时间。</p>
+<p><img src="../assets/tutorials/agent-workflow/05-method-search.png" alt="计算方法开发的七节点任务图，包含准备合约、方法搜索运行活动和后续审阅报告" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 5：方法搜索是图中的运行活动。审批整个工作流后，仍需审阅关联 Run 的冻结合约，再开始搜索。</em></p>
+<p>当前方法搜索的范围是 <strong>本地 Python、一个声明的函数或类、项目内的固定输入，以及有明确边界的评测器</strong>。它不负责远程 GPU 调度、自动下载数据或同时修改多个代码目标。</p>
+<p>启动前，至少准备这些信息：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>材料</th>
+<th>应说明什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>科学目标</td>
+<td>希望改进哪种能力，为什么有研究价值</td>
+</tr>
+<tr>
+<td>基线代码</td>
+<td>项目内源文件、允许修改的函数或类，以及调用接口</td>
+</tr>
+<tr>
+<td>评测器或评测要求</td>
+<td>怎样运行，怎样固定随机性，怎样判断候选有效</td>
+</tr>
+<tr>
+<td>验证输入</td>
+<td>项目内数据路径、格式、划分方式和使用范围</td>
+</tr>
+<tr>
+<td>主指标</td>
+<td>优化什么，数值越大还是越小越好</td>
+</tr>
+<tr>
+<td>硬性约束</td>
+<td>精度、输出格式、资源使用或其他不能突破的条件</td>
+</tr>
+<tr>
+<td>独立最终验证数据</td>
+<td>与搜索阶段区分开的数据及验证要求；没有时明确说明</td>
+</tr>
+</tbody>
+</table></div>
+<p>选中 <code>Develop computational method</code> 后，可以参考下面的写法；路径和数值都需要按自己的项目替换：</p>
+<blockquote>
+<p>请改进本项目 src/smoothing.py 中的 smooth_signal 函数，保持现有函数签名和返回数组形状。基线代码已经可运行。验证数据为 data/validation.json，独立最终验证数据为 data/final.json；后者只能用于最终验证，不能用于候选选择。评测器为 benchmarks/evaluate.py。主指标为固定输入上的中位运行时间，越低越好；硬性约束为相对参考输出的最大绝对误差不超过 1e-6，所有结果必须为有限值。请先审计文献、数据划分和基线，再准备评测合约；使用模板的搜索预算，等待我审阅后开始搜索。最终报告改进幅度、独立验证结果和局限。</p>
+</blockquote>
+<p>它的执行顺序是：</p>
+<pre><code class="language-text">文献方法检索 ──┐
+数据审计 ──────┼── 准备评测合约 ── 方法搜索 Run ── 审阅入选方法 ── 方法报告
+基线分析 ──────┘
+</code></pre>
+<p><strong>这里有两次不同的审批。</strong> 第一次是批准工作流计划，允许准备和审计。准备完成后，方法搜索会创建一个草稿 Run，此时还没有开始候选搜索。需要进入关联的 Run 详情，打开 <strong>审核方法搜索</strong>，核对 <strong>冻结评测合约</strong> 中的目标、评测器、基线、噪声下限、受保护输入和预算，再点击 <strong>批准并开始搜索</strong>。</p>
+<p>“冻结”表示搜索使用已经审计并绑定的那一份代码、数据和评测条件。启动或恢复时会重新检查，不能把修改后的文件悄悄当成原来的输入。</p>
+<p>内置模板的搜索上限为 <strong>20 个候选、总时长 14,400 秒（4 小时）、单次评测 120 秒、费用预算 5,000,000 微单位</strong>。这些是上限，不是预计耗时或固定收费。运行时可在 Run 详情查看候选、指标和进度，并使用暂停、继续或取消；暂停在候选检查点生效。</p>
+<p>完成后，重点检查改进是否超过基线噪声，以及结果属于 <strong>独立最终验证</strong> 还是 <strong>仅验证集（<code>validation_only</code>）</strong>。缺少独立最终验证时，不能把验证集上的提升写成已经通过独立验证。</p>
+<p>搜索不会把选中的候选代码自动应用到项目源文件，入选代码以产物版本保存。先检查候选差异、评测记录和复现要求，再决定是否采用。方法报告也可能得出“没有找到满足约束的改进”，这同样是有效结果。</p>
+<p><strong>查看结果时，沿着任务图检查依据。</strong></p>
+<p>运行后打开对应会话的 <strong>Agents</strong> 面板，可以查看各节点的状态和结果。完成的节点可通过 <strong>查看完整结果</strong> 检查交付内容；带运行活动的节点还需要查看关联 Run。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>状态或现象</th>
+<th>下一步</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>草稿</td>
+<td>核对目标、依赖、能力和需要审批的原因，再批准或撤销</td>
+</tr>
+<tr>
+<td>运行中</td>
+<td>查看当前节点活动，确认是否在等待工具调用或用户操作</td>
+</tr>
+<tr>
+<td>等待运行完成</td>
+<td>打开关联 Run；方法搜索可能仍在等待第二次审批</td>
+</tr>
+<tr>
+<td>失败或已阻塞</td>
+<td>先检查上游错误、工具配置、输入路径与输出要求，再考虑重试</td>
+</tr>
+<tr>
+<td>已完成</td>
+<td>核对每个节点的证据和交付内容，再阅读最终综合</td>
+</tr>
+<tr>
+<td>只有模板介绍，没有任务记录</td>
+<td>确认已从 <code>/</code> 附加工作流并发送；继续要求按所选模板实际创建和执行工作流</td>
+</tr>
+</tbody>
+</table></div>
+<p>下游任务依赖上游结果。某个节点失败时，后续综合可能无法继续，先解决输入、权限或依赖问题，比反复重跑整个工作流更有帮助。</p>
+<p><strong>熟悉内置模板后，再保存自己的小工作流。</strong></p>
+<p>进入 <strong>设置 → 工作流 → 新建工作流</strong>，可以选择空白、从模板创建，或从 Skills 转换。第一次自定义，建议从已经试用过的模板创建副本。</p>
+<p>例如，把圆桌副本命名为“组会方案讨论”，在共享上下文里写入实验室固定的时间与资源约束，再调整参与者的审阅要求。每次变化的研究问题、结果和文件路径，仍放在发送时的消息中。</p>
+<p>编辑时，先写清节点要交付什么，再选择实际需要的能力。让汇总节点依赖它要使用的所有上游结果；连线必须保持无环。如果为 Agent 节点配置了输出 JSON Schema，上游应确实能交付符合格式的结果。</p>
+<p>需要调整模型、执行器、Token 或工具调用预算时，再展开 <strong>高级执行控制</strong>。运行活动节点有自己的输入和候选数、时长、费用限制，不能直接套用普通 Agent 节点的控制项。</p>
+<p>保存模板只完成配置，不会启动任务。回到输入框，通过 <code>/</code> 选中保存后的工作流，用一份小材料试运行。确认结果符合预期后，也可以按 <a href="wisp-science-quick-actions.html">快捷动作教程</a> 将它绑定到选中文本菜单。</p>
+<p>完整的逐步配置示例，以及“空白、基于模板、基于 Skill”三种创建方式，见下一篇 <a href="wisp-science-agent-workflow-create.html">创建 Agent Workflow</a>。</p>
+<p>可以先用 <code>Roundtable</code> 讨论一个熟悉的研究选择，检查分工与交叉审阅；再使用 <code>Literature evidence review</code> 核查一条具体判断。已有数据与研究条件时尝试研究设计，具备可运行基线和评测条件后再尝试方法搜索。</p>
+<blockquote>
+<p>本文依据当前仓库的内置模板、桌面界面与执行实现整理。提示词、路径和阈值用于教学，不代表已经执行的科研任务。进一步的机制说明见 <a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/agent-delegation.md">Agent delegation</a>。</p>
+</blockquote>
+</div>
+<div class="tutorial-body lang-en" lang="en">
+<p>A research question often involves several kinds of work: examining data, finding published evidence, considering alternative explanations, and deciding what to do next. An <strong>Agent Workflow</strong> saves that division of work as a task graph, including dependencies, capabilities, and expected outputs.</p>
+<p>This advanced tutorial assumes you have configured a model and can use files and tools in a project. For background, see <a href="wisp-science-skills.html">Skills</a>, <a href="wisp-science-specialists.html">Specialists</a>, and <a href="wisp-science-quick-actions.html">Quick Actions</a>.</p>
+<p><strong>A workflow makes the division of work and dependencies explicit.</strong></p>
+<p>For a literature evidence review, supporting and challenging evidence can be searched independently. Synthesis waits for both results.</p>
+<pre><code class="language-text">Supporting evidence ──┐
+                      ├── Synthesis, disagreements, and gaps
+Challenging evidence ─┘
+</code></pre>
+<p>Each node is a task; an arrow declares a dependency. Independent tasks can run in parallel, subject to concurrency, executor, and write restrictions. Dependent tasks receive upstream results before proceeding.</p>
+<p>Ordinary Agent nodes run as temporary subagents with instructions, capabilities, and optional specialist, executor, and model choices. A <strong>Run activity</strong> delegates sustained computation to a host-managed Run. The built-in method-development workflow uses one of these nodes.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Component</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Current message and material</td>
+<td>The specific question, inputs, and constraints</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>A reusable method, procedure, and reference material</td>
+</tr>
+<tr>
+<td>Specialist</td>
+<td>A reusable role and working instructions</td>
+</tr>
+<tr>
+<td>Agent Workflow</td>
+<td>Task nodes, dependencies, capabilities, and outputs</td>
+</tr>
+<tr>
+<td>Quick Action</td>
+<td>A contextual entry point, such as selected text</td>
+</tr>
+<tr>
+<td>Run</td>
+<td>The record and lifecycle of a sustained computation</td>
+</tr>
+</tbody>
+</table></div>
+<p>Nodes may use the same model. Multiple model configurations are not a prerequisite for using workflows.</p>
+<p><strong>Start with the four built-in workflows.</strong></p>
+<p>Open <strong>Settings → Workflows</strong> to enter Workflow Studio. The library is on the left, the graph is in the center, and workflow configuration and the selected task summary are on the right.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/01-library.png" alt="Workflow library and literature evidence review graph" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 1: The current frontend with local fixture data. Node instructions are shortened to illustrate the structure. No searches or model calls were executed for these screenshots.</em></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Built-in template</th>
+<th>Suitable task</th>
+<th>Default structure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Literature evidence review</code></td>
+<td>Examine support, contradictions, and limits of a claim</td>
+<td>Two searches → synthesis; 3 nodes</td>
+</tr>
+<tr>
+<td><code>Roundtable</code></td>
+<td>Compare research plans, explanations, or resource choices</td>
+<td>Two openings → two cross-reviews → chair synthesis; 5 nodes</td>
+</tr>
+<tr>
+<td><code>Data-driven research design</code></td>
+<td>Turn observations and literature into a testable research design</td>
+<td>Data and literature assessment → research design; 3 nodes</td>
+</tr>
+<tr>
+<td><code>Develop computational method</code></td>
+<td>Improve a local Python method against a defined evaluator</td>
+<td>Three audits → contract preparation → method search → review → report; 7 nodes</td>
+</tr>
+</tbody>
+</table></div>
+<p>Click a node for its summary. Double-click it, or choose <strong>Edit node</strong>, to inspect the complete instructions and configuration. Saving changes to a built-in creates a custom copy through <strong>Save as copy</strong>.</p>
+<p>The library stores reusable templates. Execution records appear in the corresponding conversation's <strong>Agents</strong> panel.</p>
+<p><strong>Select a workflow, add your request, and send.</strong></p>
+<p>For a first attempt, use Wisp's native Agent:</p>
+<ol>
+<li>Open a project and a new conversation with a working model.</li>
+<li>Type <code>/</code> in the composer and search for a template, such as <code>Roundtable</code>.</li>
+<li>Select it from the workflow group and confirm that its reference appears in the composer.</li>
+<li>Describe the goal, material, constraints, and expected result, then send.</li>
+<li>Check the conversation and <strong>Agents</strong> panel. Review any pending draft and choose <strong>Approve and run</strong>, or follow progress if it has already started.</li>
+</ol>
+<p><img src="../assets/tutorials/en/agent-workflow/02-composer.png" alt="Roundtable attached to the composer with the current goal and constraints" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 2: The workflow reference travels with the request. This screenshot stops before sending.</em></p>
+<p>Selecting a template attaches it; sending asks the main Agent to execute it. Wisp supplies the request as context and instructs the Agent to preserve the graph's dependencies when delegating. Sending a workflow reference enables delegation for that native conversation.</p>
+<p>To inspect without running, browse Settings or ask the Agent to explain available workflows without starting them. Attach a workflow when you are ready to execute a concrete request.</p>
+<p>The approval policies are <strong>Review every draft</strong> and <strong>Auto-run safe drafts</strong>. Automatic execution still depends on the resolved capabilities and policy. Literature review and Roundtable use the latter by default; research design and method development require draft review.</p>
+<p><strong>Literature evidence review: search for support and challenges to a specific claim.</strong></p>
+<p>Provide a testable statement with a defined organism, condition, and scope. After selecting <code>Literature evidence review</code>, you might send:</p>
+<blockquote>
+<p>Assess this unverified claim: “Changes in the proportion of a root cell type reflect its adaptation to drought.” Limit the scope to Arabidopsis roots and single-cell or single-nucleus transcriptomics. Find supporting evidence as well as contradictory findings, technical biases, and boundary conditions. Distinguish true proportion changes from dissociation, sampling, and annotation effects. Summarize conclusions, sources, and unresolved questions.</p>
+</blockquote>
+<p>This is a teaching example, not an established scientific conclusion.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Node</th>
+<th>Work</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supporting_evidence</code></td>
+<td>Independently search for supporting publications and extract actual findings</td>
+</tr>
+<tr>
+<td><code>challenging_evidence</code></td>
+<td>Search for contradictions, boundary conditions, failed replications, and methodological critiques</td>
+</tr>
+<tr>
+<td><code>synthesize</code></td>
+<td>Deduplicate sources and reconcile evidence, disagreements, and gaps</td>
+</tr>
+</tbody>
+</table></div>
+<p>Each search keeps at most eight relevant papers and uses enabled, authorized literature connectors. Synthesis uses only the upstream results; it does not search again. The template does not ask nodes to write project files.</p>
+<p>Configure the required connectors, credentials, and network access first. Afterwards, verify that the papers exist and support the stated findings, including contrary evidence. If you want a Markdown report, ask the main Agent to save the completed result to a specified path.</p>
+<p>The built-in <strong>Research literature</strong> Quick Action instead attaches the <code>literature-review</code> Skill to the current composer. To execute this three-node graph, select the workflow through <code>/</code> or bind it to a custom Quick Action.</p>
+<p><strong>Roundtable: independent positions followed by cross-review.</strong></p>
+<p>Use Roundtable for decisions involving trade-offs: additional experiments versus further analysis, competing methods, or alternative explanations.</p>
+<p>One participant focuses on evidence and another on criticism. Both present independent positions, each reviews both openings, and a neutral chair synthesizes their revised recommendations.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/03-roundtable.png" alt="Roundtable with two openings, two cross-reviews, and chair synthesis" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 3: Five nodes in three stages. Each review depends on both opening positions.</em></p>
+<p>After selecting <code>Roundtable</code>, try:</p>
+<blockquote>
+<p>We have preliminary transcriptome results and need to plan next month's work. Option A is functional validation of key genes; option B is analysis of an independent public dataset to assess reproducibility. We have one experimental researcher, a limited budget, and a progress presentation in four weeks. Current evidence is correlational, with no functional experiment. Compare assumptions, benefits, failure risks, and missing information. Recommend priorities while retaining unresolved disagreements.</p>
+</blockquote>
+<p>The built-in nodes use reasoning. They do not search literature or read the entire project by default. Supply relevant facts, evidence summaries, and constraints in the request. To add active retrieval or file reading, create a copy and configure those capabilities.</p>
+<p>Read the independent positions, then check whether the cross-reviews actually respond to each other and whether the chair preserves important dissent. Multiple perspectives still require factual verification against the source material.</p>
+<p>For custom roles, save a copy and configure specialists and models. Keep each participant's role consistent between its opening and review nodes; the chair has a separate synthesis role.</p>
+<p><strong>Data-driven research design: move from observations to testable plans.</strong></p>
+<p>Use this workflow when you have preliminary omics results, observations, or a candidate mechanism and want to plan validation. Data assessment and literature assessment run independently before synthesis.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/04-research-design.png" alt="Parallel data and literature assessment feeding the research-design node" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 4: Two evidence streams support the design. Draft approval is required by default.</em></p>
+<p>Prepare accessible data or result files, sample metadata, existing methods, and resource constraints. The data node requests code execution; the literature node needs search capabilities. Actual work depends on the configured tools and execution environment.</p>
+<p>If these files exist in your project, select <code>Data-driven research design</code> and send:</p>
+<blockquote>
+<p>Develop a next-stage research plan from results/differential_expression.csv, metadata/samples.csv, and notes/preliminary-observations.md. Examine batch effects, sample size, and outliers, then search for supporting and opposing evidence about the candidate pathway. Separate observations from proposed mechanisms. We can perform qPCR and conventional genetic validation, but cannot add large-scale sequencing. Propose discriminating experiments, rescue approaches, and how to revise the hypothesis if experiments disagree. Do not overwrite existing results.</p>
+</blockquote>
+<p>Replace the example paths with real files. Review the draft, particularly the tools and execution scope of the data node.</p>
+<p>The final design has eight parts:</p>
+<ol>
+<li>Data observations and robustness.</li>
+<li>Literature consensus, conflicts, and gaps.</li>
+<li>Candidate hypotheses and alternatives.</li>
+<li>Deductive predictions.</li>
+<li>Discriminating experiments and rescue.</li>
+<li>Failure-driven hypothesis iteration.</li>
+<li>Translation feasibility and risks.</li>
+<li>An evidence–claim matrix and priorities.</li>
+</ol>
+<p>The upstream modules carry <code>[workflow:data_analysis]</code> and <code>[workflow:literature_landscape]</code> markers, which synthesis is instructed to retain. These help trace recommendations to the appropriate assessment; verify individual claims against node results, original data, and papers.</p>
+<p>The deliverable is a research design. Tool records show which checks were actually performed. A proposed experiment is not a completed experiment.</p>
+<p><strong>Develop computational method: freeze evaluation conditions before searching.</strong></p>
+<p>This template requires the most preparation. It is appropriate when a working baseline already exists, such as a Python numerical function whose runtime you want to improve within a stated error bound.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/05-method-search.png" alt="Seven-node method-development graph, including the host-managed search activity" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 5: Method search is a Run activity. Workflow approval is followed by a separate review of its frozen contract before search starts.</em></p>
+<p>The current scope is <strong>local Python, one declared function or class, immutable project-local inputs, and a bounded evaluator</strong>. It does not provide remote GPU scheduling, automatic data downloads, or multi-target source edits.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Required material</th>
+<th>What to specify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scientific objective</td>
+<td>The desired improvement and its purpose</td>
+</tr>
+<tr>
+<td>Baseline</td>
+<td>Source file, editable function/class, and interface</td>
+</tr>
+<tr>
+<td>Evaluator or evaluation requirements</td>
+<td>Invocation, deterministic conditions, and validity rules</td>
+</tr>
+<tr>
+<td>Validation inputs</td>
+<td>Paths, formats, splits, and permitted use</td>
+</tr>
+<tr>
+<td>Primary metric</td>
+<td>What is optimized and in which direction</td>
+</tr>
+<tr>
+<td>Hard guardrails</td>
+<td>Accuracy, output, resource, or other constraints</td>
+</tr>
+<tr>
+<td>Independent final-verification data</td>
+<td>Inputs reserved for final verification; explicitly state if absent</td>
+</tr>
+</tbody>
+</table></div>
+<p>After selecting <code>Develop computational method</code>, adapt this example to your project:</p>
+<blockquote>
+<p>Improve smooth_signal in src/smoothing.py, preserving its signature and output shape. The baseline runs successfully. Validation data is data/validation.json; independent final-verification data is data/final.json and must not be used for candidate selection. The evaluator is benchmarks/evaluate.py. Minimize median runtime on fixed inputs. Maximum absolute error against the reference output must not exceed 1e-6, and all outputs must be finite. Audit literature, data splits, and baseline before preparing the contract. Use the template's search limits and wait for my contract review before searching. Report improvement, independent verification, and limitations.</p>
+</blockquote>
+<p>The sequence is:</p>
+<pre><code class="language-text">Literature methods ─┐
+Data audit ─────────┼── Prepare contract → Search Run → Finalist review → Report
+Baseline analysis ──┘
+</code></pre>
+<p><strong>There are two distinct approvals.</strong> Approving the workflow permits preparation and auditing. Preparation produces a draft Run; candidate search has not started. Open the linked Run, inspect the method-search contract, and check its target, evaluator, baseline, noise floor, protected inputs, and budgets. Then choose the action to approve and start search.</p>
+<p>The frozen contract binds the audited versions of code, data, and evaluation conditions. Start and resume revalidate them rather than silently substituting changed files.</p>
+<p>The built-in limits are <strong>20 candidates, 14,400 wall-clock seconds (four hours), 120 seconds per evaluation, and 5,000,000 cost microunits</strong>. These are ceilings, not a runtime estimate or fixed price. Follow candidates, metrics, and progress in Run detail. Pause takes effect at a durable candidate boundary; resume and cancel are also available.</p>
+<p>Check whether improvement exceeds baseline noise and whether the result has independent final verification or is <strong>validation-only (<code>validation_only</code>)</strong>. Validation-set gains alone must not be presented as independent verification.</p>
+<p>Selected code is saved as an artifact version and is not automatically applied to project source. Inspect differences, evaluation history, and reproduction instructions before adopting it. Finding no improvement that satisfies the constraints is also a valid outcome.</p>
+<p><strong>Follow the graph when reviewing results.</strong></p>
+<p>Open the conversation's <strong>Agents</strong> panel to inspect task states and complete results. Run activities also link to their associated Run.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>State or symptom</th>
+<th>Next step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Draft</td>
+<td>Review goal, dependencies, capabilities, and approval reasons</td>
+</tr>
+<tr>
+<td>Running</td>
+<td>Inspect current node activity and any pending tool or user interaction</td>
+</tr>
+<tr>
+<td>Waiting for Run</td>
+<td>Open the Run; method search may need its second approval</td>
+</tr>
+<tr>
+<td>Failed or blocked</td>
+<td>Check upstream errors, tools, paths, and output requirements before retrying</td>
+</tr>
+<tr>
+<td>Completed</td>
+<td>Inspect evidence and outputs before relying on synthesis</td>
+</tr>
+<tr>
+<td>Only an explanation, no task record</td>
+<td>Confirm that you attached and sent the workflow; ask the Agent to create and execute its graph</td>
+</tr>
+</tbody>
+</table></div>
+<p>Failed upstream nodes can block dependent synthesis. Resolve the specific input, permission, or dependency problem before repeatedly rerunning the whole graph.</p>
+<p><strong>Create a small custom workflow after trying the built-ins.</strong></p>
+<p>Use <strong>Settings → Workflows → New workflow</strong> to start blank, copy a template, or convert Skills. A tried-and-tested template is a useful starting point. For example, copy Roundtable, name it “Lab meeting planning,” save recurring resource constraints as shared context, and refine the participants' instructions. Keep changing questions and file paths in each request.</p>
+<p>Give every node a clear deliverable and the capabilities it needs. Make synthesis depend on all relevant results and keep the graph acyclic. If you configure an output JSON Schema, ensure the node can produce that contract.</p>
+<p>Use advanced execution controls when you need explicit models, executors, or budgets. Run activities have separate input and candidate/time/cost limits; ordinary Agent controls do not apply to them.</p>
+<p>Saving a template does not start it. Return to <code>/</code>, select the saved workflow, and try a small input. You can later bind it to a <a href="wisp-science-quick-actions.html">Quick Action</a>.</p>
+<p>For a complete walkthrough of all three creation routes, see <a href="wisp-science-agent-workflow-create.html">Creating an Agent Workflow</a>.</p>
+<p>Start with Roundtable for a familiar decision, then use literature review for a specific claim. Move to research design when data and constraints are available, and to method search once you have a runnable baseline and evaluator.</p>
+<blockquote>
+<p>Based on the current repository's templates, desktop UI, and execution implementation. Prompts, paths, and thresholds are teaching examples, not completed research. See <a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/agent-delegation.md">Agent delegation</a> for implementation details.</p>
+</blockquote>
+</div>
+</article>
+<nav class="tutorial-pagination" aria-label="相邻教程" data-i18n-aria="tutorials.pagination"><a class="tutorial-previous" href="wisp-science-rnaseq-downstream.html"><span data-i18n="tutorials.previous">上一篇</span><strong data-text-zh="完成转录组下游分析" data-text-en="Complete a Downstream RNA-seq Analysis">完成转录组下游分析</strong></a><a class="tutorial-next" href="wisp-science-agent-workflow-create.html"><span data-i18n="tutorials.next">下一篇</span><strong data-text-zh="创建 Agent Workflow" data-text-en="Creating an Agent Workflow">创建 Agent Workflow</strong></a></nav>
+<div class="tutorial-reader-back"><a class="tutorial-back" href="../tutorials.html#wisp-science-agent-workflow" data-i18n="tutorials.back">返回教程目录</a></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="24" height="24">
+        Wisp Science
+      </a>
+      <nav class="footer-links">
+        <a href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" data-i18n="nav.tutorials">教程</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/releases" data-i18n="footer.releases">版本记录</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/issues" data-i18n="footer.issues">问题反馈</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/LICENSE">AGPL-3.0-only</a>
+      </nav>
+      <p class="footer-copy" data-i18n="footer.copy">© 2026 Wisp Science · 开源科学计算 Agent</p>
+    </div>
+  </footer>
+  <script src="../assets/i18n.js"></script>
+</body>
+</html>

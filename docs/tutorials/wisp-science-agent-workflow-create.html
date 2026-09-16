@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="tutorial-article" data-title-zh="创建 Agent Workflow · 教程 | Wisp Science" data-title-en="Creating an Agent Workflow · Tutorials | Wisp Science" data-desc-zh="Wisp Science高级用法：创建 Agent Workflow" data-desc-en="Wisp Science Advanced: Creating an Agent Workflow">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Wisp Science高级用法：创建 Agent Workflow">
+  <title>创建 Agent Workflow · 教程 | Wisp Science</title>
+  <script>
+    (function () {
+      var lang = "zh";
+      try {
+        var q = new URLSearchParams(location.search).get("lang");
+        if (q === "en" || q === "zh") lang = q;
+        else {
+          var s = localStorage.getItem("wisp-pages-lang");
+          if (s === "en" || s === "zh") lang = s;
+        }
+      } catch (e) {}
+      document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+      document.documentElement.dataset.lang = lang;
+    })();
+  </script>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/tutorials.css">
+</head>
+<body class="doc-page tutorial-detail">
+  <header class="site-nav">
+    <div class="container">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="28" height="28">
+        <span class="brand-name">Wisp Science</span>
+      </a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="页面导航">
+        <a href="../index.html#features" data-i18n="nav.features">功能</a>
+        <a href="../index.html#usecases" data-i18n="nav.usecases">场景</a>
+        <a href="../index.html#stack" data-i18n="nav.stack">生态</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" aria-current="location" data-i18n="nav.tutorials">教程</a>
+        <a href="../index.html#faq" data-i18n="nav.faq">FAQ</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/README.md" data-i18n="nav.docs">文档</a>
+      </nav>
+      <div class="nav-cta">
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="语言">
+          <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a class="btn btn-primary" href="../index.html#download"><span class="btn-label-full" data-i18n="nav.downloadFull">下载桌面版</span><span class="btn-label-short" data-i18n="nav.downloadShort">下载</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="tutorial-reader container">
+<nav class="tutorial-breadcrumb" aria-label="教程导航" data-i18n-aria="tutorials.readerNav"><a class="tutorial-back" href="../tutorials.html#wisp-science-agent-workflow-create" data-i18n="tutorials.back">返回教程目录</a></nav>
+<article class="tutorial-article" id="wisp-science-agent-workflow-create" aria-labelledby="article-title">
+<header><h1 id="article-title" data-text-zh="Wisp Science高级用法：创建 Agent Workflow" data-text-en="Wisp Science Advanced: Creating an Agent Workflow">Wisp Science高级用法：创建 Agent Workflow</h1>
+<a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-agent-workflow-create.md" data-href-zh="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/wisp-science-agent-workflow-create.md" data-href-en="https://github.com/xuzhougeng/wisp-science/blob/main/docs/wechat/en/wisp-science-agent-workflow-create.md" data-i18n="tutorials.source">查看原文</a></header>
+<div class="tutorial-body lang-zh" lang="zh-CN">
+<p>上一篇 <a href="wisp-science-agent-workflow.html">Agent Workflow</a> 介绍了四个内置工作流。当你反复用同一套分工检查研究方案、整理证据或准备组会时，可以把这套安排保存成自己的工作流。</p>
+<p>这一篇从一个完整的小例子开始：创建“研究论证检查”，让两个任务独立梳理论点和检查证据，最后由第三个任务给出修改建议。先掌握目标、节点、能力、依赖和保存，再介绍从已有模板修改，以及从 Skill 转换。</p>
+<p>本文配图使用当前实际前端与本地示例数据，展示配置操作；没有调用模型、检索论文或执行真实科研任务。示例只处理消息中提供的文字，完成初次练习不需要配置文献数据库或代码运行环境。</p>
+<p><strong>先决定交付什么，再把任务拆成节点。</strong></p>
+<p>“检查一下这段研究论证”仍然太宽泛。可以先把最终交付写成一句话：</p>
+<blockquote>
+<p>根据我提供的研究段落和证据摘要，输出“原判断、证据支持程度、建议表述、待验证问题”四列表格，并给出三项优先修改。</p>
+</blockquote>
+<p>再倒推需要的分工：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>任务 ID</th>
+<th>负责什么</th>
+<th>依赖谁</th>
+<th>能力</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claims</code></td>
+<td>提取主要判断，区分事实、相关性与因果推测</td>
+<td>无</td>
+<td><code>reasoning</code></td>
+</tr>
+<tr>
+<td><code>evidence_check</code></td>
+<td>独立检查证据范围、限制和替代解释</td>
+<td>无</td>
+<td><code>reasoning</code></td>
+</tr>
+<tr>
+<td><code>synthesis</code></td>
+<td>对照两路结果，生成修改建议</td>
+<td><code>claims</code>、<code>evidence_check</code></td>
+<td><code>reasoning</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>前两个任务都读取本轮提供的段落与证据摘要，可以独立进行。第二个任务不需要等待第一个任务的编号，而是引用原文短句；汇总任务再负责对应两路结果。这样才能真正形成“两路独立检查 → 汇总”的结构。</p>
+<p><strong>进入“设置 → 工作流 → 新建工作流”，选择创建方式。</strong></p>
+<p><img src="../assets/tutorials/agent-workflow/06-new.png" alt="新建工作流对话框：空白、基于模板和基于 Skill 三个入口" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 1：三条创建路径都在同一个入口。本文先选择“空白”。</em></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>创建方式</th>
+<th>适合什么时候使用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空白</td>
+<td>已经想清楚分工，希望逐项填写</td>
+</tr>
+<tr>
+<td>基于模板</td>
+<td>内置或已保存的工作流与需求接近，只需局部修改</td>
+</tr>
+<tr>
+<td>基于 Skill</td>
+<td>已有方法文档，希望模型帮忙拆成独立任务图</td>
+</tr>
+</tbody>
+</table></div>
+<p>前两种方式编辑配置本身不需要模型生成；“基于 Skill”在生成草稿时会调用所选模型。无论哪条路径，保存之后都需要回到会话中选中工作流并发送任务，才会开始执行。</p>
+<p><strong>第一步：填写名称、委派目标和共享上下文。</strong></p>
+<p>选择 <strong>空白</strong> 后，画布会出现一个初始任务。先填写工作流级别的配置：</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>字段</th>
+<th>本例内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工作流名称</td>
+<td>研究论证检查</td>
+</tr>
+<tr>
+<td>描述</td>
+<td>独立梳理论点和核查证据，再汇总修改建议。</td>
+</tr>
+<tr>
+<td>委派目标</td>
+<td>根据本轮提供的段落和证据摘要，检查论证是否充分，输出有依据的修改建议。</td>
+</tr>
+<tr>
+<td>审批策略</td>
+<td>每个草稿都审批</td>
+</tr>
+</tbody>
+</table></div>
+<p>展开右侧的 <strong>任务共享上下文</strong>，填入所有任务都应遵循的要求：</p>
+<pre><code class="language-text">只使用本轮材料；缺失信息标为“材料未提供”。
+不补写文献、数据或已完成的实验。不写入项目文件。
+</code></pre>
+<p>名称和描述帮助你在工作流库中识别模板，实际执行要求应写进目标、共享上下文和节点指令。固定规范放在模板里，每次变化的研究段落、证据摘要和问题留在发送时的消息中。</p>
+<p><strong>第二步：把初始节点改成 claims。</strong></p>
+<p>双击画布中的初始节点，或单击后选择 <strong>编辑节点</strong>，打开任务详情。保持节点类型为 <strong>Agent</strong>，把任务 ID 改为 <code>claims</code>，填写：</p>
+<pre><code class="language-text">读取本轮提供的研究段落。逐条列出主要判断，编号 C1、C2……，
+区分观察事实、相关性描述和因果推测。
+保留对应原文短句；不判断未提供的证据。
+</code></pre>
+<p>展开 <strong>能力</strong>，保留 <code>Reasoning</code>（<code>reasoning</code>）。这个任务只需要处理已提供的文字。专家人格可以保持“临时 Agent”，高级执行控制先使用默认值，不需要为每个节点创建一个专家。</p>
+<p>关闭任务详情后，修改会保留在当前编辑草稿中。<strong>关闭节点窗口并不等于保存整个工作流</strong>，最后仍要点击顶部的“保存工作流”。</p>
+<p><strong>第三步：添加独立的 evidence_check 节点。</strong></p>
+<p>打开画布工具栏的 <strong>添加任务</strong>，选择 <strong>独立任务</strong>，会自动打开新节点的编辑窗口。将 ID 改为 <code>evidence_check</code>，同样使用 <code>reasoning</code>，填写：</p>
+<pre><code class="language-text">独立检查本轮段落与证据摘要。
+列出各项证据能够支持的范围、限制和替代解释，引用对应原文短句。
+缺少样本量、对照或统计信息时明确标注，不补造结果。
+</code></pre>
+<p>这两个节点都应显示为无前置依赖。它们收到相同材料，但承担不同任务。不要仅把同一条“全面分析”指令复制两次，否则容易得到重复内容。</p>
+<p><strong>第四步：添加 synthesis，并连接两个上游任务。</strong></p>
+<p>再添加一个独立任务，ID 填 <code>synthesis</code>，能力仍为 <code>reasoning</code>，指令填写：</p>
+<pre><code class="language-text">读取 claims 和 evidence_check 的依赖结果。
+逐条对应主张与证据，输出“原判断、证据支持程度、建议表述、待验证问题”
+四列表格。保留分歧，不新增来源，最后给出三项优先修改。
+</code></pre>
+<p>在这个节点的详情里展开 <strong>编辑依赖</strong>，勾选 <code>claims</code> 和 <code>evidence_check</code>。</p>
+<p><img src="../assets/tutorials/agent-workflow/07-node-editor.png" alt="汇总节点的任务详情：填写指令，并勾选 claims 与 evidence_check 两个前置依赖" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 2：依赖要在配置中明确选中。只在指令里写“等前面完成”不会自动建立连线。</em></p>
+<p>也可以在画布中，从上游节点的输出端点拖到下游节点建立连线；使用“接在选中节点后”则会创建一个依赖所选节点的新任务。无论用哪种方式，本例的汇总节点都必须同时依赖两个上游。</p>
+<p>关闭详情后，画布应显示 <strong>3 个任务、2 个阶段、最多 2 个并行节点</strong>：左侧是 <code>claims</code> 与 <code>evidence_check</code>，右侧是 <code>synthesis</code>，两条箭头都指向汇总节点。</p>
+<p><img src="../assets/tutorials/agent-workflow/08-custom-graph.png" alt="保存后的研究论证检查工作流：两个独立节点汇入 synthesis，右侧显示目标与共享上下文" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 3：完整示例。连线表达执行依赖；实际并发仍受执行策略限制。</em></p>
+<p>任务 ID 应唯一，建议使用简短、稳定的英文名称。依赖必须保持无环，不能再从 <code>synthesis</code> 连回 <code>claims</code>。需要返工时，先根据本轮结果调整输入或模板，再发起下一次任务。</p>
+<p><strong>第五步：保存，并用一段熟悉的材料试运行。</strong></p>
+<p>点击顶部 <strong>保存工作流</strong>，确认出现保存成功提示，左侧库中能看到“研究论证检查”。如果保存按钮不可用，查看顶部附近的原因提示，通常是名称、目标、任务指令或能力尚未填写完整。</p>
+<p>回到项目会话，在输入框输入 <code>/</code>，搜索并选中“研究论证检查”，再发送一段包含原文和证据范围的消息。例如：</p>
+<pre><code class="language-text">请按所选工作流检查下面这段论证，只使用本条消息的材料。
+
+研究段落：处理组中基因 X 的表达较高，因此基因 X 是该处理引起表型变化的原因。
+证据摘要：目前只有表达量比较，未提供样本量、统计检验结果、功能扰动或救援实验。
+
+请指出哪些表达可以保留，哪些应改为假设，以及还需补充什么证据。
+</code></pre>
+<p>这是一段刻意保留证据缺口的练习材料，不代表真实实验结果。出现工作流草稿后，审阅三个节点及其依赖，点击 <strong>批准并运行</strong>。</p>
+<p>在 <strong>Agents</strong> 面板中检查：两个独立任务是否各自完成了职责，汇总是否读到了双方结果，最终建议是否保留材料缺口。先用熟悉的材料检查输出，比一开始就接入大量数据更容易判断配置是否有效。</p>
+<p>保存模板、批准一次计划、执行一次工作流是三个不同动作。修改模板后，下一次使用时采用保存后的版本；不要把编辑模板当作修改已经批准的运行计划。</p>
+<p><strong>需要扩展时，再按任务增加能力和输出约束。</strong></p>
+<p>本例只使用消息里的材料，所以三个节点都用 <code>reasoning</code>。如果改成检查项目文件或主动检索文献，应同时调整输入说明、节点指令与能力。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>新需求</th>
+<th>配置方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读取项目中的报告</td>
+<td>为相应节点添加 <code>project_read</code>，明确文件路径</td>
+</tr>
+<tr>
+<td>查找真实文献</td>
+<td>为检索节点选择可用的 <code>literature_search</code>，配置连接器并规定核验方式</td>
+</tr>
+<tr>
+<td>保存整理后的报告</td>
+<td>为负责保存的节点添加 <code>project_write</code>，规定输出路径与覆盖规则</td>
+</tr>
+<tr>
+<td>实际运行分析代码</td>
+<td>使用 <code>code_run</code>，写清环境、输入和执行边界</td>
+</tr>
+</tbody>
+</table></div>
+<p>能力决定节点可以申请哪些工具，填写指令不会自动开放工具或安装依赖。把读取、计算、保存等要求交给明确的节点，也更容易定位失败原因。</p>
+<p>需要机器可读的交付时，可以配置 <strong>输出 JSON Schema</strong>。例如，汇总节点输出 <code>claims</code> 数组和 <code>next_steps</code> 数组，就应在指令里同步说明字段含义。第一次使用先保留默认输出格式，把内容要求写清楚即可。</p>
+<p><strong>高级执行控制</strong> 可以选择执行器、模型和预算。初次创建先用默认执行器与模型；需要成本上限时再填写最大 Token 数、工具调用数或费用。预算留空表示不限制；最长运行时间留空使用策略默认值，填 <code>0</code> 表示不限时。运行活动有单独的输入和预算规则，不能直接套用 Agent 节点配置。</p>
+<p><strong>第二条创建路径：基于已有模板做局部修改。</strong></p>
+<p>打开 <strong>新建工作流 → 基于模板</strong>，选择一个接近需求的模板。例如，选 <code>Roundtable</code>，把新工作流命名为“组会方案讨论”，填写实验室共享约束，再调整对应席位的指令。</p>
+<p>也可以直接打开内置模板进行修改，再点击 <strong>另存为副本</strong>。内置模板会保留，后续需要选择你保存的副本才能使用新规则。</p>
+<p>复制后先核对每个阶段的角色：开场负责提出立场，交叉审阅负责回应双方观点，主席负责综合。修改同一席位的角色时，要同步检查它的开场和审阅节点。需要固定的角色规范，再选择已经配置好的专家。</p>
+<p><strong>第三条创建路径：把 Skill 中的方法转换成工作流。</strong></p>
+<p>如果已经有可用的 Skill，进入 <strong>新建工作流 → 基于 Skill</strong>。在“将 Skill 转换为工作流”窗口中填写研究需求，选择来源方法和转换模型。</p>
+<p><img src="../assets/tutorials/agent-workflow/09-from-skill.png" alt="从 Skill 转换工作流：研究需求、手动选择 literature-review 和转换模型" loading="lazy" width="1600" height="1000" /></p>
+<p><em>图 4：示例选择 literature-review 作为来源方法。截图停在生成前，没有调用转换模型。</em></p>
+<p>来源方法可以自动选择，也可以切换为手动选择并搜索技能；手动最多选择 8 个。第一次选一个范围明确的方法即可，例如 <code>literature-review</code>，研究需求可以写：</p>
+<blockquote>
+<p>根据 literature-review 的方法，将观点核查拆成支持证据、挑战性证据和综合结论三个任务。保留文献核验、来源和不确定性要求。两路检索可独立进行，综合必须依赖双方结果。请生成可复用工作流，不把本次主题或路径固定在模板中。</p>
+</blockquote>
+<p>选择已配置的 <strong>转换模型</strong> 后，点击 <strong>生成工作流草稿</strong>。这一步会产生模型调用，用于读取和转换方法，尚未执行生成的科研工作流。</p>
+<p>草稿返回后，先读节点指令、依赖、申请的权限和输出要求，再点击 <strong>使用草稿并编辑</strong>。进入编辑器后补齐名称，按需要调整配置并保存；之后仍通过会话中的 <code>/</code> 入口启动。</p>
+<p>当前转换支持方法正文和 Markdown 参考文档，包内脚本、运行时等资源暂不支持转换。转换得到的节点应包含独立、可执行的工作说明。来源 Skill 用于提供方法材料，并不是把 Skill 名称挂在节点上就能完成配置。以后修改源 Skill，也不要假定已经保存的模板会自动同步；需要重新转换或手动更新。</p>
+<p><strong>排查配置问题时，先从具体节点开始。</strong></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="教程表格"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>现象</th>
+<th>优先检查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保存按钮不可用</td>
+<td>顶部原因提示；名称、目标、ID、指令和能力是否齐全</td>
+</tr>
+<tr>
+<td>两个节点总在重复回答</td>
+<td>是否承担不同职责，是否写清各自的交付内容</td>
+</tr>
+<tr>
+<td>汇总没有使用某一路结果</td>
+<td>是否真的配置了依赖，而不只是提到了任务名称</td>
+</tr>
+<tr>
+<td>节点无法读取文件或检索</td>
+<td>是否选择相应能力；路径、连接器和环境是否可用</td>
+</tr>
+<tr>
+<td>改完节点，重新打开却没有变化</td>
+<td>是否点击了“保存工作流”；运行时是否选择正确副本</td>
+</tr>
+<tr>
+<td>Skill 转换按钮不可用</td>
+<td>是否填写需求、选择有效来源和已配置的转换模型</td>
+</tr>
+<tr>
+<td>生成草稿后没有自动执行</td>
+<td>先使用草稿并编辑、保存，再回到会话选择并发送</td>
+</tr>
+</tbody>
+</table></div>
+<p>当“研究论证检查”已经能稳定处理你的材料，再考虑增加检索、文件输出或其他角色。每增加一个节点，都应能说清它提供了什么新结果，以及谁会使用这个结果。</p>
+<blockquote>
+<p>本文与 <a href="wisp-science-agent-workflow.html">内置工作流用法</a> 配套。更底层的执行与审批机制见 <a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/agent-delegation.md">Agent delegation</a>；需要将模板绑定到选中文字入口时，参见 <a href="wisp-science-quick-actions.html">快捷动作</a>。</p>
+</blockquote>
+</div>
+<div class="tutorial-body lang-en" lang="en">
+<p>The previous <a href="wisp-science-agent-workflow.html">Agent Workflow tutorial</a> introduced four built-ins. When the same division of work repeatedly helps you review research plans, examine evidence, or prepare meetings, save it as your own workflow.</p>
+<p>This tutorial builds a complete small example: <strong>Research argument review</strong>. Two tasks independently extract claims and examine evidence; a third proposes revisions. It then covers copying a template and converting a Skill into a workflow.</p>
+<p>Screenshots use the current frontend with local fixture data. No model calls, paper searches, or real research tasks were executed. The example uses only text supplied in the request, so it does not require a literature connector or code runtime.</p>
+<p><strong>Define the deliverable before creating nodes.</strong></p>
+<p>Make “review this argument” concrete:</p>
+<blockquote>
+<p>Using the supplied passage and evidence summary, return a table with original claim, evidence strength, suggested wording, and open questions, followed by three priority revisions.</p>
+</blockquote>
+<p>Then define the division of work:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Task ID</th>
+<th>Responsibility</th>
+<th>Dependencies</th>
+<th>Capability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claims</code></td>
+<td>Extract claims; distinguish observations, correlations, and causal inference</td>
+<td>None</td>
+<td><code>reasoning</code></td>
+</tr>
+<tr>
+<td><code>evidence_check</code></td>
+<td>Independently assess support, limitations, and alternatives</td>
+<td>None</td>
+<td><code>reasoning</code></td>
+</tr>
+<tr>
+<td><code>synthesis</code></td>
+<td>Reconcile the two results and propose revisions</td>
+<td><code>claims</code>, <code>evidence_check</code></td>
+<td><code>reasoning</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Both initial tasks receive the passage and evidence summary. The second cites source excerpts rather than waiting for claim IDs from the first. Synthesis matches their results. This makes the two reviews genuinely independent tasks in the graph.</p>
+<p><strong>Open Settings → Workflows → New workflow.</strong></p>
+<p><img src="../assets/tutorials/en/agent-workflow/06-new.png" alt="New workflow dialog with Blank, From a template, and From Skills" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 1: All three creation routes share this entry point. Start with Blank for this example.</em></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Route</th>
+<th>When to use it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Blank</td>
+<td>You already know the division of work</td>
+</tr>
+<tr>
+<td>From a template</td>
+<td>An existing workflow is close to your needs</td>
+</tr>
+<tr>
+<td>From Skills</td>
+<td>You have a method document and want a model to turn it into independent tasks</td>
+</tr>
+</tbody>
+</table></div>
+<p>Editing a blank workflow or template does not require model generation. Skill conversion calls the selected model when generating a draft. All routes require saving and then selecting the workflow in a conversation to execute it.</p>
+<p><strong>Step 1: fill in the name, goal, and shared context.</strong></p>
+<p>Choose <strong>Blank</strong>. One initial task appears. Fill in the workflow-level configuration:</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Field</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Name</td>
+<td>Research argument review</td>
+</tr>
+<tr>
+<td>Description</td>
+<td>Extract claims and examine evidence independently, then propose revisions.</td>
+</tr>
+<tr>
+<td>Delegation goal</td>
+<td>Review the supplied passage and evidence summary; return evidence-grounded revisions.</td>
+</tr>
+<tr>
+<td>Approval policy</td>
+<td>Review every draft</td>
+</tr>
+</tbody>
+</table></div>
+<p>Expand <strong>Shared task context</strong> on the right and enter:</p>
+<pre><code class="language-text">Use only supplied material. Mark missing information explicitly.
+Do not invent sources, data, or completed experiments. Do not write project files.
+</code></pre>
+<p>Name and description identify the template. Execution instructions belong in the goal, context, and nodes. Store recurring rules in the template; provide the changing passage, evidence summary, and question when sending each request.</p>
+<p><strong>Step 2: turn the initial node into claims.</strong></p>
+<p>Double-click the initial node, or select it and choose <strong>Edit node</strong>. Keep its type as <strong>Agent</strong>, change its ID to <code>claims</code>, and enter:</p>
+<pre><code class="language-text">Extract and number claims C1, C2, etc. from the supplied research passage.
+Distinguish observations, correlations, and causal inference.
+Quote the relevant passage; do not infer missing evidence.
+</code></pre>
+<p>Expand <strong>Capabilities</strong> and keep <code>Reasoning</code> (<code>reasoning</code>). This node only processes supplied text. Keep the temporary Agent role and default execution controls; creating a specialist for each task is unnecessary.</p>
+<p>Closing task details preserves edits in the current draft. <strong>It does not save the entire workflow.</strong> Use the top-level save action after finishing the configuration.</p>
+<p><strong>Step 3: add an independent evidence_check node.</strong></p>
+<p>Open <strong>Add task</strong> in the graph toolbar and choose <strong>Independent task</strong>. Its editor opens automatically. Set its ID to <code>evidence_check</code>, keep <code>reasoning</code>, and enter:</p>
+<pre><code class="language-text">Independently review the passage and evidence summary.
+Identify support, limits, and alternative explanations with source excerpts.
+Flag missing sample sizes, controls, or statistics; invent no results.
+</code></pre>
+<p>Both nodes should have no incoming dependencies. They receive the same material but have different responsibilities. Duplicating a vague “analyze everything” instruction would usually produce redundant work.</p>
+<p><strong>Step 4: add synthesis and connect both upstream tasks.</strong></p>
+<p>Add another independent task with ID <code>synthesis</code> and capability <code>reasoning</code>. Enter:</p>
+<pre><code class="language-text">Read the claims and evidence_check dependency results.
+Match claims to evidence and return a table of original claim, evidence strength,
+suggested wording, and open questions. Preserve disagreement, add no new sources,
+and finish with three priority revisions.
+</code></pre>
+<p>Expand <strong>Edit dependencies</strong> in this node's details and select both <code>claims</code> and <code>evidence_check</code>.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/07-node-editor.png" alt="Synthesis task instructions and both upstream dependencies selected" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 2: Select dependencies explicitly. Writing “wait for previous tasks” in prose does not create graph edges.</em></p>
+<p>Alternatively, drag an upstream output handle to a downstream node. <strong>Add after selected</strong> creates a new task with a dependency on the selected node. Whichever method you use, this synthesis task must depend on both upstream tasks.</p>
+<p>Close the details window. The graph should show <strong>three tasks, two stages, and at most two parallel nodes</strong>: <code>claims</code> and <code>evidence_check</code> on the left, <code>synthesis</code> on the right, and two arrows into synthesis.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/08-custom-graph.png" alt="Saved Research argument review graph and shared configuration" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 3: The complete example. Edges express dependencies; execution policy still controls actual concurrency.</em></p>
+<p>Use unique, short, stable task IDs. Keep dependencies acyclic: do not connect synthesis back to claims. For another revision cycle, adjust the input or template and start a new request.</p>
+<p><strong>Step 5: save and try familiar material.</strong></p>
+<p>Choose <strong>Save workflow</strong> and confirm the success message and the new library entry. If save is disabled, read the reason near the header. Common causes include missing name, goal, instructions, or capabilities.</p>
+<p>Return to a project conversation, type <code>/</code>, and select “Research argument review.” Send:</p>
+<pre><code class="language-text">Review the following argument using the selected workflow and only this material.
+
+Passage: Gene X has higher expression in the treatment group; therefore gene X
+causes the phenotype change induced by treatment.
+
+Evidence summary: Only an expression comparison is available. Sample size,
+statistical test results, functional perturbation, and rescue experiments
+have not been supplied.
+
+Which wording can remain, which claims should become hypotheses, and what
+additional evidence is needed?
+</code></pre>
+<p>This deliberately incomplete example is not a real experimental result. Review the resulting three-node plan and its dependencies, then choose <strong>Approve and run</strong>.</p>
+<p>In <strong>Agents</strong>, check whether each task fulfilled its role, whether synthesis used both results, and whether missing evidence remained explicit. Familiar material makes configuration errors easier to identify than a large unfamiliar dataset.</p>
+<p>Saving a template, approving a plan, and executing a workflow are separate actions. A saved template change applies to subsequent uses; editing the template does not rewrite an already approved execution plan.</p>
+<p><strong>Add capabilities and output contracts when needed.</strong></p>
+<p>All three example nodes use <code>reasoning</code> because their inputs are already in the message. For files or active retrieval, update the input description, instructions, and capabilities together.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>New requirement</th>
+<th>Configuration direction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read a project report</td>
+<td>Add <code>project_read</code> to the relevant node and specify paths</td>
+</tr>
+<tr>
+<td>Retrieve real publications</td>
+<td>Select an available <code>literature_search</code> capability and configure its connector and verification requirements</td>
+</tr>
+<tr>
+<td>Save the report</td>
+<td>Add <code>project_write</code> to the saving node; specify path and overwrite rules</td>
+</tr>
+<tr>
+<td>Execute analysis</td>
+<td>Use <code>code_run</code> with explicit environment, inputs, and boundaries</td>
+</tr>
+</tbody>
+</table></div>
+<p>Capabilities determine which tools a node may request. Instructions do not automatically grant tools or install dependencies. Assigning reading, execution, and saving to explicit tasks also makes failures easier to diagnose.</p>
+<p>For machine-readable results, configure an <strong>output JSON Schema</strong> and explain the fields in the instructions. For example, synthesis might return <code>claims</code> and <code>next_steps</code> arrays. Initially, keep the default output format and focus on clear content requirements.</p>
+<p><strong>Advanced execution controls</strong> cover executor, model, and budgets. Begin with defaults. Set maximum tokens, tool calls, or cost when needed. Blank budget fields mean unlimited; blank timeout uses the policy default and <code>0</code> means no timeout. Run activities have separate input and budget contracts rather than ordinary Agent controls.</p>
+<p><strong>Route two: adapt an existing template.</strong></p>
+<p>Choose <strong>New workflow → From a template</strong>, then select a suitable workflow. For example, copy <code>Roundtable</code>, rename it “Lab meeting planning,” add recurring constraints, and refine participant instructions.</p>
+<p>You can also edit a built-in and choose <strong>Save as copy</strong>. The built-in remains available; select your saved copy to use the revised rules.</p>
+<p>Check role consistency across stages. Openings establish positions, cross-reviews respond to both sides, and the chair synthesizes. When changing a participant, update both its opening and review nodes. Select an existing specialist if you need a reusable role definition.</p>
+<p><strong>Route three: convert a Skill's method into a workflow.</strong></p>
+<p>Choose <strong>New workflow → From Skills</strong>. Enter a research request and select source methods and a conversion model.</p>
+<p><img src="../assets/tutorials/en/agent-workflow/09-from-skill.png" alt="Skill conversion with a request, literature-review selected manually, and a conversion model" loading="lazy" width="1600" height="1000" /></p>
+<p><em>Figure 4: literature-review is the source method. The screenshot stops before generation; no conversion model was called.</em></p>
+<p>Sources can be chosen automatically or manually through search. Manual selection allows up to eight; start with one clearly scoped method, such as <code>literature-review</code>. A request could be:</p>
+<blockquote>
+<p>Convert literature-review into supporting-evidence, challenging-evidence, and synthesis tasks. Preserve citation verification, sources, and uncertainty. Searches should be independent; synthesis must depend on both. Produce a reusable workflow without hard-coding the current topic or paths.</p>
+</blockquote>
+<p>Select a configured <strong>conversion model</strong> and choose <strong>Generate workflow draft</strong>. This calls the model to convert the method; it does not execute the resulting research workflow.</p>
+<p>Review the draft's instructions, dependencies, requested capabilities, and output contracts, then choose <strong>Use draft and edit</strong>. Complete its name, revise configuration, and save. Start it later through <code>/</code> in a conversation.</p>
+<p>Conversion currently supports method text and Markdown reference documents, not bundled scripts or runtime resources. Converted nodes should contain self-contained executable instructions. The source Skill supplies method material; attaching its name alone is not sufficient configuration. Later changes to the source Skill should not be assumed to update saved templates automatically. Reconvert or edit them explicitly.</p>
+<p><strong>Diagnose configuration problems at the affected node.</strong></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Tutorial table"><table class="doc-table doc-table-compact">
+<thead>
+<tr>
+<th>Symptom</th>
+<th>First check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Save is disabled</td>
+<td>Header reason; name, goal, IDs, instructions, and capabilities</td>
+</tr>
+<tr>
+<td>Two nodes repeat each other</td>
+<td>Distinct responsibilities and deliverables</td>
+</tr>
+<tr>
+<td>Synthesis ignores a result</td>
+<td>An actual dependency exists, not just a task name in prose</td>
+</tr>
+<tr>
+<td>A node cannot read or search</td>
+<td>Required capability, paths, connector, and environment</td>
+</tr>
+<tr>
+<td>Edits appear lost</td>
+<td>The workflow was saved and the correct copy was selected</td>
+</tr>
+<tr>
+<td>Conversion cannot start</td>
+<td>Request, valid source selection, and a configured model</td>
+</tr>
+<tr>
+<td>A generated draft does not execute</td>
+<td>Use and edit the draft, save it, then select and send it in a conversation</td>
+</tr>
+</tbody>
+</table></div>
+<p>Once this small workflow handles your material reliably, add retrieval, file outputs, or other roles as needed. For each new node, identify the new result it contributes and which task will use that result.</p>
+<blockquote>
+<p>Companion reading: <a href="wisp-science-agent-workflow.html">Built-in workflow usage</a>, <a href="https://github.com/xuzhougeng/wisp-science/blob/main/docs/agent-delegation.md">Agent delegation</a>, and <a href="wisp-science-quick-actions.html">Quick Actions</a> for binding templates to selected-text actions.</p>
+</blockquote>
+</div>
+</article>
+<nav class="tutorial-pagination" aria-label="相邻教程" data-i18n-aria="tutorials.pagination"><a class="tutorial-previous" href="wisp-science-agent-workflow.html"><span data-i18n="tutorials.previous">上一篇</span><strong data-text-zh="Agent Workflow" data-text-en="Agent Workflow">Agent Workflow</strong></a><a class="tutorial-next" href="wisp-science-cli.html"><span data-i18n="tutorials.next">下一篇</span><strong data-text-zh="Wisp 命令行" data-text-en="Wisp CLI">Wisp 命令行</strong></a></nav>
+<div class="tutorial-reader-back"><a class="tutorial-back" href="../tutorials.html#wisp-science-agent-workflow-create" data-i18n="tutorials.back">返回教程目录</a></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="../index.html#top">
+        <img src="../assets/logo.svg" alt="" width="24" height="24">
+        Wisp Science
+      </a>
+      <nav class="footer-links">
+        <a href="https://github.com/xuzhougeng/wisp-science">GitHub</a>
+        <a href="../mcp.html" data-i18n="nav.mcp">MCP</a>
+        <a href="../skills.html" data-i18n="nav.skills">SKILLS</a>
+        <a href="../tutorials.html" data-i18n="nav.tutorials">教程</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/releases" data-i18n="footer.releases">版本记录</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/issues" data-i18n="footer.issues">问题反馈</a>
+        <a href="https://github.com/xuzhougeng/wisp-science/blob/main/LICENSE">AGPL-3.0-only</a>
+      </nav>
+      <p class="footer-copy" data-i18n="footer.copy">© 2026 Wisp Science · 开源科学计算 Agent</p>
+    </div>
+  </footer>
+  <script src="../assets/i18n.js"></script>
+</body>
+</html>

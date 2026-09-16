@@ -26,6 +26,7 @@ READING_ORDER = [
     "wisp-science-skills", "wisp-science-trajectory", "wisp-science-research-journey",
     "wisp-science-specialists", "wisp-science-quick-actions",
     "wisp-science-transcriptome-upstream", "wisp-science-rnaseq-downstream",
+    "wisp-science-agent-workflow", "wisp-science-agent-workflow-create",
     "wisp-science-cli",
     "wisp-science-acp",
 ]
