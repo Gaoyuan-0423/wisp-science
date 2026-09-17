@@ -176,7 +176,7 @@ private struct ProjectLanding: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
-            Text("SwiftUI 原生预览 · 支持项目收藏 · 会话只读")
+            Text("SwiftUI 原生预览 · 项目与实时会话")
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
                 if let loaded = model.lastLoaded {

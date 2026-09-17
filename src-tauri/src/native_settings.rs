@@ -16,9 +16,10 @@ use tokio::sync::{oneshot, Mutex};
 use wisp_dto::native_settings::{HostDescriptor, Request, Response, COMMANDS, SCHEMA};
 
 #[derive(Clone)]
-struct Broker {
-    app: tauri::AppHandle,
+pub(crate) struct Broker {
+    pub(crate) app: tauri::AppHandle,
     token: String,
+    pub(crate) conversations: Arc<crate::native_conversations::Conversations>,
     contexts: Arc<Mutex<HashMap<Option<String>, String>>>,
 }
 
@@ -68,6 +69,7 @@ pub(crate) fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let broker = Broker {
         app: app.clone(),
         token,
+        conversations: Arc::new(crate::native_conversations::Conversations::default()),
         contexts: Default::default(),
     };
     let router = Router::new()
@@ -114,7 +116,10 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
         return Err("Invalid native settings request".into());
     }
     if request.command == "native_settings_capabilities" {
-        return Ok(serde_json::json!({ "commands": COMMANDS, "schema": SCHEMA }));
+        return Ok(serde_json::json!({ "commands": COMMANDS, "schema": SCHEMA, "conversations": wisp_dto::native_conversations::COMMANDS, "conversation_schema": wisp_dto::native_conversations::SCHEMA }));
+    }
+    if wisp_dto::native_conversations::COMMANDS.contains(&request.command.as_str()) {
+        return crate::native_conversations::dispatch(broker, request).await;
     }
     if !COMMANDS.contains(&request.command.as_str()) {
         return Err("Command is not available to native settings".into());
@@ -144,15 +149,19 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
         .await?;
         return Ok(Value::Null);
     }
+    invoke_command(broker, request.project_id.clone(), &request.command, request.args.clone()).await
+}
+
+pub(crate) async fn invoke_command(broker: &Broker, project_id: Option<String>, command: &str, args: Value) -> Result<Value, String> {
     let label = {
         let mut contexts = broker.contexts.lock().await;
-        if let Some(label) = contexts.get(&request.project_id) {
+        if let Some(label) = contexts.get(&project_id) {
             label.clone()
         } else {
             if contexts.len() >= 32 {
                 return Err("Too many settings project contexts; restart the desktop host".into());
             }
-            let active = if let Some(id) = &request.project_id {
+            let active = if let Some(id) = &project_id {
                 Some(
                     crate::project_commands::load_active_project(
                         &broker.app.state::<crate::AppState>(),
@@ -193,7 +202,7 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
                 })
                 .map_err(|e| e.to_string())?;
             rx.await.map_err(|_| "Settings host closed")??;
-            contexts.insert(request.project_id.clone(), label.clone());
+            contexts.insert(project_id.clone(), label.clone());
             label
         }
     };
@@ -221,11 +230,11 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
     let (tx, rx) = oneshot::channel();
     webview.on_message(
         tauri::webview::InvokeRequest {
-            cmd: request.command.clone(),
+            cmd: command.to_owned(),
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url,
-            body: InvokeBody::Json(request.args.clone()),
+            body: InvokeBody::Json(args),
             headers: Default::default(),
             invoke_key: broker.app.invoke_key().to_owned(),
         },
@@ -246,6 +255,11 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
             let _ = tx.send(result);
         }),
     );
+    if command == "send_message" {
+        // The host owns the turn; HTTP acceptance has already returned. Keep
+        // observing completion even if the UI disconnects or the turn is long.
+        return rx.await.map_err(|_| "Conversation host closed")?;
+    }
     tokio::time::timeout(Duration::from_secs(660), rx)
         .await
         .map_err(|_| "Settings command timed out; refresh to check the result before retrying")?

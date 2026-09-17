@@ -1,0 +1,41 @@
+{
+  "schema": "wisp.native-conversations.v1",
+  "epoch": "host-one",
+  "sequence": 7,
+  "project_id": "project-a",
+  "session_id": "session-a",
+  "items": [
+    {
+      "role": "user",
+      "text": "检查样本",
+      "tool_name": null,
+      "input": null,
+      "ok": null,
+      "status": null
+    },
+    {
+      "role": "assistant",
+      "text": "正在检查样本…",
+      "tool_name": null,
+      "input": null,
+      "ok": null,
+      "status": null
+    }
+  ],
+  "next_before_seq": null,
+  "running": true,
+  "stopping": false,
+  "read_only": false,
+  "model_id": "model-a",
+  "request_id": "c2bb7a45-ddbb-47b1-82db-82f289d9aa7d",
+  "error": null,
+  "approvals": [
+    {
+      "approval_id": "approval-a",
+      "frame_id": "session-a",
+      "message": "运行此命令？",
+      "tool": "shell",
+      "preview": "ls samples"
+    }
+  ]
+}

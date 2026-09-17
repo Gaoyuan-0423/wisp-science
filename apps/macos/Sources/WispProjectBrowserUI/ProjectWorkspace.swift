@@ -6,6 +6,11 @@ import WispProjectBrowser
 struct ProjectWorkspace: View {
     @ObservedObject var model: ProjectBrowserModel
     let project: ProjectSummary
+    @ObservedObject private var conversation: NativeConversationModel
+    init(model: ProjectBrowserModel, project: ProjectSummary) {
+        self.model = model; self.project = project
+        self.conversation = model.nativeConversation()
+    }
     @Environment(\.colorScheme) private var scheme
     @State private var sidebarVisible = true
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -41,57 +46,24 @@ struct ProjectWorkspace: View {
                         Button("重试") { Task { await model.openProject(project.id, sessionID: model.activeSessionID) } }
                     }.padding().foregroundStyle(.orange)
                 }
-                ScrollViewReader { scroll in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        if model.nextBeforeSeq != nil, let id = model.activeSessionID {
-                            Button("加载更早的消息") { Task { await model.openSession(id, older: true) } }
-                                .buttonStyle(WispButtonStyle()).disabled(model.transcriptLoading)
-                        }
-                        ForEach(model.messages) { message in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(message.role == "user" ? "你" : (message.role == "tool" ? (message.toolName ?? "工具") : "Wisp Science"))
-                                    .font(WispDesign.font(size: 12, weight: .semibold)).foregroundStyle(color("text-muted"))
-                                Text((try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
-                                    .font(WispDesign.font(size: 14)).textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(16)
-                            .background(message.role == "user" ? color("bg-sunken") : .clear,
-                                        in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        if model.transcriptLoading || model.sessionsLoading {
-                            ProgressView().frame(maxWidth: .infinity).padding()
-                        } else if model.messages.isEmpty && model.sessionError == nil {
-                            Text(model.sessions.isEmpty ? "这个项目还没有会话" : "这个会话暂无消息")
-                                .foregroundStyle(color("text-faint")).padding(32)
-                        }
-                    }
-                    .frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
+                if let session = model.activeSessionID {
+                    NativeConversationView(conversation: conversation)
+                        .task(id: project.id + ":" + session) { await conversation.open(project: project.id, session: session) }
+                        .onDisappear { conversation.pause() }
+                } else {
+                    VStack(spacing: 16) {
+                        Text("开始新的研究对话").font(WispDesign.font(size: 22, weight: .semibold))
+                        Text(conversation.operationError ?? "创建会话后即可选择模型并发送消息。").foregroundStyle(color("text-muted"))
+                        Button("新建会话") { createSession() }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .onChange(of: model.messages.last?.id) { id in
-                    if let id { scroll.scrollTo(id, anchor: .bottom) }
-                }
-                }
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("向 Wisp Science 提问…").foregroundStyle(color("text-faint"))
-                    HStack {
-                        WispUnavailableAction(title: "添加附件", icon: "attach", iconOnly: true)
-                        WispUnavailableAction(title: "选择模型")
-                        Spacer()
-                        WispUnavailableAction(title: "发送", primary: true)
-                    }
-                }
-                .padding(16).background(color("bg-elev"), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color("border")))
-                .padding(.horizontal, 24).frame(maxWidth: 850)
-                Text("原生预览 · 会话只读 · 发送消息与实时运行尚未接入")
-                    .font(WispDesign.font(size: 11)).foregroundStyle(color("text-faint"))
-                    .padding(18).frame(maxWidth: .infinity)
             }
         }
         .background(color("bg-app")).foregroundStyle(color("text")).tint(color("clay"))
+    }
+
+    private func createSession() {
+        Task { if let id = await conversation.create(project: project.id) { await model.openNativeDraft(id, projectID: project.id) } }
     }
 
     private var sidebar: some View {
@@ -112,7 +84,7 @@ struct ProjectWorkspace: View {
                     .buttonStyle(.plain).help("收起侧边栏").accessibilityLabel("收起侧边栏")
             }
             VStack(spacing: 4) {
-                WispUnavailableAction(title: "新建会话", icon: "plus", primary: true, expanded: true)
+                Button { createSession() } label: { HStack { WispIcon(name: "plus", size: 16); Text("新建会话"); Spacer() } }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
                 Button { model.searchPresented = true } label: {
                     HStack { WispIcon(name: "search", size: 16); Text("搜索"); Spacer() }
                 }.buttonStyle(WispButtonStyle(compact: true))

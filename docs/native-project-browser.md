@@ -188,15 +188,14 @@ Manual smoke steps:
 
 ## Remaining feature work
 
-The preview aligns the home/workspace shell and read-only navigation. Full
-feature parity remains separate from this layout change. Home creation/import,
-calendar/library/settings entry points, the sidebar tools, artifact
-search, and composer/live runtime integration still require their native services.
+The preview aligns the home/workspace shell and includes native settings and the
+conversation loop described below. Home creation/import, calendar/library,
+the sidebar tools and artifact search still require their native services.
 Their action slots are visible but explicitly disabled in the preview.
-The transcript currently renders saved text and tool records, not the WebView's
-rich attachments, branch/review cards, or interactive tool surfaces. WinUI retains
-the expanded contract seam; its transport/window, native signing/distribution,
-and richer capability negotiation remain follow-ups. Conversations remain read-only.
+The transcript renders text, tool records and basic questions; rich attachments,
+branch/review cards and interactive tool surfaces remain follow-ups. WinUI has a
+project browser and the shared settings/conversation contract clients; equivalent
+native settings and conversation views remain separate work.
 
 ## Native settings
 
@@ -205,3 +204,9 @@ desktop runtime. See [native-settings.md](native-settings.md) for scope,
 architecture, native/WebView differences, smoke steps and the WinUI 3 transport
 interface. The project-browser service remains focused on project/session reads
 and project stars.
+
+## Native conversations
+
+SwiftUI now connects HTTP-model conversations to the desktop runtime for sending,
+live snapshots, stopping and one-shot approvals. See [native-conversations.md](native-conversations.md)
+for scope, recovery guarantees and the equivalent WinUI 3 client contract.

@@ -48,6 +48,9 @@ public struct BrowserSession: Codable, Identifiable, Equatable, Sendable {
     public let title: String
     public let ts: Int64
     public let status: String
+    public init(id: String, projectID: String, title: String, ts: Int64, status: String) {
+        self.id = id; self.projectID = projectID; self.title = title; self.ts = ts; self.status = status
+    }
     enum CodingKeys: String, CodingKey {
         case id, title, ts, status
         case projectID = "project_id"
