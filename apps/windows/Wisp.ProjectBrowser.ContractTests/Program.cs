@@ -27,3 +27,11 @@ var transcript = JsonSerializer.Deserialize<ProjectBrowserResponse>(File.ReadAll
 if (transcript.Type != "transcript" || transcript.Messages?.Count != 2
     || transcript.Messages[0].Sequence != 6 || transcript.NextBeforeSeq != 6)
     throw new InvalidOperationException("Transcript DTO drift");
+
+var star = JsonSerializer.Deserialize<SetProjectStarredRequest>(File.ReadAllText(Path.Combine(fixtureDirectory, "set-project-starred.json")))!;
+if (star.Schema != ProjectBrowserProtocol.Schema || star.Id != "projects-1"
+    || star.Type != "set_project_starred" || star.ProjectId != "research-1" || !star.Starred)
+    throw new InvalidOperationException("Project star command drift");
+var encodedStar = JsonSerializer.SerializeToElement(star);
+if (!encodedStar.GetProperty("starred").GetBoolean() || encodedStar.GetProperty("project_id").GetString() != "research-1")
+    throw new InvalidOperationException("Project star serialization drift");

@@ -118,7 +118,8 @@ private struct ProjectLanding: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(projects) { project in
-                        ProjectCard(project: project, selected: false,
+                        ProjectCard(project: project, selected: false, busy: model.isLoading, saving: model.savingProjectID == project.id,
+                                    toggleStar: { Task { await model.toggleStar(project.id) } },
                                     select: { Task { await model.openProject(project.id) } }, reveal: { model.reveal(project) })
                     }
                 }
@@ -162,7 +163,7 @@ private struct ProjectLanding: View {
 
     private func errorBanner(_ error: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("无法刷新项目").font(.system(size: 13, weight: .semibold))
+            Text("项目操作未完成").font(.system(size: 13, weight: .semibold))
             Text(error).font(.system(size: 12)).textSelection(.enabled)
             if model.lastLoaded != nil { Text("当前显示上次成功读取的项目。实时数据可能已变化。").font(.system(size: 12)) }
         }
@@ -172,7 +173,7 @@ private struct ProjectLanding: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
-            Text("SwiftUI 原生预览 · 只读 · 灰色操作尚未接入")
+            Text("SwiftUI 原生预览 · 支持项目收藏 · 会话只读")
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
                 if let loaded = model.lastLoaded {
@@ -202,6 +203,9 @@ private struct ProjectLanding: View {
 private struct ProjectCard: View {
     let project: ProjectSummary
     let selected: Bool
+    let busy: Bool
+    let saving: Bool
+    let toggleStar: () -> Void
     let select: () -> Void
     let reveal: () -> Void
     @Environment(\.colorScheme) private var scheme
@@ -234,7 +238,18 @@ private struct ProjectCard: View {
             .buttonStyle(.plain).accessibilityIdentifier("project-\(project.id)")
             .accessibilityAddTraits(selected ? [.isSelected] : [])
             HStack(spacing: 2) {
-                WispUnavailableAction(title: project.starred ? "取消收藏" : "收藏项目", icon: project.starred ? "star-filled" : "star", iconOnly: true)
+                Button(action: toggleStar) {
+                    if saving {
+                        ProgressView().controlSize(.small).frame(width: 16, height: 16)
+                    } else {
+                        WispIcon(name: project.starred ? "star-filled" : "star")
+                            .foregroundStyle(color(project.starred ? "clay" : "text-muted"))
+                    }
+                }
+                .buttonStyle(WispButtonStyle())
+                .disabled(busy)
+                .help(project.starred ? "取消收藏" : "收藏项目")
+                .accessibilityLabel("\(project.starred ? "取消收藏" : "收藏项目")：\(project.name)")
                 WispUnavailableAction(title: "项目设置", icon: "gear", iconOnly: true)
             }.padding(.trailing, 10)
         }

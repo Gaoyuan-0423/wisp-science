@@ -7,9 +7,18 @@ use wisp_dto::project_browser::{Response, SCHEMA};
 use wisp_store::Store;
 
 fn request(database: &Path, input: &str) -> Output {
+    request_mode(database, input, false)
+}
+
+fn request_mode(database: &Path, input: &str, writable: bool) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wisp-service"))
         .arg("--database")
         .arg(database)
+        .args(if writable {
+            vec!["--allow-project-writes"]
+        } else {
+            vec![]
+        })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -125,4 +134,74 @@ fn shared_session_and_transcript_contracts_roundtrip() {
         let decoded: Response = serde_json::from_value(expected.clone()).unwrap();
         assert_eq!(serde_json::to_value(decoded).unwrap(), expected);
     }
+}
+
+#[tokio::test]
+async fn project_stars_require_explicit_write_mode_and_preserve_activity() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("wisp.sqlite");
+    let store = Store::open(&database).await.unwrap();
+    store
+        .create_project("research-1", "Research", "same workspace")
+        .await
+        .unwrap();
+    store
+        .create_project("other", "Other identity", "same workspace")
+        .await
+        .unwrap();
+    store
+        .create_project("scratch:hidden", "Scratch", "scratch")
+        .await
+        .unwrap();
+    let before = store.list_projects().await.unwrap();
+    let command = include_str!("../../../contracts/project-browser/v1/set-project-starred.json");
+    let decoded: wisp_dto::project_browser::Request = serde_json::from_str(command).unwrap();
+    assert_eq!(
+        serde_json::to_value(decoded).unwrap(),
+        serde_json::from_str::<Value>(command).unwrap()
+    );
+    let denied = request(&database, command);
+    let reply: Value = serde_json::from_slice(&denied.stdout).unwrap();
+    assert_eq!(reply["code"], "write_disabled");
+    assert!(store.starred_project_ids().await.unwrap().is_empty());
+    for _ in 0..2 {
+        let output = request_mode(&database, command, true);
+        assert!(output.status.success(), "{:?}", output);
+        let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(reply["type"], "projects");
+        assert_eq!(reply["projects"][0]["id"], "research-1");
+        assert_eq!(reply["projects"][0]["starred"], true);
+        assert_eq!(reply["projects"][1]["starred"], false);
+    }
+    let after = store.list_projects().await.unwrap();
+    for row in &after {
+        assert_eq!(row.4, before.iter().find(|old| old.0 == row.0).unwrap().4);
+    }
+    for id in ["missing", "scratch:hidden"] {
+        let input = format!(
+            "{}\n",
+            json!({"schema":SCHEMA,"id":"bad","type":"set_project_starred","project_id":id,"starred":true})
+        );
+        let output = request_mode(&database, &input, true);
+        let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(reply["code"], "command_failed");
+    }
+    let output = request_mode(&database, &command.replace("true", "false"), true);
+    assert!(output.status.success());
+    assert!(store.starred_project_ids().await.unwrap().is_empty());
+    assert_eq!(store.list_projects().await.unwrap(), before);
+    let caps = format!(
+        "{}\n",
+        json!({"schema":SCHEMA,"id":"cap","type":"capabilities"})
+    );
+    let output = request_mode(&database, &caps, true);
+    let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(reply["read_only"], false);
+    assert!(reply["commands"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("set_project_starred")));
+    let missing = directory.path().join("missing.sqlite");
+    assert!(!request_mode(&missing, command, true).status.success());
+    assert!(!missing.exists());
 }
