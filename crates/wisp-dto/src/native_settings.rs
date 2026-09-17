@@ -192,21 +192,44 @@ mod tests {
     use super::*;
     #[test]
     fn shared_swift_windows_fixtures_preserve_scope_and_void_success() {
-        let request: Request = serde_json::from_str(include_str!("../../../contracts/native-settings/v1/request.json")).unwrap();
+        let request: Request = serde_json::from_str(include_str!(
+            "../../../contracts/native-settings/v1/request.json"
+        ))
+        .unwrap();
         assert_eq!(request.schema, SCHEMA);
         assert_eq!(request.project_id.as_deref(), Some("research-1"));
         assert!(COMMANDS.contains(&request.command.as_str()));
-        let prefs: crate::AppearancePrefs = serde_json::from_value(request.args["prefs"].clone()).unwrap();
+        let prefs: crate::AppearancePrefs =
+            serde_json::from_value(request.args["prefs"].clone()).unwrap();
         assert_eq!(prefs.ui_font_size, 15);
-        let void: Response = serde_json::from_str(include_str!("../../../contracts/native-settings/v1/void.json")).unwrap();
+        let void: Response = serde_json::from_str(include_str!(
+            "../../../contracts/native-settings/v1/void.json"
+        ))
+        .unwrap();
         assert!(void.error.is_none());
-        assert!(serde_json::to_value(void).unwrap().get("result").unwrap().is_null());
+        assert!(serde_json::to_value(void)
+            .unwrap()
+            .get("result")
+            .unwrap()
+            .is_null());
     }
     #[test]
     fn command_catalog_matches_allowlist_without_agent_execution() {
-        let catalog: Value = serde_json::from_str(include_str!("../../../contracts/native-settings/v1/commands.json")).unwrap();
-        let names = catalog["commands"].as_array().unwrap().iter().map(|row| row["command"].as_str().unwrap()).collect::<std::collections::BTreeSet<_>>();
-        let allowed = COMMANDS.iter().copied().chain(["native_settings_capabilities"]).collect::<std::collections::BTreeSet<_>>();
+        let catalog: Value = serde_json::from_str(include_str!(
+            "../../../contracts/native-settings/v1/commands.json"
+        ))
+        .unwrap();
+        let names = catalog["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["command"].as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        let allowed = COMMANDS
+            .iter()
+            .copied()
+            .chain(["native_settings_capabilities"])
+            .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(names, allowed);
         assert_eq!(COMMANDS.len() + 1, allowed.len());
         assert!(!allowed.contains("send_message"));

@@ -22,7 +22,6 @@ use wisp_store::{LibraryStore, Store};
 mod acp;
 mod agent_turn;
 mod app_commands;
-mod native_settings;
 mod app_state;
 mod app_updates;
 mod approval_commands;
@@ -45,6 +44,7 @@ mod device_bridge;
 mod device_hub;
 mod dynamic_workflow;
 mod exploration_commands;
+mod native_settings;
 pub(crate) use wisp_runs::exploration_isolation;
 mod exploration_promotion;
 mod exploration_workspace;
@@ -6967,7 +6967,11 @@ fn spawn_deferred_startup(
         // "main" window is built in `run()` so it can carry an `on_navigation`
         // guard; these are the extra per-project ones. A project that was
         // since deleted simply fails to spawn.
-        for (label, id) in if native_settings::requested(std::env::args()) { Vec::new() } else { project_commands::restored_window_projects(&store).await } {
+        for (label, id) in if native_settings::requested(std::env::args()) {
+            Vec::new()
+        } else {
+            project_commands::restored_window_projects(&store).await
+        } {
             let state = app.state::<AppState>();
             let _ = project_commands::spawn_project_window_with_label(
                 &app,
