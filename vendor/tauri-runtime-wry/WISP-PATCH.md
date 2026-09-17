@@ -34,8 +34,9 @@ keyboard/IME locks across reentrant Win32 `PeekMessageW` calls.
 
 This fixes the reproduced Windows deadlock tracked in
 [Wisp #1265](https://github.com/xuzhougeng/wisp-science/issues/1265).
-It does not fix the separate macOS modal-sheet/redraw deadlock in
-[Wisp #1250](https://github.com/xuzhougeng/wisp-science/issues/1250).
+The separate macOS modal-sheet/redraw deadlock in
+[Wisp #1250](https://github.com/xuzhougeng/wisp-science/issues/1250) is
+handled by the vendored Tao patch in `vendor/tao`.
 
 ## Removal
 

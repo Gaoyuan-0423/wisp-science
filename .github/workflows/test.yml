@@ -124,6 +124,32 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+  macos-native-redraw:
+    name: macOS native redraw reentrancy
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      WISP_CATALOG_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: macos-native-redraw
+      - name: Build desktop and native regression with the locked runtime
+        run: cargo build --locked -p wisp-tauri --bin wisp-tauri --example macos_redraw_reentrancy_smoke
+      # Each invocation owns a disposable native window and has a 45-second
+      # watchdog. No WebView, user profile, or external service is involved.
+      - name: Repeat redraw reentry, serial controls, and save-panel nested loops
+        run: |
+          set -euo pipefail
+          for trial in 1 2 3 4 5; do
+            ./target/debug/examples/macos_redraw_reentrancy_smoke
+            ./target/debug/examples/macos_redraw_reentrancy_smoke --control
+            ./target/debug/examples/macos_redraw_reentrancy_smoke --sheet
+          done
+
   rust:
     runs-on: ubuntu-latest
     strategy:
