@@ -7,6 +7,10 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var archiveNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "archive.json")));
+        var archive = NativeResearchArchive.Decode(archiveNode, "project-a", "session-a")!;
+        Require(archive.Confirmation().Files[0].Path == "results/qc.txt" && archive.FrozenAt is null, "Archive fixture drift");
+        try { NativeResearchArchive.Decode(archiveNode, "other", "session-a"); throw new Exception("Expected archive scope rejection"); } catch (InvalidDataException) { }
         var inbox = JsonSerializer.Deserialize<NativeInboxEntry[]>(File.ReadAllText(Path.Combine(directory, "inbox.json")), ConversationSnapshot.JsonOptions)!;
         Require(inbox.Length == 2 && inbox[1].ProjectId == "project-b" && inbox[1].Id == "session-b", "Inbox cross-project identity drift");
         var trajectoryNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "trajectory.json")));

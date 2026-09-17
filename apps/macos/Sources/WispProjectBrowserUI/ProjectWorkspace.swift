@@ -14,6 +14,7 @@ struct ProjectWorkspace: View {
     @Environment(\.colorScheme) private var scheme
     @State private var sidebarVisible = true
     @State private var trajectoryPresented = false
+    @State private var archivePresented = false
     @State private var inboxPresented = false
     @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -43,7 +44,9 @@ struct ProjectWorkspace: View {
                     Button { trajectoryPresented = true } label: { WispIcon(name: "timeline") }
                         .buttonStyle(.plain).help("运行轨迹").accessibilityLabel("运行轨迹")
                         .disabled(model.activeSessionID == nil)
-                    WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true, compact: true)
+                    Button { archivePresented = true } label: { WispIcon(name: "archive") }
+                        .buttonStyle(.plain).help("研究归档").accessibilityLabel("研究归档")
+                        .disabled(model.activeSessionID == nil || conversation.snapshot?.running == true)
                     Button { inboxPresented.toggle(); refreshInbox() } label: {
                         HStack(spacing: 2) { WispIcon(name: "bell"); if !inbox.entries.isEmpty { Text("\(inbox.entries.count)").font(.caption2) } }
                     }.buttonStyle(.plain).help("待查看").accessibilityLabel("待查看")
@@ -77,13 +80,24 @@ struct ProjectWorkspace: View {
                 }
             }
         }
+        .sheet(isPresented: $archivePresented) {
+            if let session = model.activeSessionID {
+                NativeArchiveView(client: conversation.client, projectID: project.id, sessionID: session, workspace: project.workspaceDirectory, close: {
+                    archivePresented = false
+                    Task { await conversation.refresh() }
+                }, continued: { id in
+                    archivePresented = false
+                    Task { await model.openProject(project.id, sessionID: id) }
+                }).id(project.id + ":" + session)
+            }
+        }
         .sheet(isPresented: $trajectoryPresented) {
             if let session = model.activeSessionID {
                 NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session) { trajectoryPresented = false }
                     .id(project.id + ":" + session)
             }
         }
-        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; inboxPresented = false }
+        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; archivePresented = false; inboxPresented = false }
         .task(id: project.id) {
             inbox.reset()
             while !Task.isCancelled {

@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_archive_get",
+    "native_conversation_archive_prepare",
+    "native_conversation_archive_confirm",
+    "native_conversation_archive_retry",
+    "native_conversation_archive_continue",
     "native_conversation_inbox",
     "native_conversation_seen",
     "native_conversation_trajectory",
@@ -15,6 +20,13 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_approve",
     "native_conversation_model",
 ];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveConfirmRequest {
+    pub session_id: String,
+    pub input: crate::ConfirmResearchArchive,
+}
 
 /// Full persisted question index. The next question's sequence is an exclusive
 /// history cursor, allowing clients to locate a turn without matching its text.
@@ -90,6 +102,15 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archive_fixture_uses_existing_review_contract() {
+        let archive: crate::ResearchArchive = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/archive.json")).unwrap();
+        assert_eq!(archive.project_id, "project-a");
+        assert_eq!(archive.files[0].action, "snapshot");
+        assert!(!archive.files[0].can_delete);
+        assert!(archive.frozen_at.is_none());
+        assert!(serde_json::from_str::<ArchiveConfirmRequest>(r#"{"input":{}}"#).is_err());
+    }
     #[test]
     fn inbox_fixture_preserves_cross_project_navigation_identity() {
         let rows: Vec<crate::SessionSearchInfo> = serde_json::from_str(include_str!(

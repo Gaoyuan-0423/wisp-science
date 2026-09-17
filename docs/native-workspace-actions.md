@@ -71,4 +71,25 @@ Latest focused Swift run: 15 passed, one opt-in render test skipped. Coverage
 includes repeated prompt history positioning, trajectory scope/search/export,
 inbox failure preservation and marking only successfully read sessions seen.
 Rust compilation remains running; it must be rerun for the final changed tree.
-Sharing, archive, terminal and right-side panel are still disabled placeholders.
+Sharing, terminal and right-side panel are still disabled placeholders.
+
+
+## Research archive implementation
+
+SwiftUI now loads/prepares the existing archive draft and supports report/script
+editing, file action selection, explicit consent, immutable freeze and cleanup,
+cleanup retry and continuation. Editing clears consent. A failed confirm reloads
+the saved record once without replaying a mutation, including when cleanup failed
+after a successful freeze. Saved materials open in a child Quick Look preview;
+canonical paths must remain inside the selected workspace. The existing backend
+still verifies ownership, file checksums, writable scope and deletion eligibility.
+The C# `INativeArchiveClient` uses the same ResearchArchive and confirmation DTOs.
+
+Archive tests cover scope, confirmation fields, consent invalidation and failed
+cleanup reconciliation/no replay. Three behavior tests passed; the opt-in renderer
+also passed and desktop/narrow/dark output was inspected. A missing explicit
+surface background was fixed during visual inspection. Final preview integration
+compiled and behavior tests passed again. Actual Escape/topmost interaction and
+real app smoke remain unverified; no live user research was archived during QA.
+C# shared fixture verification passed. The initial Rust check completed, and a
+second Rust check including archive changes is running; full CI remains pending.
