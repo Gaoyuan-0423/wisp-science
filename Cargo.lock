@@ -5232,8 +5232,6 @@ dependencies = [
 [[package]]
 name = "tao"
 version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d12c8607b01516c5d4a37e471a9cfb40b4a25cebce8fecbc6a559e125e51b6b"
 dependencies = [
  "bitflags 2.13.0",
  "block2",
@@ -7532,6 +7530,7 @@ dependencies = [
  "ignore",
  "image",
  "mac-notification-sys",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "portable-pty",
@@ -7545,6 +7544,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tao",
  "tar",
  "tauri",
  "tauri-build",

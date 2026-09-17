@@ -11,11 +11,11 @@ macOS #1250 仍需独立修复，不能把这次升级视为两个问题都已�
 | 问题 | 当前证据 | Tao 0.37.0 的覆盖 |
 | --- | --- | --- |
 | [#1265](https://github.com/xuzhougeng/wisp-science/issues/1265)：Windows 键盘消息重入死锁 | 旧版 0.35.3 稳定复现，debug dump 明确等待键盘 builder 锁 | 包含上游修复；同一复现程序在隔离项目和主工程中均通过 |
-| [#1250](https://github.com/xuzhougeng/wisp-science/issues/1250)：macOS 保存面板引起 redraw 重入 | 用户 spindump 证明主线程自锁；具体 Tao 路径依据源码和调用结构定位，原 EXE 缺少 dSYM | 仍未覆盖；0.37.0 和当前 dev 的 `handle_redraw` 仍直接调用持有 callback mutex 的路径 |
+| [#1250](https://github.com/xuzhougeng/wisp-science/issues/1250)：macOS 保存面板引起 redraw 重入 | 用户 spindump 证明主线程自锁；匹配符号的原生复现确认 `cleared` → `handle_user_events` 持锁，`draw_rect` → `handle_nonuser_event` 再次申请同一把锁 | 仍未覆盖；由 `vendor/tao` 的 `handle_redraw` 防重入补丁单独修复，见 [macos-redraw-reentrancy-reproduction.md](macos-redraw-reentrancy-reproduction.md) |
 
-#1250 当前为 closed，但其回复本身说明尚未修复。升级不能改变这个交付状态；
-需要独立的防重入/延迟重绘方案，以及 macOS 实机上的保存、打开、目录选择等
-原生面板验证。此 Windows 机器没有提供这项 macOS 实机证据。
+#1250 当前为 closed，但其回复本身说明 0.37.0 尚未修复。macOS 补丁与原生回归
+现在在 `vendor/tao` 和 `macos_redraw_reentrancy_smoke`；不能把 Windows 的
+0.37.0 升级本身当成 macOS 已修复。
 
 ## 当前发布链与接入约束
 
@@ -116,7 +116,7 @@ Chrome_WidgetWin_0 (1412)`；程序均正常 exit 0，功能断言已通过。�
 
 1. 已在独立分支接入 Tao 0.37，保持 Tauri/Wry 其余版本稳定，并记录 runtime 覆盖的来源和退出条件。
 2. 已将 #1265 复现程序加入 Windows CI：编译完整 desktop，五轮重入加五轮串行对照，共 40 个消息场景。
-3. 为 #1250 单独增加 macOS 重绘防重入方案和 native sheet 回归，获取实机证据；步骤见 [macOS 交接说明](macos-modal-redraw-handoff.md)。该项不能靠 Windows/Playwright 结果代替。
+3. #1250 已用 `vendor/tao` 的 `handle_redraw` 防重入和 `macos_redraw_reentrancy_smoke` 覆盖；步骤与实机基线见 [macOS 复现说明](macos-redraw-reentrancy-reproduction.md)。该项不能靠 Windows/Playwright 结果代替。
 4. 完成 Windows/macOS 窗口功能检查、Linux 冒烟，以及至少覆盖此前报告时长的交互/空闲运行观察，再决定发布。
 
 曾评估将 tao#1215 固定到 0.35.x 上游提交的较窄方案；当前选择 0.37，

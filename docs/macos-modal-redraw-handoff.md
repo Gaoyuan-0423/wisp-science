@@ -1,8 +1,11 @@
-# macOS #1250：保存面板重绘重入的下一步
+# macOS #1250：保存面板重绘重入
 
-本次 Windows 修复把 Tao 更新到 0.37.0，覆盖 #1265 的 Win32 输入锁重入。
-**它没有修复 [#1250](https://github.com/xuzhougeng/wisp-science/issues/1250)。**
-#1250 当前虽已关闭，仍缺少补丁与修复后的 macOS 实机证据。
+Windows #1265 的 Tao 0.37.0 升级不覆盖这个问题。macOS 补丁现在在
+`vendor/tao`：`handle_redraw` 在已处于 callback 时改为 `queue_redraw`，
+由后续 `cleared` 投递 `RedrawRequested`。复现、补丁前栈和运行方式见
+[macos-redraw-reentrancy-reproduction.md](macos-redraw-reentrancy-reproduction.md)。
+
+#1250 当前虽已关闭，仍应保留原生回归；不能只因为升级到 0.37.0 就标记已修复。
 
 ## 当前证据
 
@@ -31,7 +34,7 @@ AppState::cleared
 
 - [app_state.rs:203](https://github.com/tauri-apps/tao/blob/tao-v0.37.0/src/platform_impl/macos/app_state.rs#L203)：`handle_nonuser_event` 的 callback 锁。
 - [app_state.rs:214](https://github.com/tauri-apps/tao/blob/tao-v0.37.0/src/platform_impl/macos/app_state.rs#L214)：`handle_user_events` 的 callback 锁。
-- [app_state.rs:366](https://github.com/tauri-apps/tao/blob/tao-v0.37.0/src/platform_impl/macos/app_state.rs#L366)：`handle_redraw` 缺少 `in_callback` 防重入。
+- [app_state.rs:366](https://github.com/tauri-apps/tao/blob/tao-v0.37.0/src/platform_impl/macos/app_state.rs#L366)：上游 `handle_redraw` 缺少 `in_callback` 防重入；Wisp 的 `vendor/tao` 补丁已补上。
 - 同文件的 `wakeup` / `cleared` 已检查 `in_callback`，`queue_redraw` 已提供去重的待重绘队列。
 - Wisp 入口包括 `src-tauri/src/session_export.rs`、`app_commands.rs`、
   `artifact_commands.rs` 和 `project_transfer.rs` 的原生文件面板调用。
