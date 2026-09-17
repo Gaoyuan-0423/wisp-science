@@ -5,6 +5,37 @@ It lists real projects, preserves the desktop's ordering and metadata, searches
 names/descriptions/paths, refreshes on demand, and reveals a selected workspace
 in Finder. The existing desktop remains the client for chat and execution.
 
+## Visual alignment with the WebView
+
+The SwiftUI landing page follows `ui/src/styles/projects.css`: a centered page
+with the Wisp wordmark and tagline, warm paper surfaces, teal actions, compact
+project cards, and two equal columns. Below 820 points it switches to one column;
+long pages scroll. The right column contains the selected project's saved
+metadata, rather than the WebView's recent-session navigation, since session
+services and chat are outside this first preview.
+
+Search matches project names, descriptions, and directories. The star button
+filters saved favorites without changing them. Selection stays on the same ID
+after refresh if it remains visible; search/filter changes select the first
+visible project or show an empty overview. The footer provides system/light/dark
+appearance choices and the successful-read time; hover over the database filename
+to see its full path.
+
+Brand SVGs, the existing `compose_icon()` glyphs, and semantic colors are exported
+from the WebView sources into the Swift resource bundle. There is no second icon
+set and no WebView embedded in the SwiftUI screen. After changing those shared
+sources, run:
+
+```bash
+python3 scripts/sync_native_design.py
+python3 scripts/sync_native_design.py --check
+```
+
+CI and the app build check for asset drift. WinUI can consume the same SVG and
+palette exports when its views are implemented. Native system font rendering,
+window chrome, and file selection remain platform-specific; unsupported WebView
+actions (chat, project creation/import, settings) are not displayed as dead controls.
+
 ## Build and run on macOS
 
 Requires macOS 13+, Xcode with Swift 5.9+ command-line tools, and the repository's
@@ -89,7 +120,8 @@ dotnet run --project apps/windows/Wisp.ProjectBrowser.ContractTests -- contracts
 The Native Preview workflow runs the Swift build/tests on macOS and the C#
 contract check plus Rust service tests on Windows. Tests use temporary databases,
 shared JSON fixtures, and a fake child process; no API key, remote host, or model
-is required.
+is required. Swift presentation tests cover filtered selection, project identity,
+both palettes, and native SVG loading for the bundled wordmarks/icons.
 
 Manual smoke steps:
 
@@ -103,6 +135,12 @@ Manual smoke steps:
    chooser should close; the browser should remain open.
 5. Select an incompatible database and confirm the error is visible. Relaunch
    or refresh with a valid database and verify recovery.
+6. Toggle the star filter and search until no results remain. Confirm no hidden
+   project is left in the overview. Clear the filters and confirm recovery.
+7. Compare the native page with the WebView project landing page in light and dark
+   appearance. Resize below 820 points: header actions wrap and columns stack,
+   while project paths and controls remain accessible. Open the appearance menu
+   then press Escape immediately; the window should remain open.
 
 Follow-up work: extract shared session services, supply live runtime snapshots,
 add version/capability negotiation for a broader native API, implement the WinUI

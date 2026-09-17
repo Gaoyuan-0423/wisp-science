@@ -10,7 +10,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "WispProjectBrowser"),
-        .executableTarget(name: "WispSciencePreview", dependencies: ["WispProjectBrowser"]),
+        .target(name: "WispProjectBrowserUI", dependencies: ["WispProjectBrowser"], resources: [.process("Resources")]),
+        .executableTarget(name: "WispSciencePreview", dependencies: ["WispProjectBrowserUI"]),
         .testTarget(name: "WispProjectBrowserTests", dependencies: ["WispProjectBrowser"]),
+        .testTarget(name: "WispProjectBrowserUITests", dependencies: ["WispProjectBrowserUI"]),
     ]
 )
