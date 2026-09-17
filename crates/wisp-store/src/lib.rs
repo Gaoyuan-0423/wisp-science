@@ -31,6 +31,7 @@ mod publication_sources;
 mod publications;
 mod remote_staging;
 mod research;
+mod research_archives;
 mod research_journey;
 mod resources;
 mod runs;
@@ -178,6 +179,7 @@ const SESSION_SERVICE_TIER_MIGRATION: &str = "0053_session_service_tier";
 const RESEARCH_JOURNAL_MIGRATION: &str = "0054_research_journal";
 const EXPLORATION_HISTORY_MIGRATION: &str = "0055_exploration_history";
 const PROJECT_STARS_MIGRATION: &str = "0056_project_stars";
+const RESEARCH_ARCHIVES_MIGRATION: &str = "0057_research_archives";
 
 #[derive(Clone)]
 pub struct Store {
@@ -757,6 +759,20 @@ impl Store {
     /// Idempotent repair for schema objects that numbered migrations can miss
     /// after a large version skip. Only CREATE IF NOT EXISTS / ADD COLUMN.
     async fn ensure_schema_compat(pool: &SqlitePool) -> Result<()> {
+        // Partial legacy stores may contain only run tables. Install the
+        // notebook triggers only when their target tables exist; retry this
+        // additive migration on every open until the notebook schema exists.
+        let notebook_tables: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('frames','messages','session_ui_events')",
+        )
+        .fetch_one(pool)
+        .await?;
+        if notebook_tables == 3 {
+            sqlx::raw_sql(include_str!("../migrations/0057_research_archives.sql"))
+                .execute(pool)
+                .await?;
+            Self::record_migration(pool, RESEARCH_ARCHIVES_MIGRATION).await?;
+        }
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS folders (\
              id TEXT PRIMARY KEY, \

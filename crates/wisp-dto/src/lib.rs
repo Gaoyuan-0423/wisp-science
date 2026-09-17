@@ -2488,6 +2488,8 @@ pub struct PendingToolApproval {
 
 #[derive(Deserialize)]
 pub struct LoadedSessionPage {
+    #[serde(default)]
+    pub archived: bool,
     pub items: Vec<LoadedItem>,
     pub next_before_seq: Option<i64>,
     pub user_offset: usize,
@@ -5168,6 +5170,8 @@ pub struct NetworkSettings {
 
 mod research_journey;
 pub use research_journey::*;
+mod research_archive;
+pub use research_archive::*;
 /// Host-authored logical binding. Never accepts an iframe-supplied connector.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpAppBinding {

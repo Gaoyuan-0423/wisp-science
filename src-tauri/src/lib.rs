@@ -80,6 +80,7 @@ mod publication_commands;
 mod publication_freeze;
 mod publication_reproduction;
 mod quick_actions;
+mod research_archive;
 mod research_graph;
 mod resource_leases;
 mod resource_refs;
@@ -1029,6 +1030,7 @@ struct SessionPage {
 
 #[derive(Serialize)]
 struct SessionTranscriptPage {
+    archived: bool,
     items: Vec<UiItem>,
     next_before_seq: Option<i64>,
     user_offset: usize,
@@ -7585,6 +7587,11 @@ pub fn run() {
             publication_freeze::freeze_publication_revision,
             publication_freeze::check_publication_revision,
             session_commands::load_session,
+            research_archive::get_research_archive,
+            research_archive::prepare_research_archive,
+            research_archive::confirm_research_archive,
+            research_archive::retry_research_archive_cleanup,
+            research_archive::continue_research_archive,
             session_commands::load_session_trajectory,
             trajectory_export::export_session_trajectory,
             session_commands::rewind_session,

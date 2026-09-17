@@ -700,6 +700,13 @@ pub(super) async fn transfer_session_to_project(
         "move" => true,
         _ => return Err("Transfer mode must be 'copy' or 'move'.".into()),
     };
+    if remove_source {
+        state
+            .store
+            .require_unarchived_session(&id)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     let session_is_busy = || {
         state.awaiting_confirm.lock().unwrap().contains(&id)
@@ -768,6 +775,11 @@ pub(super) async fn delete_session(
     window: crate::workspace_surface::WorkspaceSurface,
     id: String,
 ) -> Result<(), String> {
+    state
+        .store
+        .require_unarchived_session(&id)
+        .await
+        .map_err(|e| e.to_string())?;
     let ap = state.require_active(window.label())?;
     let _project_activity = state.begin_project_activity(&ap.id)?;
     let owner = state
@@ -967,6 +979,11 @@ pub(super) async fn rewind_session(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "Session project was not found.".to_string())?;
     let _project_activity = state.begin_project_activity(&project_id)?;
+    state
+        .store
+        .require_unarchived_session(&frame_id)
+        .await
+        .map_err(|e| e.to_string())?;
     if matches!(
         state
             .store
@@ -1341,6 +1358,12 @@ pub(super) async fn load_session(
         items.extend(ask_user_items(&state, &id).await);
     }
     Ok(SessionTranscriptPage {
+        archived: state
+            .store
+            .research_archive(&id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some_and(|a| a.frozen_at.is_some()),
         items,
         next_before_seq: page.next_before_seq,
         user_offset: page.user_offset,

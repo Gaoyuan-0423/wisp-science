@@ -411,6 +411,11 @@ pub(super) async fn undo_turn(
 ) -> Result<TurnUndoPreview, String> {
     let (frame_id, project) = frame_and_project(state.inner(), window.label(), session_id).await?;
     let _project_activity = state.begin_project_activity(&project.id)?;
+    state
+        .store
+        .require_unarchived_session(&frame_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let scope = state
         .store
         .frame_state_scope(&frame_id)

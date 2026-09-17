@@ -711,6 +711,7 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "composer.group_workflows") => Some("Workflows"),
         (Locale::En, "composer.group_skills") => Some("Skills"),
         (Locale::En, "composer.cmd_compact_sub") => Some("Archive full history, then fold old turns to shrink model context"),
+        (Locale::En, "composer.cmd_archive_sub") => Some("Review a research milestone, lock this notebook and clean up selected local files"),
         (Locale::En, "composer.cmd_fork_sub") => Some("Send the following message as a branch of this conversation"),
         (Locale::En, "composer.cmd_btw_sub") => Some("Open the side chat, or ask it the following question"),
         (Locale::En, "composer.cmd_rewind_sub") => Some("Preview and roll back the last turn; its message returns to the composer"),
@@ -3569,6 +3570,7 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "composer.group_workflows") => Some("工作流"),
         (Locale::Zh, "composer.group_skills") => Some("技能"),
         (Locale::Zh, "composer.cmd_compact_sub") => Some("归档完整历史后折叠旧轮次，压缩模型上下文"),
+        (Locale::Zh, "composer.cmd_archive_sub") => Some("整理研究成果，集中确认后固定实验记录并清理所选本地文件"),
         (Locale::Zh, "composer.cmd_fork_sub") => Some("把后面的消息作为当前对话的分支发送"),
         (Locale::Zh, "composer.cmd_btw_sub") => Some("打开侧边问答，或把后面的问题发给它"),
         (Locale::Zh, "composer.cmd_rewind_sub") => Some("预览并回退最后一轮，该消息放回输入框"),
@@ -5916,6 +5918,10 @@ pub fn send_failed(locale: Locale, msg: &str) -> String {
 
 pub fn localize_backend(locale: Locale, msg: &str) -> String {
     match msg {
+        m if m.contains("research_archive_read_only") => {
+            if locale==Locale::Zh {"实验记录本已归档，无法修改或删除。请从归档节点创建新会话继续研究。".into()}
+            else {"This research notebook is archived and cannot be changed or deleted. Continue research from its archive in a new conversation.".into()}
+        }
         "API URL is required." => t(locale, "err.api_url_required"),
         "Model is required." => t(locale, "err.model_required"),
         "API key is required." => t(locale, "err.api_key_required"),

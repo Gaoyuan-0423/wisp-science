@@ -803,6 +803,13 @@ async fn copy_publication_children(
     .bind(project_id)
     .execute(&mut **tx)
     .await?;
+    // Import sealed notebooks after messages so immutable notebooks survive transfers.
+    if attached_table_exists(tx, "research_archives").await? {
+        sqlx::query("INSERT INTO research_archives SELECT * FROM transfer.research_archives WHERE project_id=? AND frozen_at IS NOT NULL").bind(project_id).execute(&mut **tx).await?;
+        if attached_table_exists(tx, "research_archive_continuations").await? {
+            sqlx::query("INSERT INTO research_archive_continuations SELECT c.* FROM transfer.research_archive_continuations c JOIN research_archives a ON a.id=c.archive_id WHERE a.project_id=?").bind(project_id).execute(&mut **tx).await?;
+        }
+    }
     Ok(())
 }
 
@@ -814,6 +821,8 @@ pub(crate) async fn delete_project_children(
     project_id: &str,
 ) -> Result<()> {
     const QUERIES: &[&str] = &[
+        "DELETE FROM research_archive_continuations WHERE archive_id IN (SELECT id FROM research_archives WHERE project_id=?)",
+        "DELETE FROM research_archives WHERE project_id=?",
         "UPDATE agent_workflows SET status='draft' WHERE project_id=?",
         "DELETE FROM publication_freeze_attempts WHERE revision_id IN (SELECT revision.id FROM publication_revisions revision JOIN publications publication ON publication.id=revision.publication_id WHERE publication.project_id=?)",
         "UPDATE publication_revisions SET state='deleting' WHERE publication_id IN (SELECT id FROM publications WHERE project_id=?)",
@@ -1339,6 +1348,8 @@ impl Store {
             ("research_nodes", "*", "id"),
             ("research_edges", "*", "id"),
             ("research_journal_entries", "*", "id"),
+            ("research_archives", "*", "id"),
+            ("research_archive_continuations", "*", "frame_id"),
         ];
         let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", database.display()))?
             .read_only(true);

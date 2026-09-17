@@ -653,6 +653,7 @@ pub(crate) fn composer_picker_accepts_edit(
 /// payload (branch send / side-chat question); the rest run a UI action
 /// directly. CLI-only commands like `/quit` do not belong here.
 pub(crate) const SLASH_COMMANDS: &[&str] = &[
+    "archive",
     "compact",
     "fork",
     "btw",
@@ -675,6 +676,7 @@ pub(crate) const SLASH_COMMANDS: &[&str] = &[
 /// picker without a mapping here.
 pub(crate) fn slash_command_icon(name: &str) -> &'static str {
     match name {
+        "archive" => "archive",
         "compact" => "compact",
         "fork" => "fork",
         "btw" => "bubble",
