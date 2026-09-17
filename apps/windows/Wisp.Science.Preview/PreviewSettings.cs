@@ -6,6 +6,8 @@ internal sealed class PreviewSettings
 {
     public string? DatabasePath { get; set; }
     public string Appearance { get; set; } = "system";
+    public string LightPalette { get; set; } = "paper";
+    public string DarkPalette { get; set; } = "charcoal";
     private static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WispSciencePreview", "settings.json");
 

@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Wisp.ProjectBrowser.Contracts;
 
-if (args.Length == 2 && args[0] == "--database")
+// Stand in for an incompatible desktop intercepting the settings-host launch.
+if (args.SequenceEqual(new[] { "--native-settings-host" })) return;
+
+if (args.Length is 2 or 3 && args[0] == "--database")
 {
     await BrowserTests.FakeServiceAsync(args[1]);
     return;
@@ -16,7 +19,7 @@ if (response.Schema != ProjectBrowserProtocol.Schema || response.Id != "projects
     || response.Type != "projects" || response.ActivitySource != ProjectBrowserProtocol.PersistedOnly)
     throw new InvalidOperationException("Protocol envelope drift");
 var project = response.Projects?.Single() ?? throw new InvalidOperationException("Missing project");
-if (project.Id != "research-1" || project.Name != "RNA-seq 鐮旂┒"
+if (project.Id != "research-1" || project.Name != "RNA-seq 研究"
     || project.WorkspaceDirectory != "/Users/researcher/Projects/RNA seq"
     || project.SessionCount != 3 || project.ArtifactCount != 2
     || project.NeedsYouCount != 1 || !project.Starred || !project.SyncConfigured
@@ -44,3 +47,5 @@ if (!encodedStar.GetProperty("starred").GetBoolean() || encodedStar.GetProperty(
     throw new InvalidOperationException("Project star serialization drift");
 
 await NativeSettingsContractTests.Run(Path.GetFullPath(Path.Combine(fixtureDirectory, "../../native-settings/v1")));
+
+await AppearanceSettingsTests.RunAsync();

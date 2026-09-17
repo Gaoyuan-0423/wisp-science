@@ -14,6 +14,14 @@ public sealed class ProjectBrowserClient(string executablePath, TimeSpan? timeou
         return new(reply.Projects ?? throw InvalidResponse(), reply.ActivitySource!);
     }
 
+    public async Task<ProjectListSnapshot> SetProjectStarredAsync(string databasePath, string projectId, bool starred,
+        CancellationToken cancellationToken = default)
+    {
+        var reply = await QueryAsync(databasePath, new() { ["type"] = "set_project_starred", ["project_id"] = projectId,
+            ["starred"] = starred }, "projects", cancellationToken);
+        return new(reply.Projects ?? throw InvalidResponse(), reply.ActivitySource!);
+    }
+
     public async Task<IReadOnlyList<BrowserSession>> ListSessionsAsync(string databasePath, string? projectId = null,
         CancellationToken cancellationToken = default)
     {
@@ -64,6 +72,7 @@ public sealed class ProjectBrowserClient(string executablePath, TimeSpan? timeou
         };
         start.ArgumentList.Add("--database");
         start.ArgumentList.Add(databasePath);
+        if (Equals(command["type"], "set_project_starred")) start.ArgumentList.Add("--allow-project-writes");
         using var process = new Process { StartInfo = start };
         process.Start();
         // Drain both pipes concurrently, including large transcripts. Bound output as well as time.
@@ -79,7 +88,7 @@ public sealed class ProjectBrowserClient(string executablePath, TimeSpan? timeou
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("查询超时，请重试或选择其他数据库。");
+            throw new TimeoutException("服务响应超时。若正在保存收藏，结果可能已写入；请刷新核实。");
         }
         finally
         {

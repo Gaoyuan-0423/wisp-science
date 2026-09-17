@@ -87,6 +87,7 @@ WebView; refresh its home list to see the change (and vice versa).
 ## Build and run on Windows
 
 Requires Windows 10 1809+ (x64), .NET 8+ SDK, Python 3, and the Rust toolchain.
+Native settings also require the Microsoft Edge WebView2 Evergreen Runtime.
 The Windows App SDK and SDK build tools are restored from pinned NuGet packages;
 Visual Studio's packaging workload is not required. From the repository root:
 
@@ -96,12 +97,13 @@ pwsh -File scripts/build_native_windows.ps1 -Launch
 
 Use `-Python C:/path/to/python.exe` if Python is not on PATH. The output is
 `target/native-windows/Wisp.Science.Preview.exe` with its companion files.
-The directory includes the .NET and Windows App SDK runtimes and `wisp-service.exe`;
+The directory includes the .NET and Windows App SDK runtimes, `wisp-service.exe`,
+and a full desktop settings host under `settings-host/`;
 copy the entire directory, not just the executable. This is an unsigned local x64
 preview, not an installer or an update to the installed Tauri application.
 
 The default database is `%APPDATA%/science.wisp-science/wisp-science/wisp.sqlite`.
-The preview saves only its database selection and appearance in
+The preview caches its database selection, theme and palette in
 `%LOCALAPPDATA%/WispSciencePreview/settings.json`. `WISP_BROWSER_DATABASE` and
 `WISP_SERVICE_PATH` have the same meaning as on macOS. Ctrl+K opens home/project
 search, Ctrl+R refreshes, and Ctrl+O opens the native file picker. The native
@@ -260,15 +262,66 @@ Manual smoke steps:
 
 The preview aligns the home/workspace shell and read-only navigation. Full
 feature parity remains separate from this layout change. Home creation/import,
-calendar/library/settings entry points, the sidebar tools, artifact
+calendar/library entry points, the sidebar tools, artifact
 search, and composer/live runtime integration still require their native services.
 Their action slots are visible but explicitly disabled in the preview.
 The transcript currently renders saved text and tool records, not the WebView's
 rich attachments, branch/review cards, or interactive tool surfaces. Native
-signing/distribution and capability negotiation remain follow-ups. The preview
-remains read-only; Windows Markdown is intentionally limited to native text
+signing/distribution and capability negotiation remain follow-ups. Conversations
+remain read-only; Windows Markdown is intentionally limited to native text
 formatting, with no interactive HTML or attachment rendering.
 
 ## Native settings
 
 See [native-settings.md](native-settings.md) for the shared authenticated desktop settings transport introduced by #1281. macOS provides the full native settings navigation; Windows parity is incremental.
+
+### Windows alignment after #1281
+
+This increment carries forward #1279, merges #1281 and enables:
+
+- Explicit project star/unstar writes through `--allow-project-writes`, applying
+  the server-ordered snapshot after success. Failures keep the previous list;
+  no mutation is retried automatically. Conversations remain read-only.
+- Home top-right and sidebar settings buttons open settings inside the existing main window. Back returns to the prior home/project/session.
+  It pins the database/project for the editing session and reads/writes the
+  shared appearance preference document through the authenticated loopback host.
+- Theme, both palettes and interface/code font sizes have explicit Save and
+  Cancel changes. Refresh preserves dirty fields. Unknown preference fields,
+  including font families and WebView custom CSS, survive round trips.
+- Saved theme/palette apply to the WinUI browser. The appearance card previews draft palettes and font sizes. Font sizes are saved for the
+  desktop, but full WinUI font application, font-family
+  editors and CSS editing are follow-ups. The other 18 settings sections remain
+  unimplemented on Windows and remain disabled in the shared categorized navigation.
+- Returning with a dirty draft first displays an inline warning; a second Back
+  discards it. Pending reads can be cancelled by returning. Escape closes an
+  open combo dropdown before leaving settings. Leaving settings never kills
+  the shared desktop host. Connection attempts have a 15-second deadline; an
+  incompatible older desktop intercepting startup produces an actionable error.
+
+The build script bundles the full Rust desktop host and its resources, using an
+inert HTML document for legacy command extraction; the settings UI is native
+XAML. `WISP_SETTINGS_HOST_PATH` can override the bundled host executable. The
+host uses the standard desktop database: selecting another database in the
+browser does not reconfigure the host. Alternate databases require an already
+running matching host descriptor; settings never fall back to another database.
+The unsigned preview does not install WebView2 or deliver an automatic update.
+
+Additional smoke checklist:
+
+1. Build the complete output directory and open Settings from home and sidebar.
+2. Read the default database appearance, change a palette, cancel and verify the
+   saved value returns; change again, save and compare with the desktop client.
+3. Refresh a dirty draft; it must remain intact. Simulate an unavailable host;
+   the error remains visible and the draft is not cleared or silently retried.
+4. Open a theme dropdown and immediately press Escape: only the dropdown closes.
+   Press Escape again: clean settings return to the previous page; dirty settings ask before discard.
+5. Resize the main window while viewing settings and home at 150% scaling. Confirm top-right home actions,
+   the two home lists and the conversation action strip remain accessible.
+6. On disposable data star/unstar, refresh and relaunch; verify persisted order
+   without navigation. Switch databases during an outstanding star response;
+   the old response must not overwrite the new database view.
+
+If an older installed Wisp is running, it may intercept the helper launch without
+providing the native settings broker. Finish work and exit that older desktop
+before retrying, or use a desktop build containing #1281. The preview does not
+automatically terminate another desktop process.

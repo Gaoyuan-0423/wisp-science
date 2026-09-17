@@ -22,6 +22,8 @@ internal sealed class MainWindow : Window
     private ProjectSearchOverlay? searchOverlay;
     private Control? searchPreviousFocus;
     private FrameworkElement? pageContent;
+    private NativeSettingsPage? settingsPage;
+    private bool windowClosed;
     private bool sidebarVisible = true;
     private PreviewLayout layout = PreviewLayout.ForSize(800, 540);
     private bool nativePickerOpen;
@@ -57,9 +59,10 @@ internal sealed class MainWindow : Window
         {
             if (overlays.LastOrDefault() is { } flyout) { flyout.Hide(); e.Handled = true; }
             else if (searchOverlay != null) { CloseSearch(); e.Handled = true; }
+            else if (settingsPage != null) { settingsPage.HandleEscape(); e.Handled = true; }
         };
         root.KeyboardAccelerators.Add(escape);
-        Closed += (_, _) => { model.Changed -= Render; model.Dispose(); };
+        Closed += (_, _) => { windowClosed = true; model.Changed -= Render; model.Dispose(); settingsPage?.Dispose(); };
         root.Loaded += async (_, _) => await model.RefreshAsync();
         Render();
     }
@@ -69,7 +72,7 @@ internal sealed class MainWindow : Window
         var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
         accelerator.Invoked += (_, e) =>
         {
-            if (nativePickerOpen || searchOverlay != null) return;
+            if (nativePickerOpen || searchOverlay != null || settingsPage != null) return;
             action(); e.Handled = true;
         };
         root.KeyboardAccelerators.Add(accelerator);
@@ -77,10 +80,13 @@ internal sealed class MainWindow : Window
 
     private void Render()
     {
+        if (settingsPage != null) return;
         var offset = transcriptScroll?.VerticalOffset ?? 0;
         var height = transcriptScroll?.ExtentHeight ?? 0;
         var oldSession = renderedSession;
         var oldFirst = renderedFirst;
+        design.LightPalette = settings.LightPalette;
+        design.DarkPalette = settings.DarkPalette;
         design.Dark = root.ActualTheme == ElementTheme.Dark;
         root.Background = design.Brush("bg-app");
         root.Children.Clear();
@@ -141,7 +147,7 @@ internal sealed class MainWindow : Window
         quickActions.Children.Add(ActionButton("研究日历", "calendar"));
         quickActions.Children.Add(ActionButton("收藏", "star"));
         quickActions.Children.Add(ActionButton("搜索", "search", OpenSearch));
-        quickActions.Children.Add(ActionButton("设置", "gear"));
+        quickActions.Children.Add(ActionButton("设置", "gear", OpenSettings));
         var projectActions = Row(6); projectActions.HorizontalAlignment = HorizontalAlignment.Right;
         projectActions.Children.Add(ActionButton("随手一聊", null));
         projectActions.Children.Add(ActionButton("导入项目", "upload", showLabel: true));
@@ -175,7 +181,8 @@ internal sealed class MainWindow : Window
             open.HorizontalAlignment = HorizontalAlignment.Stretch;
             cardRow.Children.Add(open);
             var options = Row(2); options.VerticalAlignment = VerticalAlignment.Center;
-            options.Children.Add(ActionButton(project.Starred ? "取消收藏" : "收藏项目", project.Starred ? "star-filled" : "star", quiet: true));
+            var star = ActionButton(project.Starred ? "取消收藏" : "收藏项目", project.Starred ? "star-filled" : "star", () => _ = model.SetStarredAsync(project.Id, !project.Starred), quiet: true);
+            star.IsEnabled = !model.Loading; options.Children.Add(star);
             options.Children.Add(ActionButton("项目设置", "gear", quiet: true));
             Grid.SetColumn(options, 1); cardRow.Children.Add(options);
             var card = Card(cardRow, 4);
@@ -229,7 +236,7 @@ internal sealed class MainWindow : Window
         var tools = Row(2);
         tools.Children.Add(ActionButton("搜索", "search", OpenSearch));
         foreach (var (label, icon) in PreviewLayout.WorkspaceActions)
-            tools.Children.Add(ActionButton(label, icon, quiet: true));
+            tools.Children.Add(ActionButton(label, icon, label == "设置" ? OpenSettings : null, quiet: true));
         // Wrap the complete strip to a second right-aligned row; never drop actions.
         if (layout.CompactWorkspace)
         {
@@ -327,7 +334,7 @@ internal sealed class MainWindow : Window
         Grid.SetRow(sessionSection, 1); sidebar.Children.Add(sessionSection);
         var bottom = Stack(4);
         var utilities = Row(3);
-        foreach (var (label, icon) in new[] { ("能力", "grid"), ("反馈问题", "chat"), ("设置", "gear") }) utilities.Children.Add(ActionButton(label, icon, quiet: true));
+        foreach (var (label, icon) in new[] { ("能力", "grid"), ("反馈问题", "chat"), ("设置", "gear") }) utilities.Children.Add(ActionButton(label, icon, label == "设置" ? OpenSettings : null, quiet: true));
         utilities.Children.Add(ActionButton("在资源管理器中显示", "folder", () => Reveal(project), quiet: true));
         bottom.Children.Add(utilities);
         bottom.Children.Add(Footer(workspace: true));
@@ -337,7 +344,7 @@ internal sealed class MainWindow : Window
     private FrameworkElement Footer(bool workspace = false)
     {
         var footer = Stack(6);
-        if (!workspace) footer.Children.Add(Text("WinUI 3 原生预览 · 只读 · 灰色操作尚未接入", 11, "text-faint"));
+        if (!workspace) footer.Children.Add(Text("WinUI 3 原生预览 · 会话只读 · 灰色操作尚未接入", 11, "text-faint"));
         var actions = Row(8);
         var refresh = ActionButton("刷新", "refresh", () => { localError = null; _ = model.RefreshAsync(); }, quiet: true); refresh.IsEnabled = !model.Loading;
         actions.Children.Add(refresh);
@@ -363,7 +370,7 @@ internal sealed class MainWindow : Window
 
     private void OpenSearch()
     {
-        if (searchOverlay != null || nativePickerOpen) return;
+        if (searchOverlay != null || nativePickerOpen || settingsPage != null) return;
         searchPreviousFocus = FocusManager.GetFocusedElement(root.XamlRoot) as Control;
         searchOverlay = new ProjectSearchOverlay(model, design, CloseSearch,
             result => _ = model.OpenProjectAsync(result.ProjectId, result.SessionId), Register);
@@ -381,7 +388,7 @@ internal sealed class MainWindow : Window
 
     private async void ChooseDatabase()
     {
-        if (nativePickerOpen || searchOverlay != null) return;
+        if (nativePickerOpen || searchOverlay != null || settingsPage != null) return;
         nativePickerOpen = true;
         try
         {
@@ -407,6 +414,32 @@ internal sealed class MainWindow : Window
             start.ArgumentList.Add(Path.GetFullPath(project.WorkspaceDirectory)); Process.Start(start);
         }
         catch (Exception ex) { localError = ex.Message; Render(); }
+    }
+
+    private void OpenSettings()
+    {
+        if (settingsPage != null) return;
+        settingsPage = new NativeSettingsPage(model.DatabasePath, model.ActiveProjectId, prefs =>
+        {
+            if (windowClosed) return;
+            settings.Appearance = prefs["theme"]?.GetValue<string>() ?? "system";
+            settings.LightPalette = prefs["light_palette"]?.GetValue<string>() ?? "paper";
+            settings.DarkPalette = prefs["dark_palette"]?.GetValue<string>() ?? "charcoal";
+            SaveSettings();
+            root.RequestedTheme = settings.Appearance switch { "light" => ElementTheme.Light, "dark" => ElementTheme.Dark, _ => ElementTheme.Default };
+            Render();
+        }, CloseSettings);
+        if (pageContent != null) pageContent.Visibility = Visibility.Collapsed;
+        root.Children.Add(settingsPage);
+    }
+
+    private void CloseSettings()
+    {
+        if (settingsPage == null) return;
+        root.Children.Remove(settingsPage);
+        settingsPage.Dispose(); settingsPage = null;
+        if (pageContent != null) pageContent.Visibility = Visibility.Visible;
+        Render();
     }
 
     private void SaveSettings()

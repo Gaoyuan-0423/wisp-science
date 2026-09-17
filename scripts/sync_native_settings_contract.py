@@ -18,13 +18,13 @@ ADAPTERS = {
 }
 
 def export():
-    source = (ROOT / 'crates/wisp-dto/src/native_settings.rs').read_text()
+    source = (ROOT / 'crates/wisp-dto/src/native_settings.rs').read_text(encoding="utf-8")
     block = source.split('pub const COMMANDS:')[1].split('];')[0]
     commands = re.findall(r'"([a-z_]+)"', block)
     if len(commands) != len(set(commands)):
         raise ValueError('Duplicate native settings command')
-    handlers = (ROOT / 'src-tauri/src/lib.rs').read_text().split('.invoke_handler(')[-1]
-    sources = [(p, p.read_text()) for p in (ROOT / 'src-tauri/src').rglob('*.rs')]
+    handlers = (ROOT / 'src-tauri/src/lib.rs').read_text(encoding="utf-8").split('.invoke_handler(')[-1]
+    sources = [(p, p.read_text(encoding="utf-8")) for p in (ROOT / 'src-tauri/src').rglob('*.rs')]
     exported = []
     for name in sorted(commands + ['native_settings_capabilities']):
         if name in ADAPTERS:
@@ -33,8 +33,10 @@ def export():
         else:
             if not re.search(r'\b' + name + r'\s*,', handlers):
                 raise ValueError(f'{name} is not registered in Tauri')
-            matches = [(p, re.search(r'\bfn\s+' + name + r'\s*\((.*?)\)\s*(?:->\s*(.*?))?\s*\{', text, re.S)) for p, text in sources]
-            path, match = next((p, m) for p, m in matches if m)
+            matches = [(p, re.search(r'#\[tauri::command(?:\([^\]]*\))?\]\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+' + name + r'\s*\((.*?)\)\s*(?:->\s*(.*?))?\s*\{', text, re.S)) for p, text in sources]
+            matches = [(p, m) for p, m in matches if m]
+            if len(matches) != 1: raise ValueError(f"Expected one Tauri command definition for {name}, got {len(matches)}")
+            path, match = matches[0]
             args = []
             for line in match[1].splitlines():
                 m = re.match(r'\s*(?:mut\s+)?(\w+)\s*:\s*(.*?)\s*,?\s*$', line)
@@ -44,7 +46,7 @@ def export():
                 camel = re.sub(r'_([a-z])', lambda m: m[1].upper(), key)
                 args.append({'name': camel, 'rust_type': typ, 'optional': typ.startswith('Option<')})
             result = match[2]
-            location = str(path.relative_to(ROOT))
+            location = path.relative_to(ROOT).as_posix()
         exported.append({'command': name, 'arguments': args, 'result': result, 'source': location})
     return (json.dumps({'schema': 'wisp.native-settings.v1', 'commands': exported}, ensure_ascii=False, indent=2) + '\n').encode()
 
@@ -52,7 +54,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--check', action='store_true'); args = parser.parse_args()
     expected = export()
     if args.check:
-        if not TARGET.exists() or TARGET.read_bytes() != expected: parser.exit(1, 'Native settings contract drift. Run scripts/sync_native_settings_contract.py\n')
+        if not TARGET.exists() or TARGET.read_bytes().replace(b"\r\n", b"\n") != expected: parser.exit(1, 'Native settings contract drift. Run scripts/sync_native_settings_contract.py\n')
     else:
         TARGET.parent.mkdir(parents=True, exist_ok=True); TARGET.write_bytes(expected)
 

@@ -14,10 +14,19 @@ internal sealed class WispDesign
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Assets", "palette.json")))!;
     private readonly Dictionary<string, SvgImageSource> icons = new();
     public bool Dark { get; set; }
-    public string ColorText(string token) => palettes[Dark ? "dark" : "light"][token];
+    public string LightPalette { get; set; } = "paper";
+    public string DarkPalette { get; set; } = "charcoal";
+    public string ColorText(string token)
+    {
+        var theme = Dark ? "dark" : "light";
+        return (palettes.TryGetValue(theme + "-" + (Dark ? DarkPalette : LightPalette), out var palette)
+            ? palette : palettes[theme])[token];
+    }
     public SolidColorBrush Brush(string token)
     {
         var value = ColorText(token);
+        if (value.StartsWith('#') && value.Length == 4)
+            value = "#" + string.Concat(value.Skip(1).Select(c => new string(c, 2)));
         if (value.StartsWith('#')) return new(Windows.UI.Color.FromArgb(255,
             byte.Parse(value[1..3], NumberStyles.HexNumber), byte.Parse(value[3..5], NumberStyles.HexNumber), byte.Parse(value[5..7], NumberStyles.HexNumber)));
         var parts = value[5..^1].Split(',').Select(v => double.Parse(v, CultureInfo.InvariantCulture)).ToArray();
@@ -32,7 +41,7 @@ internal sealed class WispDesign
 
     public Image Icon(string name, int size = 18)
     {
-        var key = $"{Dark}:{name}";
+        var key = $"{ColorText("text")}:{name}";
         if (!icons.TryGetValue(key, out var source))
         {
             source = new SvgImageSource();

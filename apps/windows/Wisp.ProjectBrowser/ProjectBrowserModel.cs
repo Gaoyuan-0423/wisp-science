@@ -53,6 +53,21 @@ public sealed class ProjectBrowserModel(IProjectBrowserClient client, string dat
         finally { if (generation == refreshGeneration) { Loading = false; Notify(); } }
     }
 
+    public async Task SetStarredAsync(string projectId, bool starred)
+    {
+        if (Loading || !Projects.Any(p => p.Id == projectId)) return;
+        var generation = ++refreshGeneration;
+        Loading = true; Error = null; Notify();
+        try
+        {
+            var snapshot = await client.SetProjectStarredAsync(DatabasePath, projectId, starred, lifetime.Token);
+            if (generation == refreshGeneration) { Projects = snapshot.Projects; LastLoaded = DateTimeOffset.Now; }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (generation == refreshGeneration) Error = ex.Message; }
+        finally { if (generation == refreshGeneration) { Loading = false; Notify(); } }
+    }
+
     public async Task ChangeDatabaseAsync(string path)
     {
         ++refreshGeneration;

@@ -53,6 +53,7 @@ internal static class BrowserTests
             var snapshot = await client.ListProjectsAsync(Path.Combine(temporary, "success"));
             Check(snapshot.Projects.Single().Name == "研究 中文", "UTF-8 transport and database argument with spaces");
             Check((await client.ListSessionsAsync(Path.Combine(temporary, "success"), "p")).Single().ProjectId == "p", "session command and project identity");
+            Check((await client.SetProjectStarredAsync(Path.Combine(temporary, "success"), "p", true)).Projects.Single().Starred, "explicit writable process forwards desired star state");
             var page = await client.GetTranscriptAsync(Path.Combine(temporary, "success"), "p", "s", 8);
             Check(page.Messages.Single().Sequence == 7 && page.Messages.Single().Text.Length == 200000, "large stdout and stderr drain without deadlock; cursor forwarded");
             await Throws<InvalidOperationException>(() => client.ListProjectsAsync(Path.Combine(temporary, "error")), "service error envelope");
@@ -72,6 +73,12 @@ internal static class BrowserTests
         using var model = new ProjectBrowserModel(fake, "old");
         await model.RefreshAsync();
         Check(model.Projects.Count == 2 && model.RecentSessions.Count == 2, "refresh projects and recent sessions");
+        await model.SetStarredAsync("p", true);
+        Check(model.Projects[0].Starred && model.ActiveProjectId is null, "star applies server snapshot without navigating");
+        fake.Fail = true;
+        await model.SetStarredAsync("p", false);
+        Check(model.Projects[0].Starred && model.Error != null, "failed star retains previous snapshot");
+        fake.Fail = false;
         await model.OpenProjectAsync("p", "s2");
         Check(model.ActiveSessionId == "s2" && model.Messages.Single().Text == "s2", "recent link selects exact session");
         Check(model.Search("").All(s => s.ProjectId == "p" && s.SessionId != null), "workspace search stays in current project");
@@ -131,6 +138,7 @@ internal static class BrowserTests
         var type = root.GetProperty("type").GetString();
         object reply = type switch
         {
+            "set_project_starred" when Environment.GetCommandLineArgs().Contains("--allow-project-writes") && root.GetProperty("project_id").GetString() == "p" => new { schema = ProjectBrowserProtocol.Schema, id, type = "projects", activity_source = "persisted_only", projects = new[] { Project("p") with { Starred = root.GetProperty("starred").GetBoolean() } } },
             "list_projects" => new { schema = ProjectBrowserProtocol.Schema, id, type = "projects", activity_source = "persisted_only", projects = new[] { Project("p") with { Name = "研究 中文" } } },
             "list_sessions" => new { schema = ProjectBrowserProtocol.Schema, id, type = "sessions", activity_source = "persisted_only", sessions = new[] { new BrowserSession("s", root.GetProperty("project_id").GetString()!, "标题", 0, "done") } },
             _ => new { schema = ProjectBrowserProtocol.Schema, id, type = "transcript", messages = new[] { new BrowserMessage(root.GetProperty("before_seq").GetInt64() - 1, "assistant", new string('文', 200000), null) } }
@@ -141,6 +149,7 @@ internal static class BrowserTests
 
     private sealed class FakeClient : IProjectBrowserClient
     {
+        public Task<ProjectListSnapshot> SetProjectStarredAsync(string databasePath, string projectId, bool starred, CancellationToken cancellationToken = default) => Fail ? Task.FromException<ProjectListSnapshot>(new IOException("star failed")) : PendingProjects?.Task ?? Task.FromResult(new ProjectListSnapshot([Project(projectId) with { Starred = starred }, Project("p2")], "persisted_only"));
         public TaskCompletionSource<IReadOnlyList<BrowserSession>>? PendingSessions;
         public TaskCompletionSource<TranscriptPage>? PendingTranscript;
         public TaskCompletionSource<ProjectListSnapshot>? PendingProjects;
