@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ProjectSummary;
+use crate::{ProjectSummary, RecentSession};
 
 pub const SCHEMA: &str = "wisp.project-browser.v1";
 
@@ -18,6 +18,14 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
     ListProjects,
+    ListSessions {
+        project_id: Option<String>,
+    },
+    GetTranscript {
+        project_id: String,
+        session_id: String,
+        before_seq: Option<i64>,
+    },
     Capabilities,
 }
 
@@ -34,6 +42,14 @@ pub struct Response {
 pub enum Reply {
     Projects {
         projects: Vec<ProjectSummary>,
+        activity_source: ActivitySource,
+    },
+    Transcript {
+        messages: Vec<BrowserMessage>,
+        next_before_seq: Option<i64>,
+    },
+    Sessions {
+        sessions: Vec<RecentSession>,
         activity_source: ActivitySource,
     },
     Capabilities {
@@ -59,4 +75,13 @@ pub enum ErrorCode {
     InvalidRequest,
     UnsupportedSchema,
     QueryFailed,
+}
+
+/// Saved transcript text for native navigation; tool execution remains in the host.
+#[derive(Serialize, Deserialize)]
+pub struct BrowserMessage {
+    pub seq: i64,
+    pub role: String,
+    pub text: String,
+    pub tool_name: Option<String>,
 }

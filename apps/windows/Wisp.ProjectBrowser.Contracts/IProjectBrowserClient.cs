@@ -8,6 +8,11 @@ namespace Wisp.ProjectBrowser.Contracts;
 /// </summary>
 public interface IProjectBrowserClient
 {
+    Task<IReadOnlyList<BrowserSession>> ListSessionsAsync(
+        string databasePath, string? projectId = null, CancellationToken cancellationToken = default);
+    Task<TranscriptPage> GetTranscriptAsync(
+        string databasePath, string projectId, string sessionId, long? beforeSeq = null,
+        CancellationToken cancellationToken = default);
     Task<ProjectListSnapshot> ListProjectsAsync(
         string databasePath,
         CancellationToken cancellationToken = default);
@@ -45,4 +50,22 @@ public sealed record ProjectBrowserResponse(
     [property: JsonPropertyName("projects")] IReadOnlyList<ProjectSummary>? Projects,
     [property: JsonPropertyName("activity_source")] string? ActivitySource,
     [property: JsonPropertyName("code")] string? Code,
-    [property: JsonPropertyName("message")] string? Message);
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("sessions")] IReadOnlyList<BrowserSession>? Sessions = null,
+    [property: JsonPropertyName("messages")] IReadOnlyList<BrowserMessage>? Messages = null,
+    [property: JsonPropertyName("next_before_seq")] long? NextBeforeSeq = null);
+
+public sealed record BrowserSession(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("project_id")] string ProjectId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("ts")] long Timestamp,
+    [property: JsonPropertyName("status")] string Status);
+
+public sealed record BrowserMessage(
+    [property: JsonPropertyName("seq")] long Sequence,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("tool_name")] string? ToolName);
+
+public sealed record TranscriptPage(IReadOnlyList<BrowserMessage> Messages, long? NextBeforeSeq);

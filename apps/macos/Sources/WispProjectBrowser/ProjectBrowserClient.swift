@@ -27,9 +27,37 @@ public struct ProjectSummary: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+public struct BrowserMessage: Decodable, Identifiable, Sendable {
+    public var id: Int64 { seq }
+    public let seq: Int64
+    public let role: String
+    public let text: String
+    public let toolName: String?
+    enum CodingKeys: String, CodingKey { case seq, role, text; case toolName = "tool_name" }
+}
+
+public struct TranscriptPage: Sendable {
+    public let messages: [BrowserMessage]
+    public let nextBeforeSeq: Int64?
+    public init(messages: [BrowserMessage], nextBeforeSeq: Int64?) { self.messages = messages; self.nextBeforeSeq = nextBeforeSeq }
+}
+
+public struct BrowserSession: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let projectID: String
+    public let title: String
+    public let ts: Int64
+    public let status: String
+    enum CodingKeys: String, CodingKey {
+        case id, title, ts, status
+        case projectID = "project_id"
+    }
+}
+
 public struct ProjectListSnapshot: Sendable {
     public let projects: [ProjectSummary]
     public let activitySource: String
+    public init(projects: [ProjectSummary], activitySource: String) { self.projects = projects; self.activitySource = activitySource }
 }
 
 public enum ProjectBrowserError: LocalizedError {
@@ -46,7 +74,13 @@ public enum ProjectBrowserError: LocalizedError {
 }
 
 /// Matches `wisp-dto::project_browser`; the shared JSON fixture tests this boundary.
-public struct ProjectBrowserClient: Sendable {
+public protocol ProjectBrowserQuerying: Sendable {
+    func listProjects(databaseURL: URL) async throws -> ProjectListSnapshot
+    func listSessions(databaseURL: URL, projectID: String?) async throws -> [BrowserSession]
+    func transcript(databaseURL: URL, projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> TranscriptPage
+}
+
+public struct ProjectBrowserClient: ProjectBrowserQuerying {
     public static let schema = "wisp.project-browser.v1"
     public let executableURL: URL
 
@@ -58,11 +92,43 @@ public struct ProjectBrowserClient: Sendable {
         // One short-lived process per refresh: closing stdin ends the service.
         // Blocking pipe reads run off the UI thread and the process has a deadline.
         try await Task.detached(priority: .userInitiated) {
-            try query(databaseURL: databaseURL)
+            try Self.decode(query(databaseURL: databaseURL, command: ["type": "list_projects"]), requestID: "projects-1")
         }.value
     }
 
-    private func query(databaseURL: URL) throws -> ProjectListSnapshot {
+    public func listSessions(databaseURL: URL, projectID: String? = nil) async throws -> [BrowserSession] {
+        try await Task.detached(priority: .userInitiated) {
+            var command = ["type": "list_sessions"]
+            if let projectID { command["project_id"] = projectID }
+            return try Self.decodeSessions(query(databaseURL: databaseURL, command: command), requestID: "projects-1")
+        }.value
+    }
+
+    static func decodeSessions(_ data: Data, requestID: String) throws -> [BrowserSession] {
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        guard response.schema == schema, response.id == requestID else { throw ProjectBrowserError.invalidResponse }
+        if response.type == "error" { throw ProjectBrowserError.service(response.message ?? "会话查询失败。") }
+        guard response.type == "sessions", response.activitySource == "persisted_only",
+              let sessions = response.sessions else { throw ProjectBrowserError.invalidResponse }
+        return sessions
+    }
+
+    public func transcript(databaseURL: URL, projectID: String, sessionID: String, beforeSeq: Int64? = nil) async throws -> TranscriptPage {
+        try await Task.detached(priority: .userInitiated) {
+            let data = try query(databaseURL: databaseURL, command: ["type": "get_transcript", "project_id": projectID, "session_id": sessionID], beforeSeq: beforeSeq)
+            return try Self.decodeTranscript(data, requestID: "projects-1")
+        }.value
+    }
+
+    static func decodeTranscript(_ data: Data, requestID: String) throws -> TranscriptPage {
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        guard response.schema == schema, response.id == requestID else { throw ProjectBrowserError.invalidResponse }
+        if response.type == "error" { throw ProjectBrowserError.service(response.message ?? "会话读取失败。") }
+        guard response.type == "transcript", let messages = response.messages else { throw ProjectBrowserError.invalidResponse }
+        return TranscriptPage(messages: messages, nextBeforeSeq: response.nextBeforeSeq)
+    }
+
+    private func query(databaseURL: URL, command: [String: String], beforeSeq: Int64? = nil) throws -> Data {
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw ProjectBrowserError.unavailable("找不到查询服务。请使用 scripts/build_native_macos.sh 构建应用。")
         }
@@ -78,8 +144,9 @@ public struct ProjectBrowserClient: Sendable {
         // Write the small request before launch so an immediate startup failure
         // cannot race this write with a closed pipe.
         let requestID = "projects-1"
-        let request = ["schema": Self.schema, "id": requestID, "type": "list_projects"]
-        var data = try JSONEncoder().encode(request)
+        var request: [String: Any] = command.merging(["schema": Self.schema, "id": requestID]) { _, value in value }
+        if let beforeSeq { request["before_seq"] = beforeSeq }
+        var data = try JSONSerialization.data(withJSONObject: request)
         data.append(0x0A)
         try input.fileHandleForWriting.write(contentsOf: data)
         try input.fileHandleForWriting.close()
@@ -101,7 +168,7 @@ public struct ProjectBrowserClient: Sendable {
             let message = String(decoding: diagnostics, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw ProjectBrowserError.service(message.isEmpty ? "查询服务已停止或超时，请重试。" : message)
         }
-        return try Self.decode(reply, requestID: requestID)
+        return reply
     }
 
     static func decode(_ data: Data, requestID: String) throws -> ProjectListSnapshot {
@@ -126,11 +193,15 @@ public struct ProjectBrowserClient: Sendable {
         let id: String?
         let type: String
         let projects: [ProjectSummary]?
+        let sessions: [BrowserSession]?
+        let messages: [BrowserMessage]?
+        let nextBeforeSeq: Int64?
         let activitySource: String?
         let message: String?
 
         enum CodingKeys: String, CodingKey {
-            case schema, id, type, projects, message
+            case schema, id, type, projects, sessions, message, messages
+            case nextBeforeSeq = "next_before_seq"
             case activitySource = "activity_source"
         }
     }

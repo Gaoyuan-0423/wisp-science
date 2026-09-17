@@ -1,0 +1,15 @@
+{
+  "schema": "wisp.project-browser.v1",
+  "id": "projects-1",
+  "type": "sessions",
+  "activity_source": "persisted_only",
+  "sessions": [
+    {
+      "id": "session-1",
+      "project_id": "research-1",
+      "title": "检查 RNA-seq 数据",
+      "ts": 1789600000,
+      "status": "needs_you"
+    }
+  ]
+}

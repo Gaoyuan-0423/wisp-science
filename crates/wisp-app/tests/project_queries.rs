@@ -284,3 +284,61 @@ async fn optional_enrichment_stays_best_effort_and_primary_query_errors_propagat
         .unwrap();
     assert!(list_projects(&db.store, &idle, &idle).await.is_err());
 }
+
+#[tokio::test]
+async fn native_session_navigation_uses_home_limit_project_scope_and_read_only_pages() {
+    use wisp_app::projects::{browser_transcript, list_browser_sessions};
+    let db = TestDb::new().await;
+    db.project("p").await;
+    db.project("other").await;
+    db.project("scratch:hidden").await;
+    for n in 0..7 {
+        db.session(&format!("s{n}"), "p").await;
+    }
+    db.session("private", "other").await;
+    db.session("scratch", "scratch:hidden").await;
+    db.store
+        .create_frame("draft", "p", "test", "mock")
+        .await
+        .unwrap();
+    db.store
+        .rename_session("draft", "p", "Planned work")
+        .await
+        .unwrap();
+    let recent = list_browser_sessions(&db.store, None).await.unwrap();
+    assert_eq!(recent.len(), 5);
+    assert!(recent
+        .iter()
+        .all(|s| !s.project_id.starts_with("scratch:") && s.id != "draft"));
+    let project = list_browser_sessions(&db.store, Some("p")).await.unwrap();
+    assert_eq!(project.len(), 8);
+    assert!(project.iter().all(|s| s.project_id == "p"));
+    assert!(project
+        .iter()
+        .any(|s| s.id == "draft" && s.title == "Planned work"));
+    assert!(list_browser_sessions(&db.store, Some("missing"))
+        .await
+        .is_err());
+    assert!(browser_transcript(&db.store, "p", "private", None)
+        .await
+        .is_err());
+    for seq in 2..=25 {
+        db.store
+            .append_message("s0", seq, &Message::user(format!("turn {seq}")))
+            .await
+            .unwrap();
+    }
+    let (latest, cursor) = browser_transcript(&db.store, "p", "s0", None)
+        .await
+        .unwrap();
+    assert_eq!(latest.len(), 20);
+    assert_eq!(latest[0].seq, 6);
+    assert_eq!(cursor, Some(6));
+    let (earlier, cursor) = browser_transcript(&db.store, "p", "s0", cursor)
+        .await
+        .unwrap();
+    assert_eq!(earlier.len(), 5);
+    assert_eq!(earlier[0].text, "Inspect the project");
+    assert_eq!(cursor, None);
+    assert_eq!(db.store.message_count("s0").await.unwrap(), 25);
+}

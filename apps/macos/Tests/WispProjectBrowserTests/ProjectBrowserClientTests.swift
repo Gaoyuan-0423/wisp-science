@@ -71,6 +71,22 @@ final class ProjectBrowserClientTests: XCTestCase {
         XCTAssertEqual(snapshot.projects.count, 1)
     }
 
+    func testSessionAndTranscriptFixturesAndIdentityValidation() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let sessions = try Data(contentsOf: root.appendingPathComponent("contracts/project-browser/v1/sessions.json"))
+        let rows = try ProjectBrowserClient.decodeSessions(sessions, requestID: "projects-1")
+        XCTAssertEqual(rows.first?.projectID, "research-1")
+        XCTAssertEqual(rows.first?.status, "needs_you")
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeSessions(sessions, requestID: "wrong"))
+        let transcript = try Data(contentsOf: root.appendingPathComponent("contracts/project-browser/v1/transcript.json"))
+        let page = try ProjectBrowserClient.decodeTranscript(transcript, requestID: "projects-1")
+        XCTAssertEqual(page.messages.map(\.seq), [6, 7])
+        XCTAssertEqual(page.nextBeforeSeq, 6)
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeTranscript(transcript, requestID: "wrong"))
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeSessions(transcript, requestID: "projects-1"))
+    }
+
     func testMissingServiceReturnsAnActionableError() async throws {
         let client = ProjectBrowserClient(executableURL: URL(fileURLWithPath: "/missing/wisp-service"))
         do {
