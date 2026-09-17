@@ -56,6 +56,10 @@ impl Store {
 
     /// Set a local pin without changing the project's activity timestamp.
     pub async fn set_project_starred(&self, id: &str, starred: bool) -> Result<()> {
+        anyhow::ensure!(
+            Self::has_column(&self.pool, "projects", "starred").await?,
+            "This database needs a desktop schema upgrade before project stars can be saved. Open it with the current WebView desktop first."
+        );
         let result =
             sqlx::query("UPDATE projects SET starred=? WHERE id=? AND id NOT LIKE 'scratch:%'")
                 .bind(starred)

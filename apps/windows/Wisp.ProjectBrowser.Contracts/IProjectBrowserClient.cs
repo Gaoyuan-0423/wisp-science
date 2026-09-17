@@ -8,6 +8,10 @@ namespace Wisp.ProjectBrowser.Contracts;
 /// </summary>
 public interface IProjectBrowserClient
 {
+    // Launch with --allow-project-writes only for this explicit desired-state command.
+    // Success returns the authoritative projects snapshot; never optimistically reorder.
+    Task<ProjectListSnapshot> SetProjectStarredAsync(
+        string databasePath, string projectId, bool starred, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<BrowserSession>> ListSessionsAsync(
         string databasePath, string? projectId = null, CancellationToken cancellationToken = default);
     Task<TranscriptPage> GetTranscriptAsync(
@@ -69,3 +73,10 @@ public sealed record BrowserMessage(
     [property: JsonPropertyName("tool_name")] string? ToolName);
 
 public sealed record TranscriptPage(IReadOnlyList<BrowserMessage> Messages, long? NextBeforeSeq);
+
+public sealed record SetProjectStarredRequest(
+    [property: JsonPropertyName("schema")] string Schema,
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("project_id")] string ProjectId,
+    [property: JsonPropertyName("starred")] bool Starred);

@@ -80,7 +80,11 @@ public protocol ProjectBrowserQuerying: Sendable {
     func transcript(databaseURL: URL, projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> TranscriptPage
 }
 
-public struct ProjectBrowserClient: ProjectBrowserQuerying {
+public protocol ProjectBrowserWriting: Sendable {
+    func setProjectStarred(databaseURL: URL, projectID: String, starred: Bool) async throws -> ProjectListSnapshot
+}
+
+public struct ProjectBrowserClient: ProjectBrowserQuerying, ProjectBrowserWriting {
     public static let schema = "wisp.project-browser.v1"
     public let executableURL: URL
 
@@ -93,6 +97,13 @@ public struct ProjectBrowserClient: ProjectBrowserQuerying {
         // Blocking pipe reads run off the UI thread and the process has a deadline.
         try await Task.detached(priority: .userInitiated) {
             try Self.decode(query(databaseURL: databaseURL, command: ["type": "list_projects"]), requestID: "projects-1")
+        }.value
+    }
+
+    public func setProjectStarred(databaseURL: URL, projectID: String, starred: Bool) async throws -> ProjectListSnapshot {
+        try await Task.detached(priority: .userInitiated) {
+            try Self.decode(query(databaseURL: databaseURL,
+                command: ["type": "set_project_starred", "project_id": projectID], starred: starred), requestID: "projects-1")
         }.value
     }
 
@@ -128,7 +139,7 @@ public struct ProjectBrowserClient: ProjectBrowserQuerying {
         return TranscriptPage(messages: messages, nextBeforeSeq: response.nextBeforeSeq)
     }
 
-    private func query(databaseURL: URL, command: [String: String], beforeSeq: Int64? = nil) throws -> Data {
+    private func query(databaseURL: URL, command: [String: String], beforeSeq: Int64? = nil, starred: Bool? = nil) throws -> Data {
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw ProjectBrowserError.unavailable("找不到查询服务。请使用 scripts/build_native_macos.sh 构建应用。")
         }
@@ -137,7 +148,7 @@ public struct ProjectBrowserClient: ProjectBrowserQuerying {
         let output = Pipe()
         let errors = Pipe()
         process.executableURL = executableURL
-        process.arguments = ["--database", databaseURL.path]
+        process.arguments = ["--database", databaseURL.path] + (starred == nil ? [] : ["--allow-project-writes"])
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
@@ -146,6 +157,7 @@ public struct ProjectBrowserClient: ProjectBrowserQuerying {
         let requestID = "projects-1"
         var request: [String: Any] = command.merging(["schema": Self.schema, "id": requestID]) { _, value in value }
         if let beforeSeq { request["before_seq"] = beforeSeq }
+        if let starred { request["starred"] = starred }
         var data = try JSONSerialization.data(withJSONObject: request)
         data.append(0x0A)
         try input.fileHandleForWriting.write(contentsOf: data)

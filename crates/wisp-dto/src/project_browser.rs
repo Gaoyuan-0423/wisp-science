@@ -1,4 +1,4 @@
-//! Versioned, read-only project-browser protocol for native clients.
+//! Versioned project-browser query and explicit command protocol for native clients.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,10 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
     ListProjects,
+    SetProjectStarred {
+        project_id: String,
+        starred: bool,
+    },
     ListSessions {
         project_id: Option<String>,
     },
@@ -75,6 +79,8 @@ pub enum ErrorCode {
     InvalidRequest,
     UnsupportedSchema,
     QueryFailed,
+    WriteDisabled,
+    CommandFailed,
 }
 
 /// Saved transcript text for native navigation; tool execution remains in the host.

@@ -1,6 +1,6 @@
 [package]
 name = "wisp-service"
-description = "Read-only local project-browser service for Wisp native clients."
+description = "Local project-browser query and explicit command service for Wisp native clients."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

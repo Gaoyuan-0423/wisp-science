@@ -342,3 +342,48 @@ async fn native_session_navigation_uses_home_limit_project_scope_and_read_only_p
     assert_eq!(cursor, None);
     assert_eq!(db.store.message_count("s0").await.unwrap(), 25);
 }
+
+#[tokio::test]
+async fn native_command_open_never_migrates_legacy_databases() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("legacy.sqlite");
+    let connection = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&database)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+        .execute(&connection)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO projects VALUES ('p','Original')")
+        .execute(&connection)
+        .await
+        .unwrap();
+    let store = wisp_store::Store::open_existing_for_commands(&database)
+        .await
+        .unwrap();
+    let error = wisp_app::projects::set_project_starred(&store, "p", true)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("desktop schema upgrade"));
+    let columns: Vec<(i64, String, String, i64, Option<String>, i64)> =
+        sqlx::query_as("PRAGMA table_info(projects)")
+            .fetch_all(&connection)
+            .await
+            .unwrap();
+    assert_eq!(columns.len(), 2);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        .fetch_one(&connection)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    assert!(
+        wisp_store::Store::open_existing_for_commands(&directory.path().join("absent.sqlite"))
+            .await
+            .is_err()
+    );
+    assert!(!directory.path().join("absent.sqlite").exists());
+}
