@@ -1003,6 +1003,7 @@ pub(crate) fn SshConnectivityOverlay(
                     SshFailKind::ProbeOutput => t(loc, "ssh_check.probe_output_title"),
                     SshFailKind::PasswordAuth => t(loc, "ssh_check.password_title"),
                     SshFailKind::KeyAuth => t(loc, "ssh_check.key_title"),
+                    SshFailKind::ClientVersion => t(loc, "ssh_check.client_title"),
                     _ => t(loc, "ssh_check.fail_title"),
                 }
             } else {
@@ -1013,6 +1014,7 @@ pub(crate) fn SshConnectivityOverlay(
                     SshFailKind::ProbeOutput => "ssh_check.probe_output_body",
                     SshFailKind::PasswordAuth => "ssh_check.password_body",
                     SshFailKind::KeyAuth => "ssh_check.key_body",
+                    SshFailKind::ClientVersion => "ssh_check.client_body",
                     _ => "ssh_check.fail_body",
                 };
                 tf(loc, key, &[("host", &host)])

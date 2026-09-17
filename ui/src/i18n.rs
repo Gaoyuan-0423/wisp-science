@@ -859,6 +859,7 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "hosts.password_ph") => Some("Server login password"),
         (Locale::En, "hosts.password_keep") => Some("Leave blank to keep the stored password"),
         (Locale::En, "hosts.password_hint") => Some("The password is stored only in the OS keyring — never in project files or SQLite. Prefer SSH keys when possible."),
+        (Locale::En, "hosts.openssh_hint") => Some("Wisp requires a local OpenSSH client 8.4 or later (`ssh -V`). Windows 10's inbox OpenSSH is often 8.1 and cannot supply saved passwords."),
         (Locale::En, "hosts.user_ph") => Some("e.g. alice"),
         (Locale::En, "hosts.identity_ph") => Some("~/.ssh/id_ed25519"),
         (Locale::En, "hosts.notes") => Some("Anything the agent should know? (optional)"),
@@ -1341,11 +1342,13 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "ssh_check.probe_output_title") => Some("SSH connected — environment information unavailable"),
         (Locale::En, "ssh_check.password_title") => Some("SSH password authentication failed"),
         (Locale::En, "ssh_check.key_title") => Some("SSH key authentication failed"),
+        (Locale::En, "ssh_check.client_title") => Some("Local OpenSSH is too old"),
         (Locale::En, "ssh_check.body") => Some("Wisp will not let the agent use `{host}` until connectivity is confirmed with a successful Probe using the configured host settings (alias/user/port/identity). Free-form shell ssh is disabled."),
         (Locale::En, "ssh_check.fail_body") => Some("Do not keep probing `{host}` until you fix the issue — repeated failed logins look like brute force and can get your IP banned."),
         (Locale::En, "ssh_check.probe_output_body") => Some("SSH authentication to `{host}` succeeded, but the account did not execute Wisp's non-interactive probe commands. Remote command execution is required for Agent, Runtime, Files, and terminal features."),
         (Locale::En, "ssh_check.password_body") => Some("The server rejected password authentication for `{host}`. This is an authentication problem, not an environment-information problem."),
         (Locale::En, "ssh_check.key_body") => Some("The server rejected key/agent authentication for `{host}`. This is an authentication problem, not an environment-information problem."),
+        (Locale::En, "ssh_check.client_body") => Some("Wisp cannot use `{host}` until this computer's OpenSSH client is 8.4 or later. Windows inbox OpenSSH 8.1 cannot supply saved passwords (`SSH_ASKPASS_REQUIRE`)."),
         (Locale::En, "ssh_check.detail") => Some("Error: {detail}"),
         (Locale::En, "ssh_check.hint") => Some("On the server side, unlock your IP if intrusion protection blocked it, fix the IdentityFile path, then Probe again."),
         (Locale::En, "ssh_check.causes_title") => Some("Likely causes"),
@@ -1371,6 +1374,9 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "ssh_check.cause.probe_output.1") => Some("The account may use a restricted shell or forced command that blocks non-interactive system queries."),
         (Locale::En, "ssh_check.cause.probe_output.2") => Some("A login-shell startup script may exit early or redirect command output."),
         (Locale::En, "ssh_check.cause.probe_output.3") => Some("A successful password check alone is not enough for compute features; the account must also allow non-interactive remote commands."),
+        (Locale::En, "ssh_check.cause.client.1") => Some("Run `ssh -V` in a terminal. Wisp needs OpenSSH 8.4 or later on this computer, not on the server."),
+        (Locale::En, "ssh_check.cause.client.2") => Some("On Windows, update OpenSSH Client in Settings → Apps → Optional features, or install a current Win32-OpenSSH release. Confirm `where ssh` points at the new binary."),
+        (Locale::En, "ssh_check.cause.client.3") => Some("Restart Wisp after upgrading so it picks up the new `ssh` on PATH."),
         (Locale::En, "ssh_check.cause.other.1") => Some("Host settings (alias/user/port/identity) do not match a working terminal ssh."),
         (Locale::En, "ssh_check.cause.other.2") => Some("Network, firewall, or server SSH service problem."),
         (Locale::En, "ssh_check.cause.other.3") => Some("Fix config first; do not spam Probe."),
@@ -2508,6 +2514,9 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "err.api_key_required") => Some("API key is required."),
         (Locale::En, "err.max_tokens_ceiling") => Some("{model} accepts at most {max} output tokens — lower Max output tokens."),
         (Locale::En, "err.unknown") => Some("Unknown error"),
+        (Locale::En, "err.openssh_too_old") => Some("Local OpenSSH is too old for Wisp (found OpenSSH {found}, need 8.4 or later). Password authentication uses SSH_ASKPASS_REQUIRE, which OpenSSH added in 8.4. On Windows, update OpenSSH Client in Settings → Apps → Optional features, or install a current Win32-OpenSSH build. Restart Wisp and run `ssh -V`."),
+        (Locale::En, "err.openssh_missing") => Some("OpenSSH client was not found on PATH. Wisp needs OpenSSH 8.4 or later (`ssh -V`). Install or enable OpenSSH, then restart Wisp."),
+        (Locale::En, "err.openssh_unparsed") => Some("Could not parse local OpenSSH version from `ssh -V`. Wisp needs OpenSSH 8.4 or later."),
         (Locale::En, "err.blank_window_no_project") => {
             Some("Open a project in this window before running that action.")
         }
@@ -3706,6 +3715,7 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "hosts.password_ph") => Some("服务器登录密码"),
         (Locale::Zh, "hosts.password_keep") => Some("留空则保留已保存的密码"),
         (Locale::Zh, "hosts.password_hint") => Some("密码只保存在操作系统钥匙串中，不会写入项目文件或 SQLite。能用密钥时优先用密钥。"),
+        (Locale::Zh, "hosts.openssh_hint") => Some("本机 OpenSSH 需要 8.4 或更高（`ssh -V`）。Windows 10 自带客户端常为 8.1，无法向 SSH 提供已保存的密码。"),
         (Locale::Zh, "hosts.user_ph") => Some("例如 alice"),
         (Locale::Zh, "hosts.identity_ph") => Some("~/.ssh/id_ed25519"),
         (Locale::Zh, "hosts.notes") => Some("有什么需要 agent 知道的？（可选）"),
@@ -4120,11 +4130,13 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "ssh_check.probe_output_title") => Some("SSH 已连接 — 无法读取环境信息"),
         (Locale::Zh, "ssh_check.password_title") => Some("SSH 密码认证失败"),
         (Locale::Zh, "ssh_check.key_title") => Some("SSH 密钥认证失败"),
+        (Locale::Zh, "ssh_check.client_title") => Some("本机 OpenSSH 版本过低"),
         (Locale::Zh, "ssh_check.body") => Some("在使用配置的主机参数（别名/用户/端口/密钥）成功探测之前，Wisp 不会让 Agent 访问 `{host}`。已禁用 shell 里自由拼装的 ssh 命令。"),
         (Locale::Zh, "ssh_check.fail_body") => Some("在修好问题之前，请不要对 `{host}` 反复探测——连续失败登录会被当成爆破，可能封禁你的 IP。"),
         (Locale::Zh, "ssh_check.probe_output_body") => Some("Wisp 已通过 `{host}` 的 SSH 认证，但该账号没有执行非交互探测命令。Agent、Runtime、Files 和终端功能都需要远程命令执行能力。"),
         (Locale::Zh, "ssh_check.password_body") => Some("服务器拒绝了 `{host}` 的密码认证。这是认证问题，不是环境信息采集问题。"),
         (Locale::Zh, "ssh_check.key_body") => Some("服务器拒绝了 `{host}` 的密钥/agent 认证。这是认证问题，不是环境信息采集问题。"),
+        (Locale::Zh, "ssh_check.client_body") => Some("在本机 OpenSSH 升级到 8.4 或更高之前，Wisp 无法使用 `{host}`。Windows 自带的 OpenSSH 8.1 无法向 SSH 提供已保存的密码（需要 `SSH_ASKPASS_REQUIRE`）。"),
         (Locale::Zh, "ssh_check.detail") => Some("错误：{detail}"),
         (Locale::Zh, "ssh_check.hint") => Some("请在服务器侧检查网络、是否因入侵防护封禁 IP，并确认 IdentityFile 路径正确，然后重新探测。"),
         (Locale::Zh, "ssh_check.causes_title") => Some("可能原因"),
@@ -4150,6 +4162,9 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "ssh_check.cause.probe_output.1") => Some("该账号可能使用受限 shell 或强制命令，禁止非交互式系统查询。"),
         (Locale::Zh, "ssh_check.cause.probe_output.2") => Some("登录 shell 的启动脚本可能提前退出，或把命令输出重定向走了。"),
         (Locale::Zh, "ssh_check.cause.probe_output.3") => Some("只通过密码校验还不足以使用计算功能；该账号还必须允许执行非交互式远程命令。"),
+        (Locale::Zh, "ssh_check.cause.client.1") => Some("在本机终端运行 `ssh -V`。Wisp 需要的是这台电脑上的 OpenSSH 8.4 或更高，不是服务器上的版本。"),
+        (Locale::Zh, "ssh_check.cause.client.2") => Some("Windows：在「设置 → 应用 → 可选功能」中更新 OpenSSH 客户端，或安装最新的 Win32-OpenSSH。确认 `where ssh` 指向新的可执行文件。"),
+        (Locale::Zh, "ssh_check.cause.client.3") => Some("升级后请重启 Wisp，以便加载 PATH 上的新 `ssh`。"),
         (Locale::Zh, "ssh_check.cause.other.1") => Some("主机配置（别名/用户/端口/密钥）与终端能连上的 ssh 不一致。"),
         (Locale::Zh, "ssh_check.cause.other.2") => Some("网络、防火墙或服务器 SSH 服务异常。"),
         (Locale::Zh, "ssh_check.cause.other.3") => Some("先修好配置，不要连续点探测。"),
@@ -5196,6 +5211,9 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "err.api_key_required") => Some("API 密钥不能为空。"),
         (Locale::Zh, "err.max_tokens_ceiling") => Some("{model} 的最大输出 tokens 上限为 {max}，请调低「最大输出 tokens」。"),
         (Locale::Zh, "err.unknown") => Some("未知错误"),
+        (Locale::Zh, "err.openssh_too_old") => Some("本机 OpenSSH 版本过低（当前 OpenSSH {found}，Wisp 需要 8.4 或更高）。密码认证依赖 SSH_ASKPASS_REQUIRE（OpenSSH 8.4 起提供）。Windows 请在「设置 → 应用 → 可选功能」中更新 OpenSSH 客户端，或安装最新的 Win32-OpenSSH。重启 Wisp 并用 `ssh -V` 确认。"),
+        (Locale::Zh, "err.openssh_missing") => Some("PATH 上找不到 OpenSSH 客户端。Wisp 需要 OpenSSH 8.4 或更高（`ssh -V`）。请安装或启用 OpenSSH 后重启 Wisp。"),
+        (Locale::Zh, "err.openssh_unparsed") => Some("无法从 `ssh -V` 解析本机 OpenSSH 版本。Wisp 需要 OpenSSH 8.4 或更高。"),
         (Locale::Zh, "err.blank_window_no_project") => {
             Some("请先在此窗口打开一个项目，再执行该操作。")
         }
@@ -6234,11 +6252,26 @@ pub fn localize_backend(locale: Locale, msg: &str) -> String {
             }
             msg.to_string()
         }
+        m if m.contains("Local OpenSSH is too old") => {
+            let found = found_openssh_version(m).unwrap_or("unknown");
+            tf(locale, "err.openssh_too_old", &[("found", found)])
+        }
+        m if m.contains("OpenSSH client was not found") => t(locale, "err.openssh_missing"),
+        m if m.contains("Could not parse local OpenSSH") => t(locale, "err.openssh_unparsed"),
         _ => match api_error_hint(locale, msg) {
             Some(hint) => format!("{msg} — {hint}"),
             None => msg.to_string(),
         },
     }
+}
+
+fn found_openssh_version(msg: &str) -> Option<&str> {
+    const PREFIX: &str = "found OpenSSH ";
+    let start = msg.find(PREFIX)? + PREFIX.len();
+    let rest = &msg[start..];
+    let end = rest.find([',', ')'])?;
+    let found = rest[..end].trim();
+    (!found.is_empty()).then_some(found)
 }
 
 /// Friendly next-step hint for raw provider errors (`api: {status} {body}` /
@@ -6460,6 +6493,19 @@ mod api_error_hint_tests {
             assert!(!is_context_limit_error(&error));
             assert!(!is_image_unsupported(&error));
         }
+    }
+
+    #[test]
+    fn localize_backend_translates_openssh_version_errors() {
+        let old = "Local OpenSSH is too old for Wisp (found OpenSSH 8.1, need 8.4 or later). Password authentication uses SSH_ASKPASS_REQUIRE.";
+        let zh = localize_backend(Locale::Zh, old);
+        assert!(zh.contains("8.1"), "{zh}");
+        assert!(zh.contains("8.4"), "{zh}");
+        assert!(zh.contains("本机 OpenSSH"), "{zh}");
+        let en = localize_backend(Locale::En, old);
+        assert!(en.contains("found OpenSSH 8.1"), "{en}");
+        let missing = localize_backend(Locale::Zh, "OpenSSH client was not found on PATH.");
+        assert!(missing.contains("找不到 OpenSSH"), "{missing}");
     }
 
     #[test]

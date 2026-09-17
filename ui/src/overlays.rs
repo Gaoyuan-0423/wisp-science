@@ -137,6 +137,7 @@ pub(super) fn AddHostOverlay(
             <textarea id="host-notes" class="host-input" prop:value=move || host_notes.get()
                 placeholder=move || t(locale.get(), "hosts.notes_ph")
                 on:input=move |ev| host_notes.set(event_target_value(&ev))></textarea>
+            <p class="hint">{move || t(locale.get(), "hosts.openssh_hint")}</p>
             {move || test_result.get().map(|result| match result {
                 Ok(()) => view! { <p class="settings-status ok">{t(locale.get(), "hosts.test_ok")}</p> },
                 Err(error) => view! { <p class="settings-status fail">{localize_backend(locale.get(), &error)}</p> },

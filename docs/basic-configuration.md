@@ -101,6 +101,8 @@
 
 先点击 **测试连接**，通过后再添加。回到环境列表后执行 **探测环境**，让 Wisp 记录操作系统、CPU 架构、GPU、Python、R 和 SLURM 等能力；如远端解释器不在默认 PATH，再使用 **配置运行时解释器**。
 
+本机 OpenSSH 需要 **8.4 或更高**（`ssh -V`）。Wisp 用 `SSH_ASKPASS_REQUIRE` 向非交互 SSH 提供已保存的密码；Windows 10 自带客户端常为 8.1，会因此无法启动远端 Python / R 持久化。请在 **设置 → 应用 → 可选功能** 中更新 OpenSSH 客户端，或安装 [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH/releases)，确认 `where ssh` 指向新版本后重启 Wisp。
+
 如果已经维护 `~/.ssh/config`，可以使用 **一键导入 ~/.ssh/config 全部主机**。导入后仍建议逐台探测，确认别名、端口、用户和 IdentityFile 能正常工作。
 
 ### 在会话中使用服务器

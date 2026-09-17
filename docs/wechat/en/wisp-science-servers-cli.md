@@ -43,6 +43,8 @@ Useful agent notes might say:
 
 Click **Test connection** and add the host after success. Back in the environment list, use **Probe context** to inspect operating system, Python, R, GPU, and scheduler information.
 
+The local OpenSSH client must be 8.4 or later (`ssh -V`). Older clients, including the Windows inbox OpenSSH 8.1, cannot supply saved passwords to non-interactive SSH, so remote Python / R runtimes fail to start. Update OpenSSH on this computer and restart Wisp before probing.
+
 Being able to log in and having a usable analysis environment are separate checks. If the connection succeeds but Python or R is missing from the probe, check installation and the remote PATH. Use **Configure runtime interpreters** to specify a remote executable path where necessary.
 
 If you already maintain `~/.ssh/config`, import its hosts and test and probe them individually. Private-key contents are not copied into Wisp's SQLite database; sensitive password values use the operating system keyring.

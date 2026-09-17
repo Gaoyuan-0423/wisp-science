@@ -2,11 +2,17 @@
 //!
 //! Passwords are never stored in SQLite: they live in the OS keyring under
 //! `ssh_password:{alias}` and are injected into OpenSSH via SSH_ASKPASS for
-//! non-interactive managed tools (probe/run/runtime/files).
+//! non-interactive managed tools (probe/run/runtime/files). Managed SSH
+//! requires a local OpenSSH client 8.4 or later (`SSH_ASKPASS_REQUIRE`).
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use wisp_store::secrets::Secret;
+
+pub use crate::openssh::{
+    require_local_openssh, OpenSshVersion, MIN_OPENSSH_VERSION, OPENSSH_MISSING_MARKER,
+    OPENSSH_TOO_OLD_MARKER, OPENSSH_UNPARSED_MARKER,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -392,7 +398,7 @@ pub fn build_password_askpass_env(password: &str) -> Result<Vec<(String, String)
             askpass_path.to_string_lossy().into_owned(),
         ),
         ("SSH_ASKPASS_REQUIRE".into(), "force".into()),
-        // Older OpenSSH only enables ASKPASS when DISPLAY is set.
+        // OpenSSH < 8.4 ignores SSH_ASKPASS_REQUIRE; DISPLAY still enables ASKPASS.
         ("DISPLAY".into(), "wisp-ssh-askpass".into()),
         (
             PASSFILE_ENV.into(),
@@ -471,13 +477,22 @@ pub fn ensure_identity_path_accessible(identity_file: &str) -> Result<(), String
 
 pub const SSH_NOT_CONFIRMED_MARKER: &str = "SSH connectivity is not confirmed";
 
-/// Gate every managed SSH use: known-good probe, open circuit breaker, and a
-/// resolvable identity file. Agent tools must call this before spawning SSH so
-/// they only use the configured `SshConnection` when the host is known reachable.
+/// Gate every managed SSH use: local OpenSSH 8.4+, known-good probe, open
+/// circuit breaker, and a resolvable identity file. Agent tools must call this
+/// before spawning SSH so they only use the configured `SshConnection` when the
+/// host is known reachable.
 pub fn require_managed_ssh_ready(ctx: &wisp_store::ExecutionContext) -> Result<(), String> {
+    require_managed_ssh_ready_checked(ctx, require_local_openssh)
+}
+
+fn require_managed_ssh_ready_checked(
+    ctx: &wisp_store::ExecutionContext,
+    openssh: fn() -> Result<OpenSshVersion, String>,
+) -> Result<(), String> {
     if ctx.kind != wisp_store::ExecutionContextKind::Ssh {
         return Ok(());
     }
+    openssh().map_err(|error| annotate_ssh_context(&ctx.id, error))?;
     crate::ssh_guard::assert_allowed(&ctx.id)?;
     let connection = SshConnection::from_execution_context(ctx)?;
     if let Err(error) = connection.assert_ready_to_connect() {
@@ -506,6 +521,14 @@ pub fn require_managed_ssh_ready(ctx: &wisp_store::ExecutionContext) -> Result<(
              configured settings. Free-form shell `ssh` is disabled.",
             ctx.id
         )),
+    }
+}
+
+pub fn annotate_ssh_context(context_id: &str, error: String) -> String {
+    if error.contains(&format!("`{context_id}`")) {
+        error
+    } else {
+        format!("{error} (while using `{context_id}`)")
     }
 }
 
@@ -1302,23 +1325,42 @@ mod tests {
         assert!(err.contains("Do not retry"), "{err}");
     }
 
+    fn stub_openssh_ok() -> Result<OpenSshVersion, String> {
+        Ok(OpenSshVersion { major: 9, minor: 0 })
+    }
+
     #[test]
     fn managed_ssh_requires_successful_probe() {
         let mut ctx = wisp_store::ExecutionContext::new("ssh:lab", "lab").unwrap();
         ctx.config_json = serde_json::json!({ "alias": "lab" }).to_string();
-        let unknown = require_managed_ssh_ready(&ctx).unwrap_err();
+        let unknown = require_managed_ssh_ready_checked(&ctx, stub_openssh_ok).unwrap_err();
         assert!(unknown.contains(SSH_NOT_CONFIRMED_MARKER), "{unknown}");
         assert!(unknown.contains("no successful probe"), "{unknown}");
 
         ctx.last_probe_status = Some("error".into());
         ctx.last_probe_error = Some("Connection timed out".into());
-        let failed = require_managed_ssh_ready(&ctx).unwrap_err();
+        let failed = require_managed_ssh_ready_checked(&ctx, stub_openssh_ok).unwrap_err();
         assert!(failed.contains(SSH_NOT_CONFIRMED_MARKER), "{failed}");
         assert!(failed.contains("Connection timed out"), "{failed}");
 
         ctx.last_probe_status = Some("ok".into());
         ctx.last_probe_error = None;
-        assert!(require_managed_ssh_ready(&ctx).is_ok());
+        assert!(require_managed_ssh_ready_checked(&ctx, stub_openssh_ok).is_ok());
+    }
+
+    #[test]
+    fn managed_ssh_rejects_old_openssh_before_probe_status() {
+        let mut ctx = wisp_store::ExecutionContext::new("ssh:lab", "lab").unwrap();
+        ctx.config_json = serde_json::json!({ "alias": "lab" }).to_string();
+        ctx.last_probe_status = Some("ok".into());
+        let error = require_managed_ssh_ready_checked(&ctx, || {
+            Err(format!(
+                "{OPENSSH_TOO_OLD_MARKER} for Wisp (found OpenSSH 8.1, need 8.4 or later)"
+            ))
+        })
+        .unwrap_err();
+        assert!(error.contains(OPENSSH_TOO_OLD_MARKER), "{error}");
+        assert!(error.contains("`ssh:lab`"), "{error}");
     }
 
     #[test]

@@ -274,6 +274,10 @@ impl TerminalManager {
         context: &wisp_store::ExecutionContext,
     ) -> Result<TerminalSessionSummary, String> {
         let spec = build_terminal_launch_spec(context, project_root)?;
+        if spec.program == "ssh" || spec.program.ends_with("ssh.exe") {
+            crate::ssh_hosts::require_local_openssh()
+                .map_err(|error| crate::ssh_hosts::annotate_ssh_context(&context.id, error))?;
+        }
         let cleanup_envs = spec.envs.clone();
         let label = if context.label.trim().is_empty() {
             context.id.clone()

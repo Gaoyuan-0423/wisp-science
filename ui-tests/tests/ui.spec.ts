@@ -6483,6 +6483,28 @@ test("environment probe shows progress and classifies password authentication fa
   await expect(server.getByRole("status")).toHaveCount(0);
 });
 
+test("environment probe classifies an old local OpenSSH client", async ({ page }) => {
+  await enterApp(page);
+  await openSettingsSection(page, "Environments");
+  await page.evaluate(() => {
+    const context = (window as any).__mockExecutionContexts.find(
+      (item: any) => item.id === "ssh:gpu-server",
+    );
+    context.last_probe_status = "error";
+    context.last_probe_error =
+      "Local OpenSSH is too old for Wisp (found OpenSSH 8.1, need 8.4 or later). Password authentication uses SSH_ASKPASS_REQUIRE, which OpenSSH added in 8.4. (while using `ssh:gpu-server`)";
+  });
+
+  const server = page.locator('.environment-settings-row[data-context-id="ssh:gpu-server"]');
+  await server.getByRole("button", { name: "Probe context" }).click();
+
+  const modal = page.getByTestId("ssh-connectivity-modal");
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText("Local OpenSSH is too old");
+  await expect(modal).toContainText("Run `ssh -V` in a terminal");
+  await expect(modal).toContainText("Windows inbox OpenSSH 8.1");
+});
+
 test("missing optional uname output does not fail an otherwise usable SSH probe", async ({ page }) => {
   await enterApp(page);
   await openSettingsSection(page, "Environments");
