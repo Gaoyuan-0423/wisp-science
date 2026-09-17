@@ -43,6 +43,15 @@ final class ProjectNavigationTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingRecentSessionDoesNotSilentlyOpenAnotherConversation() async {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/unused"))
+        await model.openProject("p", sessionID: "deleted-session")
+        XCTAssertEqual(model.activeSessionID, "deleted-session")
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertNotNil(model.sessionError)
+    }
+
+    @MainActor
     func testBackDuringQueryCannotReopenAnOldWorkspace() async {
         let client = NavigationClient()
         await client.setSuspended()

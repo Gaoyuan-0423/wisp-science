@@ -42,6 +42,7 @@ struct ProjectWorkspace: View {
                         Button("重试") { Task { await model.openProject(project.id, sessionID: model.activeSessionID) } }
                     }.padding().foregroundStyle(.orange)
                 }
+                ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         if model.nextBeforeSeq != nil, let id = model.activeSessionID {
@@ -68,6 +69,10 @@ struct ProjectWorkspace: View {
                         }
                     }
                     .frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
+                }
+                .onChange(of: model.messages.last?.id) { id in
+                    if let id { scroll.scrollTo(id, anchor: .bottom) }
+                }
                 }
                 VStack(alignment: .leading, spacing: 20) {
                     Text("向 Wisp Science 提问…").foregroundStyle(color("text-faint"))

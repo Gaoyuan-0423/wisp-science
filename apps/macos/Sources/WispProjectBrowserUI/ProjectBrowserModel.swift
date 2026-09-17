@@ -102,7 +102,9 @@ public final class ProjectBrowserModel: ObservableObject {
             let rows = try await client.listSessions(databaseURL: databaseURL, projectID: id)
             guard generation == navigationGeneration else { return }
             sessions = rows
-            if let selected = rows.first(where: { $0.id == sessionID })?.id ?? rows.first?.id {
+            if let sessionID, !rows.contains(where: { $0.id == sessionID }) {
+                sessionError = "这个会话已不存在，请刷新项目列表。"
+            } else if let selected = sessionID ?? rows.first?.id {
                 await openSession(selected)
             }
         } catch {
