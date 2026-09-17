@@ -2444,12 +2444,20 @@ impl Store {
         }
         let now = chrono::Utc::now().timestamp();
         let n = sqlx::query(
-            "UPDATE frames SET folder_id=?, updated_at=? WHERE id=? AND project_id=? AND parent_frame_id=id",
+            // Move the persisted subtree, including descendants outside the loaded
+            // sidebar page. UNION also terminates malformed cyclic branch links.
+            "WITH RECURSIVE family(id) AS ( \
+                SELECT id FROM frames WHERE id=? AND project_id=? AND parent_frame_id=id \
+                UNION \
+                SELECT f.id FROM frames f JOIN family ON f.branched_from=family.id \
+                WHERE f.project_id=? AND f.parent_frame_id=f.id AND f.exploration_id IS NULL \
+             ) UPDATE frames SET folder_id=?, updated_at=? WHERE id IN (SELECT id FROM family)",
         )
-        .bind(folder_id)
-        .bind(now)
         .bind(frame_id)
         .bind(project_id)
+        .bind(project_id)
+        .bind(folder_id)
+        .bind(now)
         .execute(&self.pool)
         .await?;
         if n.rows_affected() == 0 {
