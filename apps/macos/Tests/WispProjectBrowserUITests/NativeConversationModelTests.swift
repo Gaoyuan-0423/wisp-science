@@ -115,4 +115,20 @@ final class NativeConversationModelTests: XCTestCase {
         XCTAssertThrowsError(try ConversationSnapshot.decode(value, projectID: "project-a", sessionID: "session-a"))
     }
 
+    @MainActor func testUnconfirmedSendKeepsRecoveryActionAfterLeavingAndReturning() async throws {
+        let client = ConversationFake(); let model = NativeConversationModel(client: client)
+        await client.configure([try fixture()], failSend: true)
+        await model.open(project: "project-a", session: "session-a")
+        model.draft = "uncertain"; await model.send()
+        await client.configure([try fixture("session-b")])
+        await model.open(project: "project-a", session: "session-b")
+        await client.configure([try fixture(sequence: 8)])
+        await model.open(project: "project-a", session: "session-a")
+        XCTAssertTrue(model.uncertainSend); XCTAssertNotNil(model.operationError)
+        XCTAssertEqual(model.draft, "uncertain"); XCTAssertFalse(model.canSend)
+        model.acknowledgeUncertainSend()
+        XCTAssertTrue(model.canSend)
+        let count = await client.count(); XCTAssertEqual(count, 1); model.pause()
+    }
+
 }

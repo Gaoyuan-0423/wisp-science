@@ -32,7 +32,8 @@ final class NativeConversationModel: ObservableObject {
         pause()
         projectID = project; sessionID = session; draft = drafts[session] ?? ""
         snapshot = nil; history = nil; showingHistory = false; pending = pendingSends[session]; uncertainSend = pending != nil; retiredEpochs = []
-        operationError = nil; connectionError = nil; loading = true; busy = false
+        operationError = pending == nil ? nil : "上次发送结果尚未确认。请核对最新消息；不会自动重发。"
+        connectionError = nil; loading = true; busy = false
         let current = generation
         await refresh()
         guard generation == current else { return }
