@@ -4901,6 +4901,10 @@ test("Generated artifacts survive follow-up tool commentary and ignore mentioned
   await expect(reply.locator('.message-artifact-card[data-artifact-name="old.csv"]')).toHaveCount(0);
   await expect(reply.locator('.message-artifact-card[data-artifact-name="old.png"]')).toHaveCount(0);
   await expect(reply.locator('.message-artifact-card[data-artifact-name="old-report.md"]')).toHaveCount(0);
+  // Suggested/mentioned filenames are not workspace files. Only paths with a
+  // directory component become clickable local links.
+  await expect(reply.locator('a.workspace-path-link[href="old.csv"]')).toHaveCount(0);
+  await expect(reply.locator("code").filter({ hasText: "old.csv" })).toHaveText("old.csv");
   const pathLink = reply.locator('a.workspace-path-link[href="notes/FIGURE_LEGEND.md"]');
   await expect(pathLink).toHaveText("notes/FIGURE_LEGEND.md");
   await expect.poll(async () => pathLink.evaluate((el) => {

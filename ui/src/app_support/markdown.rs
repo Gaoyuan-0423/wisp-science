@@ -550,8 +550,12 @@ pub(crate) fn enrich_md_html(
 /// Turn inline-code project paths into ordinary Markdown-style file links.
 /// The href remains the portable relative path that `handle_md_click` resolves,
 /// while an absolute in-project path is shortened for display. Code blocks,
-/// artifact chips, URLs, commands, and paths outside the project are untouched.
+/// artifact chips, URLs, commands, suggested filenames, globs, and paths
+/// outside the project are untouched.
 fn wrap_inline_workspace_paths(html: String, project_root: Option<&str>) -> String {
+    let Some(root) = project_root.filter(|root| !root.is_empty()) else {
+        return html;
+    };
     let mut out = String::with_capacity(html.len());
     let mut rest = html.as_str();
     while let Some(start) = rest.find("<code>") {
@@ -564,11 +568,16 @@ fn wrap_inline_workspace_paths(html: String, project_root: Option<&str>) -> Stri
         };
         let encoded = &code_rest[..end];
         let candidate = decode_html_attribute(encoded);
-        let relative = workspace_relative_path(project_root.unwrap_or_default(), &candidate);
+        let relative = workspace_relative_path(root, &candidate);
         let linked = relative
             .filter(|path| !path.is_empty() && !path.chars().any(char::is_whitespace))
+            .filter(|path| is_linkable_inline_workspace_path(path, &candidate))
             .filter(|path| file_kind(path).is_some())
-            .filter(|_| !code_is_inside_art_ref(before) && !code_is_inside_link(before));
+            .filter(|_| {
+                !code_is_inside_art_ref(before)
+                    && !code_is_inside_link(before)
+                    && !code_is_inside_pre(before)
+            });
         if let Some(path) = linked {
             let escaped = html_escape(&path);
             out.push_str(&format!(
@@ -583,6 +592,16 @@ fn wrap_inline_workspace_paths(html: String, project_root: Option<&str>) -> Stri
     }
     out.push_str(rest);
     out
+}
+
+/// Bare filenames (`fix_obs_names.py`) and globs are suggestions, not
+/// workspace locations. Absolute paths that resolved under the project
+/// still count — they may be a file sitting at the project root.
+fn is_linkable_inline_workspace_path(relative: &str, original: &str) -> bool {
+    if relative.contains(['*', '?', '[', ']']) || original.contains(['*', '?', '[', ']']) {
+        return false;
+    }
+    is_absolute_workspace_path(original) || relative.contains('/')
 }
 
 /// Turn bare `http(s)://…` runs into links. CommonMark has no GFM autolink
@@ -687,6 +706,20 @@ fn trim_url_tail(url: &str) -> &str {
 fn code_is_inside_link(before: &str) -> bool {
     matches!((before.rfind("<a "), before.rfind("</a>")), (Some(open), Some(close)) if open > close)
         || (before.rfind("<a ").is_some() && before.rfind("</a>").is_none())
+}
+
+fn last_pre_open(before: &str) -> Option<usize> {
+    ["<pre>", "<pre "]
+        .into_iter()
+        .filter_map(|tag| before.rfind(tag))
+        .max()
+}
+
+fn code_is_inside_pre(before: &str) -> bool {
+    matches!(
+        (last_pre_open(before), before.rfind("</pre>")),
+        (Some(open), Some(close)) if open > close
+    ) || (last_pre_open(before).is_some() && before.rfind("</pre>").is_none())
 }
 
 #[cfg(test)]
@@ -914,6 +947,40 @@ mod art_ref_marker_tests {
     fn inline_commands_and_foreign_absolute_paths_stay_plain_code() {
         let html = r#"<p><code>monitor_run</code> <code>/usr/bin/python3</code> <code>D:\Other\secret.md</code></p>"#;
         let out = wrap_inline_workspace_paths(html.into(), Some(r"D:\Project"));
+        assert_eq!(out, html);
+    }
+
+    #[test]
+    fn suggested_filenames_and_globs_stay_plain_code() {
+        let html = concat!(
+            "<p>Write <code>fix_obs_names.py</code> and save as ",
+            "<code>*_fixed.h5ad</code> or <code>results/*.csv</code>. ",
+            "Inspect <code>old.csv</code>.</p>",
+        );
+        let out = wrap_inline_workspace_paths(html.into(), Some("/mock/root"));
+        assert_eq!(out, html);
+        assert!(!out.contains("workspace-path-link"));
+    }
+
+    #[test]
+    fn absolute_project_root_file_is_still_a_link() {
+        let html = r#"<p><code>D:\Wisp-Science\合作项目\README.md</code></p>"#;
+        let out = wrap_inline_workspace_paths(html.into(), Some(r"D:\Wisp-Science\合作项目"));
+        assert!(out.contains(
+            r#"href="README.md" data-workspace-path="README.md"><code>README.md</code>"#
+        ));
+    }
+
+    #[test]
+    fn no_project_leaves_inline_paths_as_code() {
+        let html = r#"<p><code>figures/plot.png</code></p>"#;
+        assert_eq!(wrap_inline_workspace_paths(html.into(), None), html);
+    }
+
+    #[test]
+    fn fenced_code_blocks_are_not_linkified() {
+        let html = r#"<pre><code>figures/plot.png</code></pre>"#;
+        let out = wrap_inline_workspace_paths(html.into(), Some("/mock/root"));
         assert_eq!(out, html);
     }
 
