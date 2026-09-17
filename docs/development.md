@@ -363,8 +363,13 @@ wisp-science/
 │  ├─ wisp-acp/     ACP v1 stdio client for external coding agents
 │  ├─ wisp-sync/    Encrypted snapshot protocol + self-hosted relay server
 │  ├─ wisp-runs/    Run control plane (run_in_context / monitor_run / harvest)
+│  ├─ wisp-app/     Host-independent application queries over the existing store
+│  ├─ wisp-service/ Read-only JSONL host for the native project browser
+│  ├─ wisp-dto/     Shared data contracts for UI and application services
 │  └─ wisp-cli/     `wisp-science` headless binary
 ├─ src-tauri/       Tauri v2 desktop shell (commands + agent event stream)
+├─ apps/macos/      SwiftUI project browser preview + Foundation transport
+├─ apps/windows/    Future WinUI 3 client contract + fixture smoke test
 ├─ ui/              Leptos CSR frontend (built by Trunk, loaded in WebView2)
 ├─ python/          kernel_worker.py + mock MCP server (uv-managed)
 ├─ r/               optional system-R kernel worker (requires jsonlite)
@@ -374,6 +379,19 @@ wisp-science/
 
 ## Architecture
 
+- **Application services** (`wisp-app`): the first shared use case is
+  `projects::list_projects`, returning `wisp_dto::ProjectSummary` from an
+  existing `Store` plus snapshots of running and approval-blocked session IDs.
+  The Tauri command keeps its existing name and payload; it releases runtime
+  locks before calling the service. Project ordering, scratch-project exclusion,
+  counts, stars, sync metadata, and best-effort enrichment fallbacks are preserved.
+  `projects::project_status_counts` also serves the desktop's individual project
+  summaries. This crate has no Tauri or Leptos dependency and does not open a
+  separate database. The SwiftUI preview uses a read-only `wisp-service` process;
+  a C# contract reserves the WinUI 3 integration boundary. See
+  [Native project browser](native-project-browser.md) for build instructions,
+  status limitations, and the JSONL protocol. Verify the query boundary with
+  `cargo test -p wisp-app`.
 - **Agent loop** (`wisp-core::agent`): read → think → tool-call → verify,
   streaming tokens to an `Output` sink. Stops on `attempt_completion` or when
   the model returns no tool calls.

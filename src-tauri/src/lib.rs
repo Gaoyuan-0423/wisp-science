@@ -1065,6 +1065,7 @@ struct FolderInfo {
     name: String,
 }
 
+use wisp_app::projects::project_status_counts;
 use wisp_dto::ProjectSummary;
 
 async fn build_project_summary(state: &AppState, id: &str) -> ProjectSummary {
@@ -1155,29 +1156,6 @@ async fn mark_seen_if_viewed(state: &AppState, frame_id: &str) {
     if viewed {
         let _ = state.store.mark_frame_seen(frame_id).await;
     }
-}
-
-async fn project_status_counts(
-    store: &wisp_store::Store,
-    project_id: &str,
-    running: &HashSet<String>,
-    awaiting: &HashSet<String>,
-) -> (i64, i64) {
-    let Ok(rows) = store.list_session_last_roles(project_id).await else {
-        return (0, 0);
-    };
-    let mut running_count = 0i64;
-    let mut needs_you_count = 0i64;
-    for (id, role, unseen) in rows {
-        if awaiting.contains(&id) {
-            needs_you_count += 1;
-        } else if running.contains(&id) {
-            running_count += 1;
-        } else if last_role_needs_you(role.as_deref()) && unseen {
-            needs_you_count += 1;
-        }
-    }
-    (running_count, needs_you_count)
 }
 
 /// A reloaded transcript row for the UI to render (role in

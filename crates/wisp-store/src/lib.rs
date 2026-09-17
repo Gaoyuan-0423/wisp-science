@@ -187,6 +187,20 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open an existing database for queries without creating it or running
+    /// migrations. Native previews use this while the desktop owns the store.
+    pub async fn open_read_only(path: &Path) -> Result<Self> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .read_only(true)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await?;
+        Ok(Self { pool })
+    }
+
     /// Open (or create) the SQLite database at `path` and run migrations.
     pub async fn open(path: &Path) -> Result<Self> {
         Self::open_with_journal(path, true).await

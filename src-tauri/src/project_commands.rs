@@ -118,40 +118,9 @@ pub(super) async fn list_projects(
 ) -> Result<Vec<ProjectSummary>, String> {
     let running = state.running_turns.lock().await.clone();
     let awaiting = state.awaiting_confirm.lock().unwrap().clone();
-    let rows = state
-        .store
-        .list_projects()
+    wisp_app::projects::list_projects(&state.store, &running, &awaiting)
         .await
-        .map_err(|e| format!("{e}"))?;
-    let starred = state
-        .store
-        .starred_project_ids()
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut out = vec![];
-    for (id, name, ws, _c, upd, cnt, desc, art) in rows {
-        let (running_count, needs_you_count) =
-            project_status_counts(&state.store, &id, &running, &awaiting).await;
-        let sync_state = state.store.get_project_sync_state(&id).await.ok().flatten();
-        let sync_configured = sync_state
-            .as_ref()
-            .is_some_and(|state| state.base_revision.is_some());
-        out.push(ProjectSummary {
-            starred: starred.contains(&id),
-            id,
-            name,
-            description: desc,
-            workspace_dir: ws,
-            session_count: cnt,
-            artifact_count: art,
-            updated_at: upd,
-            running_count,
-            needs_you_count,
-            sync_configured,
-            last_synced_at: sync_state.and_then(|state| state.last_synced_at),
-        });
-    }
-    Ok(out)
+        .map_err(|error| error.to_string())
 }
 
 fn matching_workspace_projects(

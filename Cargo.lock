@@ -7279,6 +7279,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wisp-app"
+version = "1.13.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "wisp-dto",
+ "wisp-llm",
+ "wisp-store",
+]
+
+[[package]]
 name = "wisp-bio"
 version = "1.13.0"
 dependencies = [
@@ -7450,6 +7464,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wisp-service"
+version = "1.13.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "wisp-app",
+ "wisp-dto",
+ "wisp-store",
+]
+
+[[package]]
 name = "wisp-skills"
 version = "1.13.0"
 dependencies = [
@@ -7565,6 +7592,7 @@ dependencies = [
  "windows 0.61.3",
  "winreg 0.55.0",
  "wisp-acp",
+ "wisp-app",
  "wisp-bio",
  "wisp-core",
  "wisp-dto",
