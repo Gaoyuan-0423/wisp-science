@@ -1,0 +1,18 @@
+[package]
+name = "wisp-app"
+description = "Host-independent application services shared by Wisp clients."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+wisp-dto = { workspace = true }
+wisp-store = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tempfile = "3"
+tokio = { workspace = true }
+wisp-llm = { workspace = true }
