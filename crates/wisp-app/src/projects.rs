@@ -83,3 +83,105 @@ pub async fn project_status_counts(
     }
     (running_count, needs_you_count)
 }
+
+/// The home page uses the same five recent sessions as the WebView. A project
+/// scope returns its saved sidebar sessions, including named drafts.
+/// This read-only snapshot deliberately does not claim live runtime activity.
+pub async fn list_browser_sessions(
+    store: &Store,
+    project_id: Option<&str>,
+) -> Result<Vec<wisp_dto::RecentSession>> {
+    if let Some(project_id) = project_id {
+        anyhow::ensure!(
+            store
+                .list_projects()
+                .await?
+                .iter()
+                .any(|row| row.0 == project_id),
+            "Project not found"
+        );
+        let roles = store.list_session_last_roles(project_id).await?;
+        Ok(store
+            .list_sessions(project_id)
+            .await?
+            .into_iter()
+            .map(|(id, title, ts, _, _)| {
+                let needs_you = roles.iter().any(|(sid, role, unseen)| {
+                    sid == &id
+                        && *unseen
+                        && matches!(role.as_deref(), Some("assistant" | "internal"))
+                });
+                wisp_dto::RecentSession {
+                    id,
+                    project_id: project_id.to_owned(),
+                    title,
+                    ts,
+                    status: if needs_you { "needs_you" } else { "complete" }.into(),
+                }
+            })
+            .collect())
+    } else {
+        Ok(store
+            .list_recent_sessions_detail(5)
+            .await?
+            .into_iter()
+            .map(|row| {
+                let needs_you = row.unseen
+                    && matches!(row.last_role.as_deref(), Some("assistant" | "internal"));
+                wisp_dto::RecentSession {
+                    id: row.id,
+                    project_id: row.project_id,
+                    title: row.title,
+                    ts: row.created_at,
+                    status: if needs_you { "needs_you" } else { "complete" }.into(),
+                }
+            })
+            .collect())
+    }
+}
+
+/// Verify project ownership before loading a bounded page. Reading never marks
+/// the conversation seen or changes the WebView's active session.
+pub async fn browser_transcript(
+    store: &Store,
+    project_id: &str,
+    session_id: &str,
+    before_seq: Option<i64>,
+) -> Result<(Vec<wisp_dto::project_browser::BrowserMessage>, Option<i64>)> {
+    anyhow::ensure!(
+        list_browser_sessions(store, Some(project_id))
+            .await?
+            .iter()
+            .any(|s| s.id == session_id),
+        "Session not found in project"
+    );
+    let page = store
+        .load_session_transcript_page(session_id, before_seq, 20)
+        .await?;
+    let messages = page
+        .messages
+        .into_iter()
+        .filter_map(|(seq, message)| {
+            let role = match message.role {
+                wisp_llm::Role::System => return None,
+                wisp_llm::Role::User => "user",
+                wisp_llm::Role::Assistant => "assistant",
+                wisp_llm::Role::Tool => "tool",
+            };
+            let mut text = message.content.as_text();
+            for call in message.tool_calls {
+                text.push_str(&format!(
+                    "\n{}\n{}",
+                    call.function.name, call.function.arguments
+                ));
+            }
+            Some(wisp_dto::project_browser::BrowserMessage {
+                seq,
+                role: role.into(),
+                text,
+                tool_name: message.tool_name,
+            })
+        })
+        .collect();
+    Ok((messages, page.next_before_seq))
+}

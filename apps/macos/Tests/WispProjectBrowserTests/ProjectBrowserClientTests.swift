@@ -51,6 +51,7 @@ final class ProjectBrowserClientTests: XCTestCase {
         let executable = directory.appendingPathComponent("mock service")
         let database = directory.appendingPathComponent("data with spaces.sqlite")
         let response = String(decoding: try fixture(), as: UTF8.self)
+        let quotedResponse = "'" + response.replacingOccurrences(of: "'", with: "'\\''") + "'"
         // A real child process verifies argv boundaries and stdin EOF. No shell
         // interpretation of the database path happens in the production client.
         let script = """
@@ -61,14 +62,28 @@ final class ProjectBrowserClientTests: XCTestCase {
         IFS= read -r request || exit 5
         case "$request" in *'"list_projects"'*) ;; *) exit 6 ;; esac
         if IFS= read -r extra; then exit 7; fi
-        /bin/cat <<'RESPONSE'
-        \(response)
-        RESPONSE
+        printf '%s\\n' \(quotedResponse)
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let snapshot = try await ProjectBrowserClient(executableURL: executable).listProjects(databaseURL: database)
         XCTAssertEqual(snapshot.projects.count, 1)
+    }
+
+    func testSessionAndTranscriptFixturesAndIdentityValidation() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let sessions = try Data(contentsOf: root.appendingPathComponent("contracts/project-browser/v1/sessions.json"))
+        let rows = try ProjectBrowserClient.decodeSessions(sessions, requestID: "projects-1")
+        XCTAssertEqual(rows.first?.projectID, "research-1")
+        XCTAssertEqual(rows.first?.status, "needs_you")
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeSessions(sessions, requestID: "wrong"))
+        let transcript = try Data(contentsOf: root.appendingPathComponent("contracts/project-browser/v1/transcript.json"))
+        let page = try ProjectBrowserClient.decodeTranscript(transcript, requestID: "projects-1")
+        XCTAssertEqual(page.messages.map(\.seq), [6, 7])
+        XCTAssertEqual(page.nextBeforeSeq, 6)
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeTranscript(transcript, requestID: "wrong"))
+        XCTAssertThrowsError(try ProjectBrowserClient.decodeSessions(transcript, requestID: "projects-1"))
     }
 
     func testMissingServiceReturnsAnActionableError() async throws {

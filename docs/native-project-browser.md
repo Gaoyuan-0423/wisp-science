@@ -10,14 +10,20 @@ in Finder. The existing desktop remains the client for chat and execution.
 The SwiftUI landing page follows `ui/src/styles/projects.css`: a centered page
 with the Wisp wordmark and tagline, warm paper surfaces, teal actions, compact
 project cards, and two equal columns. Below 820 points it switches to one column;
-long pages scroll. The right column contains the selected project's saved
-metadata, rather than the WebView's recent-session navigation, since session
-services and chat are outside this first preview.
+long pages scroll. The right column now contains the same five recent saved
+sessions as the WebView. Clicking a project enters its workspace; clicking a
+recent session opens that exact conversation. The workspace has project switching,
+a collapsible left session sidebar, a main transcript pane, and a back-to-projects
+action. Saved transcripts load in pages of 20 user turns with an older-messages
+control. Reading does not mark messages seen or change the WebView's active session.
 
-Search matches project names, descriptions, and directories. The star button
-filters saved favorites without changing them. Selection stays on the same ID
-after refresh if it remains visible; search/filter changes select the first
-visible project or show an empty overview. The footer provides system/light/dark
+The home search icon (Command-K) opens a dismissible search sheet for projects
+and recent sessions. Up/Down selects a result and Enter opens it; filtering
+resets selection. Escape closes only the topmost menu or search sheet, and IME
+candidate selection keeps its keyboard handling. Inside a project, the same
+search layer searches its saved conversations; Command-K also works with the
+sidebar collapsed. Database selection and refresh live in the preview footer,
+so they no longer occupy the WebView's primary project-action positions. The footer provides system/light/dark
 appearance choices and the successful-read time; hover over the database filename
 to see its full path.
 
@@ -34,7 +40,7 @@ python3 scripts/sync_native_design.py --check
 CI and the app build check for asset drift. WinUI can consume the same SVG and
 palette exports when its views are implemented. Native system font rendering,
 window chrome, and file selection remain platform-specific; unsupported WebView
-actions (chat, project creation/import, settings) are not displayed as dead controls.
+actions retain their WebView positions but are disabled and labeled as not yet connected.
 
 ## Build and run on macOS
 
@@ -83,19 +89,22 @@ and an error banner; selecting a different database clears the old snapshot.
 - `wisp-service --database <path>` exposes those queries over stdin/stdout JSONL.
 - `apps/macos` contains a Foundation transport client and SwiftUI presentation.
 - `apps/windows/Wisp.ProjectBrowser.Contracts` provides `IProjectBrowserClient`
-  and C# response/project DTOs for a future WinUI 3 view model. It intentionally
+  and C# response/project/session/transcript DTOs for a future WinUI 3 view model. It intentionally
   contains no WinUI window or transport implementation yet.
-- `contracts/project-browser/v1/projects.json` is decoded by Rust, Swift, and
+- `contracts/project-browser/v1/{projects,sessions,transcript}.json` are decoded by Rust, Swift, and
   the C# contract smoke test to detect wire-format drift.
 
 The UI never queries SQLite directly. The macOS adapter starts one short-lived
-service per refresh and closes stdin after one request. The service also accepts
+service per query and closes stdin after one request. The service also accepts
 multiple requests per process, enabling a future persistent Windows adapter.
 
 Each UTF-8 request is one JSON line, at most 64 KiB including its newline:
 
 ```json
 {"schema":"wisp.project-browser.v1","id":"projects-1","type":"list_projects"}
+{"schema":"wisp.project-browser.v1","id":"sessions-1","type":"list_sessions"}
+{"schema":"wisp.project-browser.v1","id":"sessions-2","type":"list_sessions","project_id":"project-id"}
+{"schema":"wisp.project-browser.v1","id":"transcript-1","type":"get_transcript","project_id":"project-id","session_id":"session-id","before_seq":null}
 {"schema":"wisp.project-browser.v1","id":"capabilities-1","type":"capabilities"}
 ```
 
@@ -125,24 +134,37 @@ both palettes, and native SVG loading for the bundled wordmarks/icons.
 
 Manual smoke steps:
 
-1. Launch the built app and confirm the real project names, starred ordering,
-   counts, descriptions, and paths agree with the desktop.
-2. Search for a project, select it, and use Finder reveal. Missing directories
-   should show an explanation and disable reveal.
-3. Refresh after a desktop metadata change. Verify selection remains on the
-   same project ID; duplicate workspace paths remain separate projects.
-4. Open the database chooser and immediately press Escape. Only the system
-   chooser should close; the browser should remain open.
-5. Select an incompatible database and confirm the error is visible. Relaunch
-   or refresh with a valid database and verify recovery.
-6. Toggle the star filter and search until no results remain. Confirm no hidden
-   project is left in the overview. Clear the filters and confirm recovery.
-7. Compare the native page with the WebView project landing page in light and dark
-   appearance. Resize below 820 points: header actions wrap and columns stack,
-   while project paths and controls remain accessible. Open the appearance menu
-   then press Escape immediately; the window should remain open.
+1. Compare home project ordering and the five recent sessions with the WebView.
+2. Click a project: verify the left session list and main conversation pane.
+3. Return home and click a recent session: verify the exact project/session opens.
+4. Switch sessions, switch projects, collapse/reopen the sidebar, and return home
+   while a query is loading. Old responses must not reopen a previous workspace.
+5. Load older messages in a long conversation and confirm no duplicated rows.
+6. Open home search, appearance/project menus, or the database chooser, then
+   immediately press Escape. Only the topmost surface should close.
+7. Check light/dark themes and narrow windows. Refresh and directory reveal must
+   still work. Failed queries must offer visible errors rather than blank content.
 
-Follow-up work: extract shared session services, supply live runtime snapshots,
-add version/capability negotiation for a broader native API, implement the WinUI
-transport and UI, and define native signing/distribution. This preview adds no
-chat execution, project creation, migration ownership, or IPC daemon lifecycle.
+## Shell alignment checks
+
+| WebView surface | Native preview |
+| --- | --- |
+| Home header | Same calendar/library/search/settings/scratch/import/new-project order; search is connected. |
+| Home content | Projects left, five recent sessions right; cards navigate into a workspace. |
+| Project shell | Back/project switch/collapse at the top of the left sidebar, navigation above saved sessions, utility entries below. |
+| Session controls | Selection and sorting/grouping retain their positions; not connected yet. |
+| Conversation | Session title and action strip above, scrollable saved transcript in the center, composer position below. |
+| Search | Home/project scope, Up/Down and Enter navigation, topmost Escape, Command-K even with the sidebar collapsed. |
+| Preview utilities | Database selection, refresh and appearance remain in the footer; these do not replace WebView actions. |
+
+## Remaining feature work
+
+The preview aligns the home/workspace shell and read-only navigation. Full
+feature parity remains separate from this layout change. Home creation/import,
+calendar/library/settings entry points, the sidebar tools, artifact
+search, and composer/live runtime integration still require their native services.
+Their action slots are visible but explicitly disabled in the preview.
+The transcript currently renders saved text and tool records, not the WebView's
+rich attachments, branch/review cards, or interactive tool surfaces. WinUI retains
+the expanded contract seam; its transport/window, native signing/distribution,
+and capability negotiation remain follow-ups. The preview remains read-only.

@@ -19,6 +19,11 @@ struct WispSciencePreview: App {
                     .keyboardShortcut("o")
                     .disabled(model.isLoading)
             }
+            CommandGroup(after: .textEditing) {
+                Button("搜索项目与会话") { model.searchPresented = true }
+                    .keyboardShortcut("k")
+                    .disabled(model.searchPresented)
+            }
             CommandGroup(after: .newItem) {
                 Button("刷新项目") { Task { await model.refresh() } }
                     .keyboardShortcut("r")

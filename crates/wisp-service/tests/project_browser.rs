@@ -68,7 +68,12 @@ async fn stdio_supports_queries_capabilities_and_recovers_after_invalid_requests
     assert_eq!(replies[2]["read_only"], true);
     assert_eq!(
         replies[2]["commands"],
-        json!(["list_projects", "capabilities"])
+        json!([
+            "list_projects",
+            "list_sessions",
+            "get_transcript",
+            "capabilities"
+        ])
     );
     assert_eq!(replies[3]["schema"], SCHEMA);
     assert_eq!(replies[3]["id"], "list");
@@ -108,4 +113,16 @@ async fn oversized_requests_fail_without_polluting_stdout() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("64 KiB"));
+}
+
+#[test]
+fn shared_session_and_transcript_contracts_roundtrip() {
+    for source in [
+        include_str!("../../../contracts/project-browser/v1/sessions.json"),
+        include_str!("../../../contracts/project-browser/v1/transcript.json"),
+    ] {
+        let expected: Value = serde_json::from_str(source).unwrap();
+        let decoded: Response = serde_json::from_value(expected.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), expected);
+    }
 }

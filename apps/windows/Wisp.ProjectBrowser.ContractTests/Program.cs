@@ -17,3 +17,13 @@ if (project.Id != "research-1" || project.Name != "RNA-seq 研究"
     || project.LastSyncedAt != 1789500000)
     throw new InvalidOperationException("Project DTO drift");
 Console.WriteLine("Shared Rust / Swift / C# project-browser fixture passed.");
+
+var fixtureDirectory = Path.GetDirectoryName(args[0])!;
+var sessions = JsonSerializer.Deserialize<ProjectBrowserResponse>(File.ReadAllText(Path.Combine(fixtureDirectory, "sessions.json")))!;
+if (sessions.Type != "sessions" || sessions.Sessions?.Single().ProjectId != "research-1"
+    || sessions.Sessions.Single().Status != "needs_you")
+    throw new InvalidOperationException("Session DTO drift");
+var transcript = JsonSerializer.Deserialize<ProjectBrowserResponse>(File.ReadAllText(Path.Combine(fixtureDirectory, "transcript.json")))!;
+if (transcript.Type != "transcript" || transcript.Messages?.Count != 2
+    || transcript.Messages[0].Sequence != 6 || transcript.NextBeforeSeq != 6)
+    throw new InvalidOperationException("Transcript DTO drift");

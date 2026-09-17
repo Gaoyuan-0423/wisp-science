@@ -1,0 +1,20 @@
+{
+  "schema": "wisp.project-browser.v1",
+  "id": "projects-1",
+  "type": "transcript",
+  "messages": [
+    {
+      "seq": 6,
+      "role": "user",
+      "text": "检查数据",
+      "tool_name": null
+    },
+    {
+      "seq": 7,
+      "role": "assistant",
+      "text": "已完成检查。",
+      "tool_name": null
+    }
+  ],
+  "next_before_seq": 6
+}

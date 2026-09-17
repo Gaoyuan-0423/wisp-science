@@ -82,9 +82,50 @@ async fn handle_request(store: &Store, line: &[u8]) -> Response {
     } else {
         match request.command {
             Command::Capabilities => Reply::Capabilities {
-                commands: vec!["list_projects".into(), "capabilities".into()],
+                commands: vec![
+                    "list_projects".into(),
+                    "list_sessions".into(),
+                    "get_transcript".into(),
+                    "capabilities".into(),
+                ],
                 read_only: true,
             },
+            Command::GetTranscript {
+                project_id,
+                session_id,
+                before_seq,
+            } => {
+                match wisp_app::projects::browser_transcript(
+                    store,
+                    &project_id,
+                    &session_id,
+                    before_seq,
+                )
+                .await
+                {
+                    Ok((messages, next_before_seq)) => Reply::Transcript {
+                        messages,
+                        next_before_seq,
+                    },
+                    Err(error) => Reply::Error {
+                        code: ErrorCode::QueryFailed,
+                        message: error.to_string(),
+                    },
+                }
+            }
+            Command::ListSessions { project_id } => {
+                match wisp_app::projects::list_browser_sessions(store, project_id.as_deref()).await
+                {
+                    Ok(sessions) => Reply::Sessions {
+                        sessions,
+                        activity_source: ActivitySource::PersistedOnly,
+                    },
+                    Err(error) => Reply::Error {
+                        code: ErrorCode::QueryFailed,
+                        message: error.to_string(),
+                    },
+                }
+            }
             Command::ListProjects => {
                 let idle = HashSet::new();
                 match wisp_app::projects::list_projects(store, &idle, &idle).await {

@@ -9,10 +9,10 @@ license.workspace = true
 anyhow = { workspace = true }
 wisp-dto = { workspace = true }
 wisp-store = { workspace = true }
+wisp-llm = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
-wisp-llm = { workspace = true }

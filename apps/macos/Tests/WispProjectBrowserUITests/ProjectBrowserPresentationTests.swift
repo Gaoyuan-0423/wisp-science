@@ -54,6 +54,20 @@ final class ProjectBrowserPresentationTests: XCTestCase {
         XCTAssertNil(state.selectedID)
     }
 
+    func testSearchNavigationClampsAtEdgesAndCannotSubmitAnEmptyList() {
+        var selection = SearchResultSelection()
+        selection.move(-1, count: 7)
+        XCTAssertEqual(selection.selectedIndex(count: 7), 0)
+        selection.move(2, count: 7)
+        XCTAssertEqual(selection.selectedIndex(count: 7), 2)
+        selection.move(20, count: 7)
+        XCTAssertEqual(selection.selectedIndex(count: 7), 6)
+        XCTAssertNil(selection.selectedIndex(count: 0))
+        XCTAssertEqual(selection.selectedIndex(count: 2), 1)
+        selection.reset()
+        XCTAssertEqual(selection.selectedIndex(count: 2), 0)
+    }
+
     func testBundledWebViewWordmarksAndIconsLoadAsNativeImages() {
         for name in ["wordmark-light", "wordmark-dark"] {
             let image = WispDesign.image(name)

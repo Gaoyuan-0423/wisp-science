@@ -3003,7 +3003,7 @@ pub struct ReviewerBackendTestResult {
     pub summary: String,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RecentSession {
     pub id: String,
     pub project_id: String,
