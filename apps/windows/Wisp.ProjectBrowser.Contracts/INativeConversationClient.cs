@@ -7,6 +7,11 @@ namespace Wisp.ProjectBrowser.Contracts;
 /// Reads may reconnect; never automatically replay Send/Create/Approve after an ambiguous failure.</summary>
 public interface INativeConversationClient
 {
+    Task<NativeInboxEntry[]> InboxAsync(string projectId, CancellationToken cancellationToken = default);
+    Task MarkSeenAsync(string projectId, string sessionId, CancellationToken cancellationToken = default);
+    Task<NativeTrajectory> TrajectoryAsync(string projectId, string sessionId, CancellationToken cancellationToken = default);
+    Task<string> TrajectoryHtmlAsync(string projectId, string sessionId, CancellationToken cancellationToken = default);
+    Task<ConversationOutlineEntry[]> OutlineAsync(string projectId, string sessionId, CancellationToken cancellationToken = default);
     Task<string> CreateAsync(string projectId, CancellationToken cancellationToken = default);
     Task<ConversationSnapshot> SnapshotAsync(string projectId, string sessionId, long? beforeSeq = null, CancellationToken cancellationToken = default);
     Task SendAsync(string projectId, string sessionId, Guid requestId, string message, CancellationToken cancellationToken = default);
@@ -14,11 +19,13 @@ public interface INativeConversationClient
     Task ApproveAsync(string projectId, string sessionId, string approvalId, bool approved, CancellationToken cancellationToken = default);
     Task SetModelAsync(string projectId, string sessionId, string modelId, CancellationToken cancellationToken = default);
 }
+public sealed record NativeInboxEntry(string Id, string ProjectId, string ProjectName, string Title, long Ts, long ActivityAt, string Status);
+public sealed record ConversationOutlineEntry(int UserIndex, string Text, long? BeforeSeq, long? SentAt, long? ResponseAt);
 public sealed record ConversationItem(string Role, string Text, string? ToolName, string? Input, bool? Ok, string? Status);
 public sealed record ConversationApproval(string ApprovalId, string FrameId, string Message, string Tool, string Preview);
 public sealed record ConversationSnapshot(string Schema, string Epoch, ulong Sequence, string ProjectId, string SessionId,
     ConversationItem[] Items, long? NextBeforeSeq, bool Running, bool Stopping, bool ReadOnly, string ModelId,
-    string? RequestId, string? Error, ConversationApproval[] Approvals)
+    string? RequestId, string? Error, ConversationApproval[] Approvals, int? UserOffset = null)
 {
     public const string SchemaId = "wisp.native-conversations.v1";
     public static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -50,6 +57,19 @@ public sealed class ConversationCursor(string projectId, string sessionId)
 }
 public sealed class NativeConversationClient(INativeSettingsClient transport) : INativeConversationClient
 {
+    public async Task<NativeInboxEntry[]> InboxAsync(string projectId, CancellationToken cancellationToken = default) =>
+        (await transport.InvokeAsync("native_conversation_inbox", new(), projectId, cancellationToken).ConfigureAwait(false))?.Deserialize<NativeInboxEntry[]>(ConversationSnapshot.JsonOptions)
+            ?? throw new InvalidDataException("Missing inbox");
+    public async Task MarkSeenAsync(string projectId, string sessionId, CancellationToken cancellationToken = default) =>
+        await transport.InvokeAsync("native_conversation_seen", new() { ["session_id"] = sessionId }, projectId, cancellationToken).ConfigureAwait(false);
+    public async Task<NativeTrajectory> TrajectoryAsync(string projectId, string sessionId, CancellationToken cancellationToken = default) =>
+        NativeTrajectory.Decode(await transport.InvokeAsync("native_conversation_trajectory", new() { ["session_id"] = sessionId }, projectId, cancellationToken).ConfigureAwait(false), sessionId);
+    public async Task<string> TrajectoryHtmlAsync(string projectId, string sessionId, CancellationToken cancellationToken = default) =>
+        (await transport.InvokeAsync("native_conversation_trajectory_html", new() { ["session_id"] = sessionId }, projectId, cancellationToken).ConfigureAwait(false))?.GetValue<string>()
+            ?? throw new InvalidDataException("Missing trajectory export");
+    public async Task<ConversationOutlineEntry[]> OutlineAsync(string projectId, string sessionId, CancellationToken cancellationToken = default) =>
+        (await transport.InvokeAsync("native_conversation_outline", new() { ["session_id"] = sessionId }, projectId, cancellationToken).ConfigureAwait(false))
+            ?.Deserialize<ConversationOutlineEntry[]>(ConversationSnapshot.JsonOptions) ?? throw new InvalidDataException("Missing conversation outline");
     public async Task<string> CreateAsync(string projectId, CancellationToken cancellationToken = default) =>
         (await transport.InvokeAsync("native_conversation_create", new(), projectId, cancellationToken).ConfigureAwait(false))?.GetValue<string>()
         ?? throw new InvalidDataException("Missing new session ID");

@@ -32,13 +32,26 @@ private actor ConversationFake: NativeConversationQuerying {
         if failSend { throw ProjectBrowserError.service("response lost") }
         return .null
     }
-    func count() -> Int { writes.count }
+    // Existing no-replay assertions count conversation mutations; opening a
+    // successfully read session now also records a separate seen acknowledgement.
+    func count() -> Int { writes.filter { $0.0 != "native_conversation_seen" }.count }
+    func seenCount() -> Int { writes.filter { $0.0 == "native_conversation_seen" }.count }
     func lastArgs() -> [String: SettingsValue] { writes.last?.1 ?? [:] }
     func hold() { holdRead = true }
     func isHeld() -> Bool { held != nil }
     func finish(_ value: ConversationSnapshot) { held?.resume(returning: value); held = nil }
 }
 final class NativeConversationModelTests: XCTestCase {
+    @MainActor func testOnlySuccessfulOpenMarksSessionSeen() async throws {
+        let client = ConversationFake(); let model = NativeConversationModel(client: client)
+        await client.configure([try fixture()], failRead: true)
+        await model.open(project: "project-a", session: "session-a")
+        let first = await client.seenCount(); XCTAssertEqual(first, 0)
+        await client.configure([try fixture()])
+        await model.open(project: "project-a", session: "session-a")
+        let second = await client.seenCount(); XCTAssertEqual(second, 1)
+        model.pause()
+    }
     @MainActor func testSnapshotOrderingAndRestartNeverAppendOrRestoreRetiredHost() async throws {
         let client = ConversationFake(); let model = NativeConversationModel(client: client)
         await client.configure([try fixture(sequence: 7), try fixture(sequence: 6), try fixture(sequence: 1, epoch: "host-two"), try fixture(sequence: 99)])

@@ -38,6 +38,9 @@ struct NativeConversationView: View {
                         Color.clear.frame(height: 1).id("latest")
                     }.frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
                 }
+                .onChange(of: conversation.scrollRevision) { _ in
+                    if let target = conversation.scrollTarget { scroll.scrollTo(target, anchor: .top) }
+                }
                 .onChange(of: conversation.snapshot?.sequence) { _ in
                     if followLatest && !conversation.showingHistory { scroll.scrollTo("latest", anchor: .bottom) }
                 }

@@ -1,0 +1,4 @@
+[
+  {"user_index":0,"text":"检查样本","before_seq":8,"sent_at":1000,"response_at":2000},
+  {"user_index":1,"text":"检查样本","before_seq":null,"sent_at":3000,"response_at":null}
+]

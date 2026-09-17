@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Wisp.ProjectBrowser.Contracts;
 
@@ -6,6 +7,14 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var inbox = JsonSerializer.Deserialize<NativeInboxEntry[]>(File.ReadAllText(Path.Combine(directory, "inbox.json")), ConversationSnapshot.JsonOptions)!;
+        Require(inbox.Length == 2 && inbox[1].ProjectId == "project-b" && inbox[1].Id == "session-b", "Inbox cross-project identity drift");
+        var trajectoryNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "trajectory.json")));
+        var trajectory = NativeTrajectory.Decode(trajectoryNode, "session-a");
+        Require(trajectory.Turns[0].Cells[0].DurationMs == 40 && trajectory.Stats.OutputTokens == 20, "Trajectory fixture drift");
+        try { NativeTrajectory.Decode(trajectoryNode, "other"); throw new Exception("Expected trajectory scope rejection"); } catch (InvalidDataException) { }
+        var outline = JsonSerializer.Deserialize<ConversationOutlineEntry[]>(File.ReadAllText(Path.Combine(directory, "outline.json")), ConversationSnapshot.JsonOptions)!;
+        Require(outline.Length == 2 && outline[0].BeforeSeq == 8 && outline[1].BeforeSeq is null && outline[1].UserIndex == 1, "Outline cursor drift");
         var node = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "snapshot.json")))!;
         var snapshot = ConversationSnapshot.Decode(node, "project-a", "session-a");
         Require(snapshot.Items.Length == 2 && snapshot.Approvals[0].ApprovalId == "approval-a", "Shared snapshot drift");

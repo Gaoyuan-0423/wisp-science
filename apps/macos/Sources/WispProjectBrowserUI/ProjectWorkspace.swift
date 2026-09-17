@@ -13,6 +13,9 @@ struct ProjectWorkspace: View {
     }
     @Environment(\.colorScheme) private var scheme
     @State private var sidebarVisible = true
+    @State private var trajectoryPresented = false
+    @State private var inboxPresented = false
+    @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
 
     var body: some View {
@@ -30,11 +33,26 @@ struct ProjectWorkspace: View {
                     Text(model.sessions.first(where: { $0.id == model.activeSessionID })?.title ?? project.name)
                         .font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                     Spacer()
-                    WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true, compact: true)
+                    Button { conversation.outlinePresented.toggle() } label: { WispIcon(name: "list") }
+                        .buttonStyle(.plain).help("会话大纲").accessibilityLabel("会话大纲")
+                        .disabled(model.activeSessionID == nil)
+                        .popover(isPresented: $conversation.outlinePresented, arrowEdge: .bottom) {
+                            NativeConversationOutlineView(conversation: conversation)
+                        }
                     WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "运行轨迹", icon: "timeline", iconOnly: true, compact: true)
+                    Button { trajectoryPresented = true } label: { WispIcon(name: "timeline") }
+                        .buttonStyle(.plain).help("运行轨迹").accessibilityLabel("运行轨迹")
+                        .disabled(model.activeSessionID == nil)
                     WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "待查看", icon: "bell", iconOnly: true, compact: true)
+                    Button { inboxPresented.toggle(); refreshInbox() } label: {
+                        HStack(spacing: 2) { WispIcon(name: "bell"); if !inbox.entries.isEmpty { Text("\(inbox.entries.count)").font(.caption2) } }
+                    }.buttonStyle(.plain).help("待查看").accessibilityLabel("待查看")
+                        .popover(isPresented: $inboxPresented, arrowEdge: .bottom) {
+                            NativeInboxView(inbox: inbox, refresh: refreshInbox, open: { entry in
+                                inboxPresented = false
+                                Task { await model.openProject(entry.project_id, sessionID: entry.id) }
+                            }, close: { inboxPresented = false })
+                        }
                     WispUnavailableAction(title: "终端", icon: "terminal", iconOnly: true, compact: true)
                     WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
                 }
@@ -59,8 +77,24 @@ struct ProjectWorkspace: View {
                 }
             }
         }
+        .sheet(isPresented: $trajectoryPresented) {
+            if let session = model.activeSessionID {
+                NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session) { trajectoryPresented = false }
+                    .id(project.id + ":" + session)
+            }
+        }
+        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; inboxPresented = false }
+        .task(id: project.id) {
+            inbox.reset()
+            while !Task.isCancelled {
+                await inbox.refresh(client: conversation.client, projectID: project.id)
+                do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
+            }
+        }
         .background(color("bg-app")).foregroundStyle(color("text")).tint(color("clay"))
     }
+
+    private func refreshInbox() { Task { await inbox.refresh(client: conversation.client, projectID: project.id) } }
 
     private func createSession() {
         let database = model.databaseURL; let sourceSession = model.activeSessionID

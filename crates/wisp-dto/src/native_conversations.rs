@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_inbox",
+    "native_conversation_seen",
+    "native_conversation_trajectory",
+    "native_conversation_trajectory_html",
+    "native_conversation_outline",
     "native_conversation_create",
     "native_conversation_snapshot",
     "native_conversation_send",
@@ -10,6 +15,17 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_approve",
     "native_conversation_model",
 ];
+
+/// Full persisted question index. The next question's sequence is an exclusive
+/// history cursor, allowing clients to locate a turn without matching its text.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OutlineEntry {
+    pub user_index: usize,
+    pub text: String,
+    pub before_seq: Option<i64>,
+    pub sent_at: Option<i64>,
+    pub response_at: Option<i64>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +76,8 @@ pub struct Snapshot {
     pub session_id: String,
     pub items: Vec<Item>,
     pub next_before_seq: Option<i64>,
+    #[serde(default)]
+    pub user_offset: usize,
     pub running: bool,
     pub stopping: bool,
     pub read_only: bool,
@@ -72,6 +90,30 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inbox_fixture_preserves_cross_project_navigation_identity() {
+        let rows: Vec<crate::SessionSearchInfo> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/inbox.json")).unwrap();
+        assert_eq!(rows[0].project_id, "project-a");
+        assert_eq!(rows[1].project_id, "project-b");
+        assert_eq!(rows[1].id, "session-b");
+        assert!(rows.iter().all(|row| row.status == "needs_you"));
+    }
+    #[test]
+    fn trajectory_fixture_uses_existing_shared_contract() {
+        let snapshot: crate::TrajectorySnapshotDto = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/trajectory.json")).unwrap();
+        assert_eq!(snapshot.frame_id, "session-a");
+        assert_eq!(snapshot.turns[0].cells[0].duration_ms, Some(40));
+        assert!(snapshot.turns[0].cells[0].is_error);
+        assert_eq!(snapshot.stats.output_tokens, 20);
+    }
+    #[test]
+    fn outline_fixture_retains_indexes_and_exclusive_cursors() {
+        let rows: Vec<OutlineEntry> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/outline.json")).unwrap();
+        assert_eq!(rows[0].text, rows[1].text);
+        assert_eq!(rows[0].before_seq, Some(8));
+        assert_eq!(rows[1].before_seq, None);
+        assert_eq!(rows[1].user_index, 1);
+    }
     #[test]
     fn shared_native_conversation_fixtures_roundtrip() {
         let snapshot: Snapshot = serde_json::from_str(include_str!(
