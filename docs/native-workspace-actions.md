@@ -11,8 +11,9 @@ not establish parity.
   navigation, repeated-prompt correctness, live updates, timestamps and timings;
   verify Escape immediately after opening.
 - [ ] Share: selectable and editable/redactable user/assistant/thinking messages,
-  thinking initially excluded, export preview, HTML and PNG export, highlights
-  and social-copy workflows corresponding to the WebView.
+  thinking initially excluded, export preview, HTML and PNG export, PNG width
+  selection. Social-copy/highlight flows are hidden in current WebView (see
+  `ui/src/overlays.rs::ShareOverlay` and test-only helpers in `app_support/share.rs`).
 - [ ] Trajectory: existing recorded turns, tool details, timing/token statistics,
   filters and export; no derived fake runtime data.
 - [ ] Research archive: load/prepare draft, edit report/scripts, review file
@@ -71,7 +72,7 @@ Latest focused Swift run: 15 passed, one opt-in render test skipped. Coverage
 includes repeated prompt history positioning, trajectory scope/search/export,
 inbox failure preservation and marking only successfully read sessions seen.
 Rust compilation remains running; it must be rerun for the final changed tree.
-Sharing, terminal and right-side panel are still disabled placeholders.
+Terminal and right-side panel are still disabled placeholders.
 
 
 ## Research archive implementation
@@ -93,3 +94,29 @@ compiled and behavior tests passed again. Actual Escape/topmost interaction and
 real app smoke remain unverified; no live user research was archived during QA.
 C# shared fixture verification passed. The initial Rust check completed, and a
 second Rust check including archive changes is running; full CI remains pending.
+
+
+## Share implementation
+
+The native share sheet now loads full history in bounded transcript pages,
+selects user/assistant rows by default, excludes reasoning by default, supports
+editing the export copy, select-all/none, case-insensitive keyword masking,
+preview, width selection (320–2400, default 840), and HTML/PNG file export.
+Only edited/redacted selected rows are submitted for HTML generation. The host
+validates session ownership and renders HTML using the existing standalone
+WebView export stylesheet with escaped raw HTML and restricted link schemes.
+PNG uses the actual SwiftUI preview at one pixel per requested width unit.
+Images over 40 million pixels or 32768 pixels tall produce an explicit error
+with HTML as an alternative; transcript sharing is capped at 16 MiB.
+
+The original acceptance draft incorrectly included social-copy/highlight flows:
+source inspection shows these are test-only/hidden in the current WebView.
+Visible ShareOverlay has PNG and HTML export only, which remains the target.
+
+Four focused Swift tests passed, including redaction/default selection, width,
+Markdown block preservation and actual PNG pixel dimensions. The redacted PNG
+was inspected. C# fixture/client compilation passed. Native PNG currently covers
+paragraphs, headings, bullets, quotes and fenced code; tables and complex nested
+Markdown layout still need alignment and must not be considered complete.
+Rust share-render tests are running. Full runtime/Escape smoke and all-suite
+verification remain outstanding.

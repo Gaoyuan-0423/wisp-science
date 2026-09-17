@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_share",
+    "native_conversation_share_html",
     "native_conversation_archive_get",
     "native_conversation_archive_prepare",
     "native_conversation_archive_confirm",
@@ -20,6 +22,21 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_approve",
     "native_conversation_model",
 ];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShareRow {
+    pub role: String,
+    pub text: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShareExportRequest {
+    pub session_id: String,
+    pub rows: Vec<ShareRow>,
+    #[serde(default)]
+    pub dark: bool,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -102,6 +119,13 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn share_fixture_excludes_tool_machinery() {
+        let rows: Vec<ShareRow> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/share.json")).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1].role, "reasoning");
+        assert!(rows.iter().all(|row| row.role != "tool"));
+    }
     #[test]
     fn archive_fixture_uses_existing_review_contract() {
         let archive: crate::ResearchArchive = serde_json::from_str(include_str!(

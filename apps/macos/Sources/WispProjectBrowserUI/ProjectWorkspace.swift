@@ -15,6 +15,7 @@ struct ProjectWorkspace: View {
     @State private var sidebarVisible = true
     @State private var trajectoryPresented = false
     @State private var archivePresented = false
+    @State private var sharePresented = false
     @State private var inboxPresented = false
     @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -40,7 +41,9 @@ struct ProjectWorkspace: View {
                         .popover(isPresented: $conversation.outlinePresented, arrowEdge: .bottom) {
                             NativeConversationOutlineView(conversation: conversation)
                         }
-                    WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
+                    Button { sharePresented = true } label: { WispIcon(name: "share") }
+                        .buttonStyle(.plain).help("分享").accessibilityLabel("分享")
+                        .disabled(model.activeSessionID == nil)
                     Button { trajectoryPresented = true } label: { WispIcon(name: "timeline") }
                         .buttonStyle(.plain).help("运行轨迹").accessibilityLabel("运行轨迹")
                         .disabled(model.activeSessionID == nil)
@@ -80,6 +83,11 @@ struct ProjectWorkspace: View {
                 }
             }
         }
+        .sheet(isPresented: $sharePresented) {
+            if let session = model.activeSessionID {
+                NativeShareView(client: conversation.client, projectID: project.id, sessionID: session) { sharePresented = false }.id(project.id + ":" + session)
+            }
+        }
         .sheet(isPresented: $archivePresented) {
             if let session = model.activeSessionID {
                 NativeArchiveView(client: conversation.client, projectID: project.id, sessionID: session, workspace: project.workspaceDirectory, close: {
@@ -97,7 +105,7 @@ struct ProjectWorkspace: View {
                     .id(project.id + ":" + session)
             }
         }
-        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; archivePresented = false; inboxPresented = false }
+        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; archivePresented = false; sharePresented = false; inboxPresented = false }
         .task(id: project.id) {
             inbox.reset()
             while !Task.isCancelled {

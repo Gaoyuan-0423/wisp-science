@@ -103,6 +103,7 @@ mod session_export;
 mod session_import;
 mod settings_commands;
 mod share_social;
+mod native_share;
 mod side_chat;
 mod skill_commands;
 mod skill_portfolio;

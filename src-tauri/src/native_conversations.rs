@@ -157,6 +157,31 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
     .await?;
     let record = broker.conversations.session(session).await?;
     match request.command.as_str() {
+        "native_conversation_share" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            let state = broker.app.state::<crate::AppState>();
+            let mut cursor = None;
+            let mut pages = Vec::new();
+            let mut bytes = 0usize;
+            loop {
+                let (items, next, _, _) = crate::session_commands::native_transcript(&state, session, cursor).await?;
+                let rows = items.into_iter().filter(|item| matches!(item.role.as_str(), "user" | "assistant" | "reasoning") && !item.text.trim().is_empty())
+                    .map(|item| dto::ShareRow { role: item.role, text: item.text }).collect::<Vec<_>>();
+                bytes += rows.iter().map(|row| row.text.len()).sum::<usize>();
+                if bytes > 16 * 1024 * 1024 { return Err("Conversation exceeds the 16 MiB share limit".into()); }
+                pages.push(rows);
+                if next.is_none() { break; }
+                if cursor.is_some_and(|old| next.unwrap() >= old) { return Err("Transcript cursor did not advance".into()); }
+                cursor = next;
+            }
+            let rows = pages.into_iter().rev().flatten().collect::<Vec<_>>();
+            serde_json::to_value(rows).map_err(|e| e.to_string())
+        }
+        "native_conversation_share_html" => {
+            let args: dto::ShareExportRequest = decode(&request.args)?;
+            crate::native_share::html(&args.rows, args.dark).map(Value::String)
+        }
+
         "native_conversation_archive_get"
         | "native_conversation_archive_prepare"
         | "native_conversation_archive_retry"
