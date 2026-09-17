@@ -157,8 +157,10 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
     .await?;
     let record = broker.conversations.session(session).await?;
     match request.command.as_str() {
-        "native_conversation_archive_get" | "native_conversation_archive_prepare"
-        | "native_conversation_archive_retry" | "native_conversation_archive_continue" => {
+        "native_conversation_archive_get"
+        | "native_conversation_archive_prepare"
+        | "native_conversation_archive_retry"
+        | "native_conversation_archive_continue" => {
             let _: dto::SessionRequest = decode(&request.args)?;
             let command = match request.command.as_str() {
                 "native_conversation_archive_get" => "get_research_archive",
@@ -170,7 +172,13 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
         }
         "native_conversation_archive_confirm" => {
             let args: dto::ArchiveConfirmRequest = decode(&request.args)?;
-            call(broker, project, "confirm_research_archive", json!({"frameId": session, "input": args.input})).await
+            call(
+                broker,
+                project,
+                "confirm_research_archive",
+                json!({"frameId": session, "input": args.input}),
+            )
+            .await
         }
 
         "native_conversation_seen" => {

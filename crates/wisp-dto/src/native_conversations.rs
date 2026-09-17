@@ -104,7 +104,10 @@ mod tests {
     use super::*;
     #[test]
     fn archive_fixture_uses_existing_review_contract() {
-        let archive: crate::ResearchArchive = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/archive.json")).unwrap();
+        let archive: crate::ResearchArchive = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/archive.json"
+        ))
+        .unwrap();
         assert_eq!(archive.project_id, "project-a");
         assert_eq!(archive.files[0].action, "snapshot");
         assert!(!archive.files[0].can_delete);
