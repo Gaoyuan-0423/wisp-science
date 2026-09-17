@@ -157,9 +157,10 @@ Manual smoke steps:
 | Search | Home/project scope, Up/Down and Enter navigation, topmost Escape, Command-K even with the sidebar collapsed. |
 | Preview utilities | Database selection, refresh and appearance remain in the footer; these do not replace WebView actions. |
 
-## Remaining parity work
+## Remaining feature work
 
-This is progress toward structural parity, not full parity. Home creation/import,
+The preview aligns the home/workspace shell and read-only navigation. Full
+feature parity remains separate from this layout change. Home creation/import,
 calendar/library/settings entry points, the sidebar tools, artifact
 search, and composer/live runtime integration still require their native services.
 Their action slots are visible but explicitly disabled in the preview.
