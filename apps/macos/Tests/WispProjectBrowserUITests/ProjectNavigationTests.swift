@@ -6,6 +6,8 @@ import WispProjectBrowser
 private actor NavigationClient: ProjectBrowserQuerying {
     var continuation: CheckedContinuation<[BrowserSession], Error>?
     var suspend = false
+    var paginated = false
+    func enablePagination() { paginated = true }
     func setSuspended() { suspend = true }
     func isWaiting() -> Bool { continuation != nil }
     func finish() { continuation?.resume(returning: []); continuation = nil }
@@ -20,8 +22,9 @@ private actor NavigationClient: ProjectBrowserQuerying {
         """.utf8))
     }
     func transcript(databaseURL: URL, projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> TranscriptPage {
-        let data = Data("[{\"seq\":1,\"role\":\"user\",\"text\":\"\(sessionID)\",\"tool_name\":null}]".utf8)
-        return TranscriptPage(messages: try JSONDecoder().decode([BrowserMessage].self, from: data), nextBeforeSeq: nil)
+        let sequence = paginated && beforeSeq == nil ? 21 : 1
+        let data = Data("[{\"seq\":\(sequence),\"role\":\"user\",\"text\":\"\(sessionID)\",\"tool_name\":null}]".utf8)
+        return TranscriptPage(messages: try JSONDecoder().decode([BrowserMessage].self, from: data), nextBeforeSeq: paginated && beforeSeq == nil ? 21 : nil)
     }
 }
 
@@ -42,6 +45,21 @@ final class ProjectNavigationTests: XCTestCase {
         XCTAssertNil(model.activeSessionID)
         XCTAssertTrue(model.messages.isEmpty)
         XCTAssertTrue(model.sessions.isEmpty)
+    }
+
+    @MainActor
+    func testOlderMessagesPrependWithoutReplacingTheCurrentPageOrSelection() async {
+        let client = NavigationClient()
+        await client.enablePagination()
+        let model = ProjectBrowserModel(client: client, databaseURL: URL(fileURLWithPath: "/unused"))
+        await model.openProject("p", sessionID: "s1")
+        XCTAssertEqual(model.messages.map(\.seq), [21])
+        XCTAssertEqual(model.nextBeforeSeq, 21)
+        await model.openSession("s1", older: true)
+        XCTAssertEqual(model.messages.map(\.seq), [1, 21])
+        XCTAssertNil(model.nextBeforeSeq)
+        XCTAssertEqual(model.activeSessionID, "s1")
+        XCTAssertFalse(model.transcriptLoading)
     }
 
     @MainActor
