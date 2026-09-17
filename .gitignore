@@ -1,4 +1,8 @@
 /target
+/apps/macos/.build/
+/apps/macos/.swiftpm/
+/apps/windows/**/bin/
+/apps/windows/**/obj/
 /**/target
 /wisp
 Cargo.lock.bak

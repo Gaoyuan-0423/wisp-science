@@ -16,6 +16,7 @@ members = [
     "crates/wisp-sync",
     "crates/wisp-dto",
     "crates/wisp-app",
+    "crates/wisp-service",
     "src-tauri",
 ]
 default-members = ["crates/wisp-cli"]

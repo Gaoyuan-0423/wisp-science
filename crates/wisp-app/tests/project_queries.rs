@@ -232,6 +232,28 @@ async fn sync_metadata_uses_base_revision_and_preserves_the_existing_wire_contra
 }
 
 #[tokio::test]
+async fn read_only_queries_support_databases_predating_project_stars_without_migration() {
+    let db = TestDb::new().await;
+    db.project("legacy").await;
+    sqlx::query("ALTER TABLE projects DROP COLUMN starred")
+        .execute(&db.sql)
+        .await
+        .unwrap();
+    let read_only = Store::open_read_only(&db._directory.path().join("queries.sqlite"))
+        .await
+        .unwrap();
+    let idle = HashSet::new();
+    let projects = list_projects(&read_only, &idle, &idle).await.unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].id, "legacy");
+    assert!(!projects[0].starred);
+    assert!(sqlx::query("SELECT starred FROM projects")
+        .fetch_all(&db.sql)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn optional_enrichment_stays_best_effort_and_primary_query_errors_propagate() {
     let db = TestDb::new().await;
     db.project("p").await;

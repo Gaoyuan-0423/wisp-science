@@ -7464,6 +7464,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wisp-service"
+version = "1.13.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "wisp-app",
+ "wisp-dto",
+ "wisp-store",
+]
+
+[[package]]
 name = "wisp-skills"
 version = "1.13.0"
 dependencies = [

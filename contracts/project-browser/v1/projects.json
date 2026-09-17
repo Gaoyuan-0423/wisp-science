@@ -1,0 +1,22 @@
+{
+  "schema": "wisp.project-browser.v1",
+  "id": "projects-1",
+  "type": "projects",
+  "activity_source": "persisted_only",
+  "projects": [
+    {
+      "id": "research-1",
+      "name": "RNA-seq 研究",
+      "description": "Differential expression analysis",
+      "workspace_dir": "/Users/researcher/Projects/RNA seq",
+      "starred": true,
+      "session_count": 3,
+      "artifact_count": 2,
+      "updated_at": 1789600000,
+      "running_count": 0,
+      "needs_you_count": 1,
+      "sync_configured": true,
+      "last_synced_at": 1789500000
+    }
+  ]
+}

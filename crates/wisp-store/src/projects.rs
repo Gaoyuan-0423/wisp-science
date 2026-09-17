@@ -67,6 +67,11 @@ impl Store {
     }
 
     pub async fn starred_project_ids(&self) -> Result<std::collections::HashSet<String>> {
+        // Read-only native clients may inspect a desktop database from before
+        // project stars were introduced. Reading must not force a migration.
+        if !Self::has_column(&self.pool, "projects", "starred").await? {
+            return Ok(std::collections::HashSet::new());
+        }
         let ids: Vec<String> = sqlx::query_scalar(
             "SELECT id FROM projects WHERE starred=1 AND id NOT LIKE 'scratch:%'",
         )
@@ -81,6 +86,11 @@ impl Store {
     pub async fn list_projects(
         &self,
     ) -> Result<Vec<(String, String, String, i64, i64, i64, String, i64)>> {
+        let starred_order = if Self::has_column(&self.pool, "projects", "starred").await? {
+            "p.starred DESC, "
+        } else {
+            ""
+        };
         let sql = format!(
             "SELECT p.id AS id, COALESCE(p.name,'') AS name, COALESCE(p.workspace_dir,'') AS ws, \
                     p.created_at AS created_at, p.updated_at AS updated_at, \
@@ -92,7 +102,7 @@ impl Store {
                        AND a.exploration_id IS NULL) AS artifacts \
              FROM projects p \
              WHERE p.id NOT LIKE 'scratch:%' \
-             ORDER BY p.starred DESC, p.updated_at DESC, p.rowid DESC",
+             ORDER BY {starred_order}p.updated_at DESC, p.rowid DESC",
             listable = SESSION_IS_LISTABLE_SQL,
         );
         let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
