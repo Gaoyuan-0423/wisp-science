@@ -55,6 +55,7 @@ struct ProjectWorkspace: View {
                                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(color("text-muted"))
                                 Text((try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
                                     .font(.system(size: 14)).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .padding(16)

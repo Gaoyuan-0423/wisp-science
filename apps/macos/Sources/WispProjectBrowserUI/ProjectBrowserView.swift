@@ -29,7 +29,6 @@ private struct ProjectLanding: View {
     @Binding var appearance: String
     @Environment(\.colorScheme) private var scheme
     @State private var searchOpen = false
-    @FocusState private var searchFocused: Bool
 
     private var projects: [ProjectSummary] { model.projects }
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -109,42 +108,7 @@ private struct ProjectLanding: View {
             .buttonStyle(WispButtonStyle()).help("搜索 · ⌘K").accessibilityLabel("搜索")
             .keyboardShortcut("k", modifiers: .command)
             .sheet(isPresented: $searchOpen) {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        WispIcon(name: "search")
-                        TextField("搜索项目、会话…", text: $presentation.search)
-                            .textFieldStyle(.plain).focused($searchFocused)
-                            .accessibilityIdentifier("project-search")
-                        Button("关闭") { searchOpen = false }.keyboardShortcut(.cancelAction)
-                    }
-                    Divider()
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("项目").font(.caption).foregroundStyle(color("text-faint"))
-                            ForEach(presentation.visibleProjects(model.projects)) { project in
-                                Button {
-                                    searchOpen = false
-                                    Task { await model.openProject(project.id) }
-                                } label: {
-                                    HStack { WispIcon(name: "folder"); Text(project.name); Spacer() }.padding(8)
-                                }.buttonStyle(.plain)
-                            }
-                            Text("最近会话").font(.caption).foregroundStyle(color("text-faint"))
-                            ForEach(model.recentSessions.filter { presentation.search.isEmpty || $0.title.localizedCaseInsensitiveContains(presentation.search) }) { session in
-                                Button {
-                                    searchOpen = false
-                                    Task { await model.openProject(session.projectID, sessionID: session.id) }
-                                } label: {
-                                    HStack { WispIcon(name: "chat"); Text(session.title); Spacer() }.padding(8)
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                .padding(24).frame(width: 560, height: 380)
-                .background(color("bg-app"))
-                .onAppear { searchFocused = true }
-                .onExitCommand { searchOpen = false }
+                ProjectSearchSheet(model: model, close: { searchOpen = false })
             }
     }
 

@@ -18,7 +18,9 @@ action. Saved transcripts load in pages of 20 user turns with an older-messages
 control. Reading does not mark messages seen or change the WebView's active session.
 
 The home search icon (Command-K) opens a dismissible search sheet for projects
-and recent sessions. Database selection and refresh live in the preview footer,
+and recent sessions. Up/Down selects a result and Enter opens it; filtering
+resets selection. Escape closes only the topmost menu or search sheet, and IME
+candidate selection keeps its keyboard handling. Database selection and refresh live in the preview footer,
 so they no longer occupy the WebView's primary project-action positions. The footer provides system/light/dark
 appearance choices and the successful-read time; hover over the database filename
 to see its full path.
