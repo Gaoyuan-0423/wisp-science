@@ -97,7 +97,7 @@ struct NativeAppearanceSettings: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(localized("我会先检查数据和项目记录，再列出下一步分析。")).fixedSize(horizontal: false, vertical: true)
                 Text(localized("分析计划")).fontWeight(.semibold)
-                Text(localized("1. 查看样本和文件\n2. 确认分析目标\n3. 汇总结果与图表")).lineSpacing(7)
+                Text(localized("1. 查看样本和文件\n2. 确认分析目标\n3. 汇总结果与图表")).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
             }
             VStack(alignment: .leading, spacing: 9) {
                 Text("Python").font(.system(size: 11)).foregroundStyle(previewColor("text-muted"))

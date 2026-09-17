@@ -91,8 +91,22 @@ struct NativeSettingsEditorView: View {
                     editorFields(["api_url", "key"])
                     Divider().padding(.vertical, 4)
                     Text(localized("模型配置")).font(WispDesign.font(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
-                    editorFields(["provider", "model", "label", "endpoint_suffix"])
-                    editorFields(["supports_vision", "use_for_vision", "use_for_image_generation", "use_for_video_generation"])
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            editorFields(["provider"]).frame(minWidth: 200)
+                            editorFields(["model"]).frame(minWidth: 180)
+                            editorFields(["label"]).frame(minWidth: 160)
+                        }
+                        editorFields(["provider", "model", "label"])
+                    }
+                    editorFields(["endpoint_suffix"])
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 36) {
+                            editorFields(["supports_vision", "use_for_vision"]).frame(minWidth: 230)
+                            editorFields(["use_for_image_generation", "use_for_video_generation"]).frame(minWidth: 230)
+                        }
+                        editorFields(["supports_vision", "use_for_vision", "use_for_image_generation", "use_for_video_generation"])
+                    }
                     DisclosureGroup(localized("容量与生成参数")) { editorFields(["context_window", "max_tokens", "reasoning_effort", "service_tier", "image_size", "image_quality", "image_aspect_ratio", "image_resolution", "video_duration_secs", "video_aspect_ratio", "video_resolution"]).padding(.top, 16) }
                     DisclosureGroup(localized("请求头设置")) { editorFields(["send_user_agent", "user_agent", "send_session_id", "session_header_name"]).padding(.top, 16) }
                 } else {
