@@ -1544,9 +1544,7 @@ fn App() -> impl IntoView {
         };
         let _ = transcript_projection_epoch.get();
         run_records.with(|runs| {
-            items.with_untracked(|rows| {
-                chat_render::completed_run_owners(rows, runs, &frame_id)
-            })
+            items.with_untracked(|rows| chat_render::completed_run_owners(rows, runs, &frame_id))
         })
     });
     let automatic_session_runs = create_memo(move |_| {
@@ -8069,7 +8067,10 @@ fn App() -> impl IntoView {
             let arg = to_value(&serde_json::json!({ "query": "", "limit": 50 })).unwrap();
             let v = invoke("search_sessions", arg).await;
             if let Ok(rows) = serde_wasm_bindgen::from_value::<Vec<SessionSearchInfo>>(v) {
-                let rows: Vec<_> = rows.into_iter().filter(|s| s.status == "needs_you").collect();
+                let rows: Vec<_> = rows
+                    .into_iter()
+                    .filter(|s| s.status == "needs_you")
+                    .collect();
                 if inbox_sessions.with_untracked(|current| current != &rows) {
                     inbox_sessions.set(rows);
                 }
@@ -10533,7 +10534,8 @@ fn App() -> impl IntoView {
         create_memo(move |_| show_right.get() && !scratch_open.get() && !demo_mode.get());
     let center_preview = create_memo(move |_| {
         let path = (!demo_mode.get()).then(|| center_file.get()).flatten()?;
-        let file = center_files.with(|files| files.iter().find(|file| file.path == path).cloned())?;
+        let file =
+            center_files.with(|files| files.iter().find(|file| file.path == path).cloned())?;
         let revision = center_file_revisions
             .with(|revisions| revisions.get(&path).copied().unwrap_or_default());
         let display_path = project_info
