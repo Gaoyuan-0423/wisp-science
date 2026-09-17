@@ -1921,6 +1921,104 @@ async fn branched_from_survives_listing() {
 }
 
 #[tokio::test]
+async fn moving_session_moves_persisted_branch_subtree() {
+    let tmp =
+        std::env::temp_dir().join(format!("wisp_move_family_{}.sqlite", uuid::Uuid::new_v4()));
+    let store = Store::open(&tmp).await.unwrap();
+    for project in ["p", "other-project"] {
+        store.create_project(project, project, "").await.unwrap();
+    }
+    for folder in ["d1", "d2"] {
+        store.create_folder(folder, "p", folder).await.unwrap();
+    }
+    for (id, project, source) in [
+        ("main", "p", None),
+        ("branch", "p", Some("main")),
+        ("nested", "p", Some("branch")),
+        ("sibling", "p", Some("main")),
+        ("unrelated", "p", None),
+        ("foreign", "other-project", Some("main")),
+    ] {
+        store
+            .create_frame(id, project, "OPERON", "m")
+            .await
+            .unwrap();
+        store.rename_session(id, project, id).await.unwrap();
+        if let Some(source) = source {
+            store.set_session_branched_from(id, source).await.unwrap();
+        }
+    }
+    store
+        .set_session_pinned("sibling", "p", true)
+        .await
+        .unwrap();
+    // Moving a branch affects its descendants, but not its parent or siblings.
+    store
+        .move_session_to_folder("branch", "p", Some("d2"))
+        .await
+        .unwrap();
+    for row in store.list_sessions("p").await.unwrap() {
+        let expected = matches!(row.0.as_str(), "branch" | "nested").then_some("d2");
+        assert_eq!(row.3.as_deref(), expected, "{}", row.0);
+    }
+    // Mainline moves reunite all descendants, including previously moved branches.
+    for folder in [Some("d1"), Some("d2"), None] {
+        store
+            .move_session_to_folder("main", "p", folder)
+            .await
+            .unwrap();
+        let reopened = Store::open(&tmp).await.unwrap();
+        for row in reopened.list_sessions("p").await.unwrap() {
+            let expected = if row.0 == "unrelated" { None } else { folder };
+            assert_eq!(row.3.as_deref(), expected, "{}", row.0);
+        }
+        assert_eq!(
+            reopened.list_pinned_sessions("p").await.unwrap()[0]
+                .3
+                .as_deref(),
+            folder
+        );
+        assert!(reopened.list_sessions("other-project").await.unwrap()[0]
+            .3
+            .is_none());
+        reopened.pool.close().await;
+    }
+    assert!(store
+        .move_session_to_folder("main", "p", Some("missing"))
+        .await
+        .is_err());
+    assert!(store
+        .move_session_to_folder("missing", "p", None)
+        .await
+        .is_err());
+    assert!(store
+        .move_session_to_folder("main", "other-project", None)
+        .await
+        .is_err());
+    // Malformed legacy cycles must not hang recursive traversal.
+    store
+        .set_session_branched_from("main", "nested")
+        .await
+        .unwrap();
+    store
+        .move_session_to_folder("main", "p", Some("d1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .list_sessions("p")
+            .await
+            .unwrap()
+            .iter()
+            .filter(|row| row.3.as_deref() == Some("d1"))
+            .count(),
+        4
+    );
+    store.pool.close().await;
+    let _ = std::fs::remove_file(tmp);
+}
+
+#[tokio::test]
 async fn conversation_branches_inherit_source_folder_at_creation() {
     let tmp = std::env::temp_dir().join(format!(
         "wisp_branch_folder_{}.sqlite",
