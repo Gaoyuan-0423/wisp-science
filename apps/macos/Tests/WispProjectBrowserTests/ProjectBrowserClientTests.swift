@@ -51,6 +51,7 @@ final class ProjectBrowserClientTests: XCTestCase {
         let executable = directory.appendingPathComponent("mock service")
         let database = directory.appendingPathComponent("data with spaces.sqlite")
         let response = String(decoding: try fixture(), as: UTF8.self)
+        let quotedResponse = "'" + response.replacingOccurrences(of: "'", with: "'\\''") + "'"
         // A real child process verifies argv boundaries and stdin EOF. No shell
         // interpretation of the database path happens in the production client.
         let script = """
@@ -61,9 +62,7 @@ final class ProjectBrowserClientTests: XCTestCase {
         IFS= read -r request || exit 5
         case "$request" in *'"list_projects"'*) ;; *) exit 6 ;; esac
         if IFS= read -r extra; then exit 7; fi
-        /bin/cat <<'RESPONSE'
-        \(response)
-        RESPONSE
+        printf '%s\\n' \(quotedResponse)
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)

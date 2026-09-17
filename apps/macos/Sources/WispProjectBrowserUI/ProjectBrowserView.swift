@@ -3,7 +3,6 @@ import WispProjectBrowser
 
 public struct ProjectBrowserView: View {
     @ObservedObject private var model: ProjectBrowserModel
-    @State private var presentation = ProjectBrowserPresentation()
     @AppStorage("projectBrowser.appearance") private var appearance = "system"
 
     public init(model: ProjectBrowserModel) { self.model = model }
@@ -13,22 +12,20 @@ public struct ProjectBrowserView: View {
             if let project = model.projects.first(where: { $0.id == model.activeProjectID }) {
                 ProjectWorkspace(model: model, project: project)
             } else {
-                ProjectLanding(model: model, presentation: $presentation, appearance: $appearance)
+                ProjectLanding(model: model, appearance: $appearance)
             }
         }
             .preferredColorScheme(appearance == "system" ? nil : (appearance == "dark" ? .dark : .light))
-            .onChange(of: model.projects.map(\.id)) { _ in presentation.reconcile(model.projects) }
-            .onChange(of: presentation.search) { _ in presentation.reconcile(model.projects) }
-            .onChange(of: presentation.starredOnly) { _ in presentation.reconcile(model.projects) }
+            .sheet(isPresented: $model.searchPresented) {
+                ProjectSearchSheet(model: model, projectID: model.activeProjectID, close: { model.searchPresented = false })
+            }
     }
 }
 
 private struct ProjectLanding: View {
     @ObservedObject var model: ProjectBrowserModel
-    @Binding var presentation: ProjectBrowserPresentation
     @Binding var appearance: String
     @Environment(\.colorScheme) private var scheme
-    @State private var searchOpen = false
 
     private var projects: [ProjectSummary] { model.projects }
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -104,12 +101,9 @@ private struct ProjectLanding: View {
     }
 
     private var searchAction: some View {
-        Button { presentation.search = ""; searchOpen = true } label: { WispIcon(name: "search") }
+        Button { model.searchPresented = true } label: { WispIcon(name: "search") }
             .buttonStyle(WispButtonStyle()).help("搜索 · ⌘K").accessibilityLabel("搜索")
-            .keyboardShortcut("k", modifiers: .command)
-            .sheet(isPresented: $searchOpen) {
-                ProjectSearchSheet(model: model, close: { searchOpen = false })
-            }
+
     }
 
     private var projectList: some View {

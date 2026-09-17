@@ -7,10 +7,7 @@ struct ProjectWorkspace: View {
     @ObservedObject var model: ProjectBrowserModel
     let project: ProjectSummary
     @Environment(\.colorScheme) private var scheme
-    @State private var search = ""
     @State private var sidebarVisible = true
-    @State private var searching = false
-    @FocusState private var searchFocused: Bool
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
 
     var body: some View {
@@ -20,7 +17,7 @@ struct ProjectWorkspace: View {
                 Rectangle().fill(color("border")).frame(width: 1)
             }
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     if !sidebarVisible {
                         Button { sidebarVisible = true } label: { WispIcon(name: "chevron-right") }
                             .buttonStyle(.plain).help("展开侧边栏").accessibilityLabel("展开侧边栏")
@@ -28,11 +25,13 @@ struct ProjectWorkspace: View {
                     Text(model.sessions.first(where: { $0.id == model.activeSessionID })?.title ?? project.name)
                         .font(.system(size: 14, weight: .semibold)).lineLimit(1)
                     Spacer()
-                    WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true)
-                    WispUnavailableAction(title: "分享", icon: "share", iconOnly: true)
-                    WispUnavailableAction(title: "运行轨迹", icon: "timeline", iconOnly: true)
-                    WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true)
-                    WispUnavailableAction(title: "待查看", icon: "bell", iconOnly: true)
+                    WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "运行轨迹", icon: "timeline", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "待查看", icon: "bell", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "终端", icon: "terminal", iconOnly: true, compact: true)
+                    WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
                 }
                 .padding(16)
                 Rectangle().fill(color("border")).frame(height: 1)
@@ -93,7 +92,6 @@ struct ProjectWorkspace: View {
             }
         }
         .background(color("bg-app")).foregroundStyle(color("text")).tint(color("clay"))
-        .onChange(of: project.id) { _ in search = ""; searching = false }
     }
 
     private var sidebar: some View {
@@ -103,6 +101,8 @@ struct ProjectWorkspace: View {
                     .buttonStyle(.plain).help("返回项目").accessibilityLabel("返回项目")
                     .accessibilityIdentifier("back-projects")
                 Menu {
+                    Button("项目设置（尚未接入）") {}.disabled(true)
+                    Divider()
                     ForEach(model.projects) { item in
                         Button(item.name) { Task { await model.openProject(item.id) } }
                     }
@@ -113,22 +113,24 @@ struct ProjectWorkspace: View {
             }
             VStack(spacing: 4) {
                 WispUnavailableAction(title: "新建会话", icon: "plus", primary: true, expanded: true)
-                Button { searching.toggle(); searchFocused = searching } label: {
+                Button { model.searchPresented = true } label: {
                     HStack { WispIcon(name: "search", size: 16); Text("搜索"); Spacer() }
-                }.buttonStyle(WispButtonStyle(compact: true)).keyboardShortcut("k", modifiers: .command)
-                if searching {
-                    TextField("搜索会话", text: $search).textFieldStyle(.roundedBorder).focused($searchFocused)
-                }
+                }.buttonStyle(WispButtonStyle(compact: true))
                 WispUnavailableAction(title: "新建文件夹", icon: "folder-plus", expanded: true)
                 WispUnavailableAction(title: "文件", icon: "doc", expanded: true)
                 WispUnavailableAction(title: "研究历程", icon: "research-trail", expanded: true)
                 WispUnavailableAction(title: "论文证据", icon: "book", expanded: true)
                 WispUnavailableAction(title: "收藏", icon: "star", expanded: true)
             }
-            Text("会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(color("text-faint"))
+            HStack {
+                Text("会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(color("text-faint"))
+                Spacer()
+                WispUnavailableAction(title: "选择", compact: true)
+                WispUnavailableAction(title: "排序与分组", icon: "adjustments", iconOnly: true, compact: true)
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.sessions.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }) { session in
+                    ForEach(model.sessions) { session in
                         Button { Task { await model.openSession(session.id) } } label: {
                             Text(session.title).font(.system(size: 13)).lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(10)

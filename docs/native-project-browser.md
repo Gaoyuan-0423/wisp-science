@@ -20,7 +20,9 @@ control. Reading does not mark messages seen or change the WebView's active sess
 The home search icon (Command-K) opens a dismissible search sheet for projects
 and recent sessions. Up/Down selects a result and Enter opens it; filtering
 resets selection. Escape closes only the topmost menu or search sheet, and IME
-candidate selection keeps its keyboard handling. Database selection and refresh live in the preview footer,
+candidate selection keeps its keyboard handling. Inside a project, the same
+search layer searches its saved conversations; Command-K also works with the
+sidebar collapsed. Database selection and refresh live in the preview footer,
 so they no longer occupy the WebView's primary project-action positions. The footer provides system/light/dark
 appearance choices and the successful-read time; hover over the database filename
 to see its full path.
@@ -142,6 +144,18 @@ Manual smoke steps:
    immediately press Escape. Only the topmost surface should close.
 7. Check light/dark themes and narrow windows. Refresh and directory reveal must
    still work. Failed queries must offer visible errors rather than blank content.
+
+## Shell alignment checks
+
+| WebView surface | Native preview |
+| --- | --- |
+| Home header | Same calendar/library/search/settings/scratch/import/new-project order; search is connected. |
+| Home content | Projects left, five recent sessions right; cards navigate into a workspace. |
+| Project shell | Back/project switch/collapse at the top of the left sidebar, navigation above saved sessions, utility entries below. |
+| Session controls | Selection and sorting/grouping retain their positions; not connected yet. |
+| Conversation | Session title and action strip above, scrollable saved transcript in the center, composer position below. |
+| Search | Home/project scope, Up/Down and Enter navigation, topmost Escape, Command-K even with the sidebar collapsed. |
+| Preview utilities | Database selection, refresh and appearance remain in the footer; these do not replace WebView actions. |
 
 ## Remaining parity work
 

@@ -11,14 +11,15 @@ struct SearchResultSelection {
 
 struct ProjectSearchSheet: View {
     @ObservedObject var model: ProjectBrowserModel
+    var projectID: String? = nil
     let close: () -> Void
     @State private var query = ""
     @State private var selection = SearchResultSelection()
     @Environment(\.colorScheme) private var scheme
-    private var projects: [ProjectSummary] { ProjectBrowserPresentation(search: query).visibleProjects(model.projects) }
+    private var projects: [ProjectSummary] { projectID == nil ? ProjectBrowserPresentation(search: query).visibleProjects(model.projects) : [] }
     private var sessions: [BrowserSession] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return model.recentSessions.filter { term.isEmpty || $0.title.localizedCaseInsensitiveContains(term) }
+        return (projectID == nil ? model.recentSessions : model.sessions).filter { term.isEmpty || $0.title.localizedCaseInsensitiveContains(term) }
     }
     private var count: Int { projects.count + sessions.count }
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -44,7 +45,7 @@ struct ProjectSearchSheet: View {
                             }
                         }
                         if !sessions.isEmpty {
-                            Text("最近会话").font(.caption).foregroundStyle(color("text-faint"))
+                            Text(projectID == nil ? "最近会话" : "会话").font(.caption).foregroundStyle(color("text-faint"))
                             ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
                                 result(projects.count + index, title: session.title, icon: "chat")
                             }
@@ -84,7 +85,10 @@ struct ProjectSearchSheet: View {
         } else {
             let session = sessions[index - projects.count]
             close()
-            Task { await model.openProject(session.projectID, sessionID: session.id) }
+            Task {
+                if projectID == session.projectID { await model.openSession(session.id) }
+                else { await model.openProject(session.projectID, sessionID: session.id) }
+            }
         }
     }
 }

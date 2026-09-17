@@ -4,6 +4,7 @@ import WispProjectBrowser
 
 @MainActor
 public final class ProjectBrowserModel: ObservableObject {
+    @Published public var searchPresented = false
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var recentSessions: [BrowserSession] = []
     @Published private(set) var sessions: [BrowserSession] = []
@@ -74,6 +75,7 @@ public final class ProjectBrowserModel: ObservableObject {
     }
 
     func goHome() {
+        searchPresented = false
         navigationGeneration = UUID()
         transcriptGeneration = UUID()
         messages = []

@@ -56,7 +56,7 @@ struct WispButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(primary ? Color.white : WispDesign.color("text", scheme))
-            .padding(.horizontal, 12).frame(height: compact ? 30 : 38)
+            .padding(.horizontal, compact ? 8 : 12).frame(height: compact ? 30 : 38)
             .background(compact && !primary ? Color.clear : WispDesign.color(primary ? "clay" : "bg-elev", scheme), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(compact ? Color.clear : WispDesign.color("border", scheme)))
             .opacity(!enabled ? 0.45 : (configuration.isPressed ? 0.7 : 1))
@@ -70,6 +70,7 @@ struct WispUnavailableAction: View {
     let title: String
     var icon: String? = nil
     var iconOnly = false
+    var compact = false
     var primary = false
     var expanded = false
 
@@ -81,7 +82,7 @@ struct WispUnavailableAction: View {
                 if expanded { Spacer(minLength: 0) }
             }
         }
-        .buttonStyle(WispButtonStyle(primary: primary, compact: expanded)).disabled(true)
+        .buttonStyle(WispButtonStyle(primary: primary, compact: expanded || compact)).disabled(true)
         .help("\(title) · 原生预览尚未接入")
         .accessibilityLabel("\(title)（尚未接入）")
     }

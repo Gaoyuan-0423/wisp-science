@@ -35,7 +35,9 @@ final class ProjectNavigationTests: XCTestCase {
         XCTAssertEqual(model.messages.first?.text, "s2")
         await model.openSession("s1")
         XCTAssertEqual(model.messages.first?.text, "s1")
+        model.searchPresented = true
         model.goHome()
+        XCTAssertFalse(model.searchPresented)
         XCTAssertNil(model.activeProjectID)
         XCTAssertNil(model.activeSessionID)
         XCTAssertTrue(model.messages.isEmpty)
