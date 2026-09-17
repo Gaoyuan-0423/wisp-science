@@ -255,6 +255,8 @@ pub async fn run(
     payload: SshPayload,
     timeout: Duration,
 ) -> Result<SshRpcOutput, String> {
+    crate::openssh::require_local_openssh()
+        .map_err(|error| crate::ssh_hosts::annotate_ssh_context(key, error))?;
     let slot = {
         let mut pool = pool().lock().await;
         pool.entry(key.to_string()).or_default().clone()

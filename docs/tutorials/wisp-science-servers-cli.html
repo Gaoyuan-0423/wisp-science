@@ -138,6 +138,7 @@
 <p>这台服务器用于本项目分析。运行前先确认远程目录；大型原始数据保留在服务器。耗时计算按管理员要求提交到调度器，记录脚本、参数、任务编号和结果路径，不在登录节点长时间计算。</p>
 </blockquote>
 <p>点击 <strong>测试连接</strong>，确认成功后添加。回到环境列表，再使用 <strong>探测环境</strong> 检查操作系统、Python、R、GPU 和调度器等信息。</p>
+<p>本机 OpenSSH 需要 8.4 或更高（终端运行 <code>ssh -V</code>）。低于该版本时，尤其是 Windows 自带的 OpenSSH 8.1，无法向 SSH 提供已保存的密码，远端 Python / R 持久化会启动失败。请先更新本机 OpenSSH 客户端并重启 Wisp。</p>
 <p>“能登录”和“分析环境已准备好”是两项检查。测试连接通过后，如果探测不到 Python 或 R，先确认解释器是否安装、是否在远程 PATH 中。需要指定位置时，使用 <strong>配置运行时解释器</strong> 填写远端可执行文件路径。</p>
 <p>已经维护 <code>~/.ssh/config</code> 时，也可以使用导入入口登记其中的主机，再逐台测试与探测。密钥文件内容不会被复制进 Wisp 的 SQLite；密码类敏感值走系统密钥环。</p>
 <p><strong>把环境加入当前会话，再说明数据在哪里。</strong></p>
@@ -290,6 +291,7 @@ Get-ChildItem
 <p>This server is for the current project's analysis. Verify the remote working directory before running anything. Keep large raw data on the server. Submit lengthy computation through the required scheduler, record scripts, parameters, job IDs, and output paths, and do not run long computations on the login node.</p>
 </blockquote>
 <p>Click <strong>Test connection</strong> and add the host after success. Back in the environment list, use <strong>Probe context</strong> to inspect operating system, Python, R, GPU, and scheduler information.</p>
+<p>The local OpenSSH client must be 8.4 or later (<code>ssh -V</code>). Older clients, including the Windows inbox OpenSSH 8.1, cannot supply saved passwords to non-interactive SSH, so remote Python / R runtimes fail to start. Update OpenSSH on this computer and restart Wisp before probing.</p>
 <p>Being able to log in and having a usable analysis environment are separate checks. If the connection succeeds but Python or R is missing from the probe, check installation and the remote PATH. Use <strong>Configure runtime interpreters</strong> to specify a remote executable path where necessary.</p>
 <p>If you already maintain <code>~/.ssh/config</code>, import its hosts and test and probe them individually. Private-key contents are not copied into Wisp's SQLite database; sensitive password values use the operating system keyring.</p>
 <p><strong>Attach the environment to the conversation and specify the data path.</strong></p>

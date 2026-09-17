@@ -12,9 +12,11 @@ conversation and right panel, keeping the active research context visible.
   distributions before opening one.
 - `ssh:<alias>` starts the system OpenSSH client with a remote PTY. OpenSSH
   continues to honor SSH config, ssh-agent, ProxyJump, host-key prompts, and
-  interactive authentication. When the host is configured for password auth,
-  the stored keyring password is supplied through OpenSSH ASKPASS for the
-  whole login — the helper files stay on disk until the SSH process exits.
+  interactive authentication. The local client must be OpenSSH 8.4 or later
+  (`ssh -V`); Windows inbox OpenSSH 8.1 cannot supply saved passwords. When
+  the host is configured for password auth, the stored keyring password is
+  supplied through OpenSSH ASKPASS for the whole login — the helper files stay
+  on disk until the SSH process exits.
 
 Each **Open terminal** action creates an independent live terminal, including
 when another terminal already uses the same context. The dock keeps concurrent

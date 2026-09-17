@@ -540,6 +540,20 @@ mod runtime_slot_tests {
             ),
             SshFailKind::ProbeOutput
         );
+        assert_eq!(
+            classify_ssh_failure(
+                "Local OpenSSH is too old for Wisp (found OpenSSH 8.1, need 8.4 or later) (while using `ssh:gpu-box`)"
+            ),
+            SshFailKind::ClientVersion
+        );
+        assert_eq!(
+            classify_ssh_failure("OpenSSH client was not found on PATH"),
+            SshFailKind::ClientVersion
+        );
+        assert!(is_ssh_setup_error(
+            "Local OpenSSH is too old for Wisp (found OpenSSH 8.1, need 8.4 or later)"
+        ));
+        assert!(ssh_fail_cause_keys(SshFailKind::ClientVersion).len() >= 3);
     }
 
     #[test]

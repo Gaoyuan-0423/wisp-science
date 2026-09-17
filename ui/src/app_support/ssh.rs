@@ -84,12 +84,18 @@ pub(crate) enum SshFailKind {
     Resolve,
     HostKey,
     ProbeOutput,
+    ClientVersion,
     Other,
 }
 
 pub(crate) fn classify_ssh_failure(detail: &str) -> SshFailKind {
     let lower = detail.to_ascii_lowercase();
-    if lower.contains("ssh password authentication failed") {
+    if lower.contains("local openssh is too old")
+        || lower.contains("openssh client was not found")
+        || lower.contains("could not parse local openssh")
+    {
+        SshFailKind::ClientVersion
+    } else if lower.contains("ssh password authentication failed") {
         SshFailKind::PasswordAuth
     } else if lower.contains("ssh key authentication failed") {
         SshFailKind::KeyAuth
@@ -164,6 +170,11 @@ pub(crate) fn ssh_fail_cause_keys(kind: SshFailKind) -> &'static [&'static str] 
             "ssh_check.cause.probe_output.2",
             "ssh_check.cause.probe_output.3",
         ],
+        SshFailKind::ClientVersion => &[
+            "ssh_check.cause.client.1",
+            "ssh_check.cause.client.2",
+            "ssh_check.cause.client.3",
+        ],
         SshFailKind::Other => &[
             "ssh_check.cause.other.1",
             "ssh_check.cause.other.2",
@@ -200,6 +211,9 @@ pub(crate) fn is_ssh_setup_error(error: &str) -> bool {
         || lower.contains("ssh connectivity gate blocked")
         || lower.contains("identity file is not accessible")
         || lower.contains("no successful probe")
+        || lower.contains("local openssh is too old")
+        || lower.contains("openssh client was not found")
+        || lower.contains("could not parse local openssh")
 }
 
 /// Prefer the active remote source; fall back to ``ssh:alias`` embedded in the error.

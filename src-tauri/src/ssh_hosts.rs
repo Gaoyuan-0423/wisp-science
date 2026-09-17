@@ -172,6 +172,8 @@ pub async fn set_session_execution_context_enabled(
 #[tauri::command]
 pub async fn test_ssh_connection(host: SshHost) -> Result<(), String> {
     let connection = SshConnection::from_host(&host)?;
+    require_local_openssh()
+        .map_err(|error| annotate_ssh_context(&format!("ssh:{}", connection.alias), error))?;
     let envs = if connection.uses_password() {
         match host
             .password
