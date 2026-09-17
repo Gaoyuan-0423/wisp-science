@@ -1,0 +1,10 @@
+{
+  "schema": "wisp.native-settings.v1",
+  "id": "settings-1",
+  "result": {
+    "theme": "dark",
+    "dark_palette": "codex",
+    "ui_font_size": 15
+  },
+  "error": null
+}

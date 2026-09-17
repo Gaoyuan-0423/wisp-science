@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub mod project_browser;
+pub mod native_settings;
 
 mod mcp_app_child;
 pub use mcp_app_child::*;
@@ -1970,6 +1971,8 @@ impl Default for DeviceBridgeStatus {
 pub struct WeixinBindStart {
     pub qrcode: String,
     pub qr_image: String,
+    #[serde(default)]
+    pub qr_content: String,
 }
 
 /// Mirrors the opaque Feishu OAuth device-flow DTOs from `src-tauri`.
@@ -1977,6 +1980,8 @@ pub struct WeixinBindStart {
 pub struct FeishuBindStart {
     pub flow_id: String,
     pub qr_image: String,
+    #[serde(default)]
+    pub qr_content: String,
     pub expires_in_seconds: u64,
 }
 

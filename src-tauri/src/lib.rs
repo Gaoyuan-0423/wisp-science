@@ -22,6 +22,7 @@ use wisp_store::{LibraryStore, Store};
 mod acp;
 mod agent_turn;
 mod app_commands;
+mod native_settings;
 mod app_state;
 mod app_updates;
 mod approval_commands;
@@ -6966,7 +6967,7 @@ fn spawn_deferred_startup(
         // "main" window is built in `run()` so it can carry an `on_navigation`
         // guard; these are the extra per-project ones. A project that was
         // since deleted simply fails to spawn.
-        for (label, id) in project_commands::restored_window_projects(&store).await {
+        for (label, id) in if native_settings::requested(std::env::args()) { Vec::new() } else { project_commands::restored_window_projects(&store).await } {
             let state = app.state::<AppState>();
             let _ = project_commands::spawn_project_window_with_label(
                 &app,
@@ -7039,8 +7040,10 @@ pub fn run() {
         .manage(mcp_app_children::McpAppChildren::default())
         // Keep this first so a repeated launch is intercepted before other plugins
         // and application state are initialized in a second process.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            desktop_lifecycle::activate_workspace(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if native_settings::requested(args) {
+                if let Err(error) = native_settings::start(app) { tracing::error!("Native settings host: {error}"); }
+            } else { desktop_lifecycle::activate_workspace(app); }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -7097,9 +7100,10 @@ pub fn run() {
             let main_builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::App("index.html".into()),
+                tauri::WebviewUrl::App(if native_settings::requested(std::env::args()) { "native-host.html" } else { "index.html" }.into()),
             )
             .title(project_commands::APP_WINDOW_TITLE)
+            .visible(!native_settings::requested(std::env::args()))
             .inner_size(1100.0, 760.0)
             .resizable(true)
             .disable_drag_drop_handler()
@@ -7107,7 +7111,7 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             let main_builder = main_builder.decorations(false).shadow(true);
             main_builder.build().expect("create main window");
-            tauri::async_runtime::spawn(ui_health::run_watchdog(app.handle().clone()));
+            if !native_settings::requested(std::env::args()) { tauri::async_runtime::spawn(ui_health::run_watchdog(app.handle().clone())); }
             let mut startup = StartupTimeline::default();
             if let Ok(res) = app.path().resource_dir() {
                 wisp_paths::set_resource_root(res);
@@ -7339,8 +7343,11 @@ pub fn run() {
             // Dev runs the bare debug binary, which does not grab focus on macOS.
             // release launches from the .app bundle and activates normally.
             #[cfg(debug_assertions)]
-            if let Some(w) = app.workspace_surface("main") {
-                let _ = w.set_focus();
+            if !native_settings::requested(std::env::args()) {
+                if let Some(w) = app.workspace_surface("main") { let _ = w.set_focus(); }
+            }
+            if native_settings::requested(std::env::args()) {
+                native_settings::start(app.handle()).map_err(std::io::Error::other)?;
             }
             startup.finish();
             Ok(())

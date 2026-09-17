@@ -262,6 +262,20 @@ pub struct TerminalManager {
 }
 
 impl TerminalManager {
+    /// Only ACP authentication terminals belonging to the selected project are
+    /// exposed to the native settings surface; no shell-opening capability.
+    pub(crate) fn native_auth_snapshot(&self, id: &str, project_id: Option<&str>) -> Result<wisp_dto::native_settings::TerminalSnapshot, String> {
+        let session = self.get(id)?;
+        if session.kind != "acp-auth" || Some(session.project_id.as_str()) != project_id {
+            return Err("Terminal does not belong to this settings authentication flow".into());
+        }
+        let output = lock(&session.output);
+        Ok(wisp_dto::native_settings::TerminalSnapshot {
+            text: String::from_utf8_lossy(&output.scrollback).into_owned(),
+            running: output.exit_code.is_none(), exit_code: output.exit_code,
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

@@ -1,0 +1,158 @@
+//! Authenticated loopback adapter for SwiftUI/WinUI settings. Rendering remains
+//! native; existing Tauri commands retain their validation and runtime ownership.
+use std::{collections::HashMap, fs::OpenOptions, io::Write, sync::Arc, time::Duration};
+use axum::{extract::{DefaultBodyLimit, State}, http::{HeaderMap, StatusCode}, routing::post, Json, Router};
+use serde_json::Value;
+use tauri::{ipc::{CallbackFn, InvokeBody, InvokeResponse, InvokeResponseBody}, Manager};
+use tokio::sync::{Mutex, oneshot};
+use wisp_dto::native_settings::{HostDescriptor, Request, Response, COMMANDS, SCHEMA};
+
+#[derive(Clone)]
+struct Broker {
+    app: tauri::AppHandle,
+    token: String,
+    contexts: Arc<Mutex<HashMap<Option<String>, String>>>,
+}
+
+pub(crate) fn requested(args: impl IntoIterator<Item = String>) -> bool {
+    args.into_iter().any(|arg| arg == "--native-settings-host")
+}
+
+pub(crate) fn start(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.try_state::<HostDescriptor>().is_some() { return Ok(()); }
+    let state = app.state::<crate::AppState>();
+    let root = state.app_data.clone();
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
+    let endpoint = format!("http://{}/invoke", listener.local_addr().map_err(|e| e.to_string())?);
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let descriptor = HostDescriptor { schema: SCHEMA.into(), endpoint, token: token.clone(), database: root.join("wisp.sqlite").to_string_lossy().into_owned(), pid: std::process::id() };
+    let staging = root.join(format!(".native-settings-{}.tmp", uuid::Uuid::new_v4()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+    let mut file = options.open(&staging).map_err(|e| e.to_string())?;
+    file.write_all(&serde_json::to_vec(&descriptor).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&staging, root.join("native-settings.json")).map_err(|e| e.to_string())?;
+    let broker = Broker { app: app.clone(), token, contexts: Default::default() };
+    let router = Router::new().route("/invoke", post(invoke))
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024)).with_state(broker);
+    app.manage(descriptor);
+    tauri::async_runtime::spawn(async move {
+        if let Ok(listener) = tokio::net::TcpListener::from_std(listener) {
+            let _ = axum::serve(listener, router).await;
+        }
+    });
+    Ok(())
+}
+
+fn authorize(headers: &HeaderMap, expected: &str) -> bool {
+    // A browser origin is never a native settings client. No CORS is enabled.
+    !headers.contains_key("origin") && headers.get("authorization")
+        .and_then(|value| value.to_str().ok()).is_some_and(|value| value == format!("Bearer {expected}"))
+}
+
+async fn invoke(State(broker): State<Broker>, headers: HeaderMap, Json(request): Json<Request>) -> Result<Json<Response>, StatusCode> {
+    if !authorize(&headers, &broker.token) { return Err(StatusCode::UNAUTHORIZED); }
+    let result = dispatch(&broker, &request).await;
+    Ok(Json(Response { schema: SCHEMA.into(), id: request.id, result: result.as_ref().ok().cloned(), error: result.err() }))
+}
+
+async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
+    if request.schema != SCHEMA || request.id.trim().is_empty() || !request.args.is_object() {
+        return Err("Invalid native settings request".into());
+    }
+    if request.command == "native_settings_capabilities" {
+        return Ok(serde_json::json!({ "commands": COMMANDS, "schema": SCHEMA }));
+    }
+    if !COMMANDS.contains(&request.command.as_str()) { return Err("Command is not available to native settings".into()); }
+    if matches!(request.command.as_str(), "native_terminal_snapshot" | "write_terminal" | "close_terminal") {
+        let id = request.args.get("sessionId").and_then(Value::as_str).ok_or("Missing authentication terminal id")?;
+        let snapshot = broker.app.state::<crate::terminal_sessions::TerminalManager>()
+            .native_auth_snapshot(id, request.project_id.as_deref())?;
+        if request.command == "native_terminal_snapshot" { return serde_json::to_value(snapshot).map_err(|e| e.to_string()); }
+    }
+    if request.command == "native_download_update" {
+        crate::app_updates::download_update(broker.app.state(), tauri::ipc::Channel::new(|_| Ok(()))).await?;
+        return Ok(Value::Null);
+    }
+    let label = {
+        let mut contexts = broker.contexts.lock().await;
+        if let Some(label) = contexts.get(&request.project_id) { label.clone() }
+        else {
+            if contexts.len() >= 32 { return Err("Too many settings project contexts; restart the desktop host".into()); }
+            let active = if let Some(id) = &request.project_id {
+                Some(crate::project_commands::load_active_project(&broker.app.state::<crate::AppState>(), id).await?.0)
+            } else { None };
+            let label = format!("native-settings-{}", uuid::Uuid::new_v4().simple());
+            let handle = broker.app.clone();
+            let window_label = label.clone();
+            let (tx, rx) = oneshot::channel();
+            broker.app.run_on_main_thread(move || {
+                let result = tauri::WebviewWindowBuilder::new(&handle, &window_label, tauri::WebviewUrl::App("native-host.html".into()))
+                    .title("Wisp native settings host").visible(false).skip_taskbar(true)
+                    .on_navigation(crate::guard_webview_navigation).build().map_err(|e| e.to_string());
+                if result.is_ok() {
+                    if let Some(active) = active { handle.state::<crate::AppState>().set_active(&window_label, active); }
+                }
+                let _ = tx.send(result.map(|_| ()));
+            }).map_err(|e| e.to_string())?;
+            rx.await.map_err(|_| "Settings host closed")??;
+            contexts.insert(request.project_id.clone(), label.clone());
+            label
+        }
+    };
+    let webview = broker.app.get_webview(&label).ok_or("Settings context closed")?;
+    // Native callers enter from Rust, not JavaScript; use the configured local
+    // app origin even before the inert context document finishes loading.
+    let url = if cfg!(debug_assertions) && !cfg!(feature = "custom-protocol") {
+        broker.app.config().build.dev_url.clone().unwrap_or(tauri::Url::parse("tauri://localhost").unwrap())
+    } else {
+        #[cfg(windows)]
+        let origin = "http://tauri.localhost";
+        #[cfg(not(windows))]
+        let origin = "tauri://localhost";
+        tauri::Url::parse(origin).unwrap()
+    };
+    let (tx, rx) = oneshot::channel();
+    webview.on_message(tauri::webview::InvokeRequest {
+        cmd: request.command.clone(), callback: CallbackFn(0), error: CallbackFn(1), url,
+        body: InvokeBody::Json(request.args.clone()), headers: Default::default(), invoke_key: broker.app.invoke_key().to_owned(),
+    }, Box::new(move |_, _, response, _, _| {
+        let result = match response {
+            InvokeResponse::Ok(InvokeResponseBody::Json(json)) => serde_json::from_str(&json).map_err(|_| "Invalid command response".into()),
+            InvokeResponse::Ok(InvokeResponseBody::Raw(_)) => Err("Unsupported binary settings response".into()),
+            InvokeResponse::Err(error) => Err(error.0.as_str().map(str::to_owned).unwrap_or_else(|| error.0.to_string())),
+        };
+        let _ = tx.send(result);
+    }));
+    tokio::time::timeout(Duration::from_secs(660), rx).await
+        .map_err(|_| "Settings command timed out; refresh to check the result before retrying")?
+        .map_err(|_| "Settings host closed")?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_auth_rejects_browser_origins_and_missing_or_wrong_tokens() {
+        let mut headers = HeaderMap::new();
+        assert!(!authorize(&headers, "secret"));
+        headers.insert("authorization", "Bearer wrong".parse().unwrap());
+        assert!(!authorize(&headers, "secret"));
+        headers.insert("authorization", "Bearer secret".parse().unwrap());
+        assert!(authorize(&headers, "secret"));
+        headers.insert("origin", "http://localhost".parse().unwrap());
+        assert!(!authorize(&headers, "secret"));
+    }
+    #[test]
+    fn only_explicit_host_launch_enables_native_settings() {
+        assert!(!requested(["wisp".into()]));
+        assert!(requested(["wisp".into(), "--native-settings-host".into()]));
+        assert!(!COMMANDS.contains(&"send_message"));
+        assert!(!COMMANDS.contains(&"shell"));
+    }
+}

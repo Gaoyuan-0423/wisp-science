@@ -14,20 +14,23 @@ struct WispSciencePreview: App {
         }
         .defaultSize(width: 1120, height: 820)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("设置…") { model.searchPresented = false; model.settingsPresented = true }.keyboardShortcut(",")
+            }
             CommandGroup(replacing: .newItem) {
                 Button("选择数据库…") { model.chooseDatabase() }
                     .keyboardShortcut("o")
-                    .disabled(model.isLoading)
+                    .disabled(model.isLoading || model.settingsPresented)
             }
             CommandGroup(after: .textEditing) {
                 Button("搜索项目与会话") { model.searchPresented = true }
                     .keyboardShortcut("k")
-                    .disabled(model.searchPresented)
+                    .disabled(model.searchPresented || model.settingsPresented)
             }
             CommandGroup(after: .newItem) {
                 Button("刷新项目") { Task { await model.refresh() } }
                     .keyboardShortcut("r")
-                    .disabled(model.isLoading)
+                    .disabled(model.isLoading || model.settingsPresented)
             }
         }
     }

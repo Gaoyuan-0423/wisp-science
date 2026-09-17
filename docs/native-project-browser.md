@@ -197,3 +197,11 @@ The transcript currently renders saved text and tool records, not the WebView's
 rich attachments, branch/review cards, or interactive tool surfaces. WinUI retains
 the expanded contract seam; its transport/window, native signing/distribution,
 and richer capability negotiation remain follow-ups. Conversations remain read-only.
+
+## Native settings
+
+The macOS preview now includes SwiftUI settings (Cmd+,) backed by the full
+desktop runtime. See [native-settings.md](native-settings.md) for scope,
+architecture, native/WebView differences, smoke steps and the WinUI 3 transport
+interface. The project-browser service remains focused on project/session reads
+and project stars.
