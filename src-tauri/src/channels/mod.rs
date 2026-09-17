@@ -1257,6 +1257,8 @@ pub struct FeishuBindStart {
     pub flow_id: String,
     /// data: URL of the registration verification QR image.
     pub qr_image: String,
+    /// Source text for native QR rendering (contains no stored credential).
+    pub qr_content: String,
     pub expires_in_seconds: u64,
 }
 
@@ -1284,6 +1286,7 @@ pub(crate) async fn feishu_bind_start(
     Ok(FeishuBindStart {
         flow_id,
         qr_image,
+        qr_content: started.verification_uri,
         expires_in_seconds: started.expires_in_seconds,
     })
 }
@@ -1471,6 +1474,8 @@ pub struct WeixinBindStart {
     pub qrcode: String,
     /// data: URL of the QR image to render.
     pub qr_image: String,
+    /// Source text for native QR rendering (contains no stored credential).
+    pub qr_content: String,
 }
 
 pub(crate) fn qr_svg_data_url(content: &str) -> Result<String, String> {
@@ -1493,6 +1498,7 @@ pub(crate) async fn weixin_bind_start() -> Result<WeixinBindStart, String> {
     let qr = client.get_qrcode().await.map_err(|e| e.to_string())?;
     Ok(WeixinBindStart {
         qr_image: qr_svg_data_url(&qr.qrcode_img_content)?,
+        qr_content: qr.qrcode_img_content,
         qrcode: qr.qrcode,
     })
 }

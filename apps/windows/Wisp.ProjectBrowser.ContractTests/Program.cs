@@ -35,3 +35,5 @@ if (star.Schema != ProjectBrowserProtocol.Schema || star.Id != "projects-1"
 var encodedStar = JsonSerializer.SerializeToElement(star);
 if (!encodedStar.GetProperty("starred").GetBoolean() || encodedStar.GetProperty("project_id").GetString() != "research-1")
     throw new InvalidOperationException("Project star serialization drift");
+
+await NativeSettingsContractTests.Run(Path.GetFullPath(Path.Combine(fixtureDirectory, "../../native-settings/v1")));

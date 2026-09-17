@@ -9,7 +9,9 @@ public struct ProjectBrowserView: View {
 
     public var body: some View {
         Group {
-            if let project = model.projects.first(where: { $0.id == model.activeProjectID }) {
+            if model.settingsPresented {
+                NativeSettingsView(databaseURL: model.databaseURL, projects: model.projects, projectID: model.projectSettingsID ?? model.activeProjectID, editProject: model.projectSettingsID != nil) { model.settingsPresented = false; model.projectSettingsID = nil; Task { await model.refresh() } }
+            } else if let project = model.projects.first(where: { $0.id == model.activeProjectID }) {
                 ProjectWorkspace(model: model, project: project)
             } else {
                 ProjectLanding(model: model, appearance: $appearance)
@@ -61,7 +63,7 @@ private struct ProjectLanding: View {
                     .ignoresSafeArea()
             }
         }
-        .font(.system(size: 14)).foregroundStyle(color("text"))
+        .font(WispDesign.font(size: 14)).foregroundStyle(color("text"))
         .tint(color("clay"))
     }
 
@@ -84,7 +86,7 @@ private struct ProjectLanding: View {
                 Text("严谨做科研，").foregroundStyle(color("text-muted"))
                 Text("Wisp Science 在身边。").foregroundStyle(color("clay-strong"))
             }
-            .font(.system(size: 16, weight: .medium)).fixedSize()
+            .font(WispDesign.font(size: 16, weight: .medium)).fixedSize()
         }
     }
 
@@ -93,7 +95,7 @@ private struct ProjectLanding: View {
             WispUnavailableAction(title: "研究日历", icon: "calendar", iconOnly: true)
             WispUnavailableAction(title: "收藏", icon: "star", iconOnly: true)
             searchAction
-            WispUnavailableAction(title: "设置", icon: "gear", iconOnly: true)
+            Button { model.settingsPresented = true } label: { WispIcon(name: "gear") }.buttonStyle(WispButtonStyle()).help("设置").accessibilityLabel("设置")
             WispUnavailableAction(title: "随手一聊")
             WispUnavailableAction(title: "导入项目", icon: "upload")
             WispUnavailableAction(title: "新建项目", icon: "plus", primary: true)
@@ -109,8 +111,8 @@ private struct ProjectLanding: View {
     private var projectList: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Text("项目").font(.system(size: 18, weight: .semibold))
-                Text("\(projects.count)").font(.system(size: 12)).foregroundStyle(color("text-faint"))
+                Text("项目").font(WispDesign.font(size: 18, weight: .semibold))
+                Text("\(projects.count)").font(WispDesign.font(size: 12)).foregroundStyle(color("text-faint"))
             }
             if projects.isEmpty {
                 emptyState(model.isLoading ? "正在读取本地项目…" : (model.projects.isEmpty ? "还没有项目记录" : "没有匹配的项目"),
@@ -120,6 +122,7 @@ private struct ProjectLanding: View {
                     ForEach(projects) { project in
                         ProjectCard(project: project, selected: false, busy: model.isLoading, saving: model.savingProjectID == project.id,
                                     toggleStar: { Task { await model.toggleStar(project.id) } },
+                                    settings: { model.openProjectSettings(project.id) },
                                     select: { Task { await model.openProject(project.id) } }, reveal: { model.reveal(project) })
                     }
                 }
@@ -129,17 +132,17 @@ private struct ProjectLanding: View {
 
     private var recentSessions: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("最近会话").font(.system(size: 18, weight: .semibold))
+            Text("最近会话").font(WispDesign.font(size: 18, weight: .semibold))
             if model.recentSessions.isEmpty {
                 emptyState("暂无最近会话", "项目中的研究会话会显示在这里。")
             }
             ForEach(model.recentSessions) { session in
                 Button { Task { await model.openProject(session.projectID, sessionID: session.id) } } label: {
                     HStack(spacing: 10) {
-                        Text(session.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        Text(session.title).font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                         Spacer(minLength: 0)
                         Text(session.status == "needs_you" ? "待查看" : "已完成")
-                            .font(.system(size: 11)).foregroundStyle(color("text-faint"))
+                            .font(WispDesign.font(size: 11)).foregroundStyle(color("text-faint"))
                     }
                     .padding(18).frame(maxWidth: .infinity, alignment: .leading)
                     .background(color("bg-elev"), in: RoundedRectangle(cornerRadius: 10))
@@ -152,8 +155,8 @@ private struct ProjectLanding: View {
 
     private func emptyState(_ title: String, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 14, weight: .medium))
-            Text(detail).font(.system(size: 13)).foregroundStyle(color("text-faint"))
+            Text(title).font(WispDesign.font(size: 14, weight: .medium))
+            Text(detail).font(WispDesign.font(size: 13)).foregroundStyle(color("text-faint"))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20).frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
@@ -163,9 +166,9 @@ private struct ProjectLanding: View {
 
     private func errorBanner(_ error: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("项目操作未完成").font(.system(size: 13, weight: .semibold))
-            Text(error).font(.system(size: 12)).textSelection(.enabled)
-            if model.lastLoaded != nil { Text("当前显示上次成功读取的项目。实时数据可能已变化。").font(.system(size: 12)) }
+            Text("项目操作未完成").font(WispDesign.font(size: 13, weight: .semibold))
+            Text(error).font(WispDesign.font(size: 12)).textSelection(.enabled)
+            if model.lastLoaded != nil { Text("当前显示上次成功读取的项目。实时数据可能已变化。").font(WispDesign.font(size: 12)) }
         }
         .padding(13).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
@@ -193,9 +196,9 @@ private struct ProjectLanding: View {
                 } label: { Text("外观") }
                 .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("外观")
             }
-            .font(.system(size: 11))
+            .font(WispDesign.font(size: 11))
         }
-        .font(.system(size: 12)).foregroundStyle(color("text-faint"))
+        .font(WispDesign.font(size: 12)).foregroundStyle(color("text-faint"))
         .frame(maxWidth: .infinity)
     }
 }
@@ -206,6 +209,7 @@ private struct ProjectCard: View {
     let busy: Bool
     let saving: Bool
     let toggleStar: () -> Void
+    let settings: () -> Void
     let select: () -> Void
     let reveal: () -> Void
     @Environment(\.colorScheme) private var scheme
@@ -217,10 +221,10 @@ private struct ProjectCard: View {
             Button(action: select) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text(project.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        Text(project.name).font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                         if project.starred { WispIcon(name: "star-filled", size: 13).foregroundStyle(color("clay")) }
                     }
-                    Text(project.workspaceDirectory).font(.system(size: 11, design: .monospaced))
+                    Text(project.workspaceDirectory).font(WispDesign.font(size: 11, design: .monospaced))
                         .foregroundStyle(color("text-faint")).lineLimit(1).truncationMode(.head)
                         .help(project.workspaceDirectory)
                     HStack(spacing: 8) {
@@ -230,7 +234,7 @@ private struct ProjectCard: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .font(.system(size: 12)).foregroundStyle(color("text-faint"))
+                    .font(WispDesign.font(size: 12)).foregroundStyle(color("text-faint"))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16).padding(.leading, 18)
                 .contentShape(Rectangle())
@@ -250,7 +254,7 @@ private struct ProjectCard: View {
                 .disabled(busy)
                 .help(project.starred ? "取消收藏" : "收藏项目")
                 .accessibilityLabel("\(project.starred ? "取消收藏" : "收藏项目")：\(project.name)")
-                WispUnavailableAction(title: "项目设置", icon: "gear", iconOnly: true)
+                Button(action: settings) { WispIcon(name: "gear") }.buttonStyle(WispButtonStyle()).help("项目设置").accessibilityLabel("项目设置")
             }.padding(.trailing, 10)
         }
         .background(color("bg-elev"), in: RoundedRectangle(cornerRadius: 10))

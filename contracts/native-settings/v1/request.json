@@ -1,0 +1,20 @@
+{
+  "schema": "wisp.native-settings.v1",
+  "id": "settings-1",
+  "project_id": "research-1",
+  "command": "set_appearance_prefs",
+  "args": {
+    "prefs": {
+      "theme": "dark",
+      "light_palette": "paper",
+      "dark_palette": "codex",
+      "ui_font_size": 15,
+      "code_font_size": 12,
+      "ui_font_family": "",
+      "code_font_family": "",
+      "selection_popup_enabled": true,
+      "send_with_modifier": false,
+      "custom_css": ""
+    }
+  }
+}

@@ -13,6 +13,7 @@ watch = [
   "src",
   "mcp-app",
   "index.html",
+  "native-host.html",
   "fonts.css",
   "fonts",
   "vendor-runtime",

@@ -9,6 +9,9 @@ license.workspace = true
 name = "wisp-tauri"
 path = "src/main.rs"
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 # model-catalog bake: blocking HTTP + JSON in build.rs (offline snapshot

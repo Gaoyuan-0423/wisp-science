@@ -5,6 +5,9 @@ import WispProjectBrowser
 @MainActor
 public final class ProjectBrowserModel: ObservableObject {
     @Published public var searchPresented = false
+    @Published public var settingsPresented = false
+    @Published public var projectSettingsID: String?
+    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsPresented = true }
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var recentSessions: [BrowserSession] = []
     @Published private(set) var sessions: [BrowserSession] = []
