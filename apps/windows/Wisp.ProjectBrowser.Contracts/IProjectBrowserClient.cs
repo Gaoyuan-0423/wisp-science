@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace Wisp.ProjectBrowser.Contracts;
 
 /// <summary>
-/// Seam for the future WinUI 3 view model. Implement using the bundled
-/// wisp-service.exe and the versioned JSONL protocol; never open SQLite in UI code.
+/// Boundary used by the WinUI 3 model and bundled wisp-service.exe transport.
+/// The UI never opens SQLite directly.
 /// </summary>
 public interface IProjectBrowserClient
 {

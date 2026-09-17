@@ -1,6 +1,12 @@
 using System.Text.Json;
 using Wisp.ProjectBrowser.Contracts;
 
+if (args.Length == 2 && args[0] == "--database")
+{
+    await BrowserTests.FakeServiceAsync(args[1]);
+    return;
+}
+
 if (args.Length != 1)
     throw new ArgumentException("Pass contracts/project-browser/v1/projects.json");
 
@@ -27,3 +33,5 @@ var transcript = JsonSerializer.Deserialize<ProjectBrowserResponse>(File.ReadAll
 if (transcript.Type != "transcript" || transcript.Messages?.Count != 2
     || transcript.Messages[0].Sequence != 6 || transcript.NextBeforeSeq != 6)
     throw new InvalidOperationException("Transcript DTO drift");
+
+await BrowserTests.RunAsync(fixtureDirectory);

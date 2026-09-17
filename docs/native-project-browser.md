@@ -1,9 +1,9 @@
 # Native project browser preview
 
-Wisp now has a small SwiftUI project browser alongside the existing Tauri client.
+Wisp has SwiftUI (macOS) and WinUI 3 (Windows) project browsers alongside the existing Tauri client.
 It lists real projects, preserves the desktop's ordering and metadata, searches
 names/descriptions/paths, refreshes on demand, and reveals a selected workspace
-in Finder. The existing desktop remains the client for chat and execution.
+in Finder or Explorer. The existing desktop remains the client for chat and execution.
 
 ## Visual alignment with the WebView
 
@@ -37,8 +37,8 @@ python3 scripts/sync_native_design.py
 python3 scripts/sync_native_design.py --check
 ```
 
-CI and the app build check for asset drift. WinUI can consume the same SVG and
-palette exports when its views are implemented. Native system font rendering,
+CI and both app builds check for asset drift. WinUI links the same SVG and
+palette files into its output. The exporter handles UTF-8 source and Windows CRLF checkouts. Native system font rendering,
 window chrome, and file selection remain platform-specific; unsupported WebView
 actions retain their WebView positions but are disabled and labeled as not yet connected.
 
@@ -71,6 +71,75 @@ their projects are treated as unstarred. Other incompatible older schemas may fa
 with the current desktop to perform the normal upgrade. SQLite may use its
 ordinary WAL/SHM coordination files when a desktop writer is also active.
 
+## Build and run on Windows
+
+Requires Windows 10 1809+ (x64), .NET 8+ SDK, Python 3, and the Rust toolchain.
+The Windows App SDK and SDK build tools are restored from pinned NuGet packages;
+Visual Studio's packaging workload is not required. From the repository root:
+
+```powershell
+pwsh -File scripts/build_native_windows.ps1 -Launch
+```
+
+Use `-Python C:/path/to/python.exe` if Python is not on PATH. The output is
+`target/native-windows/Wisp.Science.Preview.exe` with its companion files.
+The directory includes the .NET and Windows App SDK runtimes and `wisp-service.exe`;
+copy the entire directory, not just the executable. This is an unsigned local x64
+preview, not an installer or an update to the installed Tauri application.
+
+The default database is `%APPDATA%/science.wisp-science/wisp-science/wisp.sqlite`.
+The preview saves only its database selection and appearance in
+`%LOCALAPPDATA%/WispSciencePreview/settings.json`. `WISP_BROWSER_DATABASE` and
+`WISP_SERVICE_PATH` have the same meaning as on macOS. Ctrl+K opens home/project
+search, Ctrl+R refreshes, and Ctrl+O opens the native file picker. The native
+text context menu, project/appearance flyouts, search dialog and file picker
+consume Escape from the topmost surface.
+
+Windows uses device-independent layout units: at 150% scaling, a 1200-pixel
+window is only 800 units wide. Home keeps independently scrolling project and
+recent-session columns down to 680 units; below that they stack with separate
+scroll areas. Home actions remain at the top right, wrapping within that corner
+on smaller windows. The entire conversation action strip wraps to a second
+right-aligned row instead of dropping entries at the compact breakpoint. A compact,
+bounded sidebar tool area preserves room for sessions in short windows, with
+preview utilities at its foot. The composer remains visibly disabled. Shared
+icons and native controls are used throughout; there is no WebView in this client.
+
+The Windows client starts a hidden process per query, drains stdout/stderr
+concurrently, checks the full response envelope, and kills/reaps the process on
+cancellation or a 20-second deadline. Output is bounded to 32 Mi characters and
+stderr to 64 Ki characters. Failed refreshes retain the previous snapshot and
+show an error; changing databases clears it. Independent refresh/navigation/
+transcript generations prevent late queries reopening old projects or sessions.
+Closing the window cancels active queries. Search is a compact native overlay
+with a scope label, icon-bearing results, IME-aware keyboard navigation and no
+large dialog footer. Saved transcript text is selectable; headings, lists,
+emphasis, HTTP(S) links and code text render through Markdig and native XAML.
+HTML stays inert and images are represented by alt text without downloading.
+Tool results and the v1 service's name/JSON argument lines are collapsed behind
+expanders; the full saved content remains available, with argument strings
+decoded to show real Unicode and newlines. Rich attachments, tables, and
+interactive tool execution surfaces remain follow-ups.
+
+### Current Windows milestone and validation boundary
+
+The Windows preview now implements the read-only home → project → saved-session
+path established by PRs #1274 and #1276: recent-session deep links, project/session
+selection, search, history pagination, database selection, refresh, themes and
+Explorer reveal. Creation/import, chat submission, model selection, live runs,
+approvals, and sidebar tool services are still disabled. This is an incremental
+preview, not completed parity with the production WebView.
+
+The first local visual pass verified real data, the two-column home, the usable
+session list, initial search/project-menu Escape handling and latest-message
+scroll restoration. User screenshot feedback led to a further top-right action
+layout, compact search overlay, persistent narrow-window action strip and native
+Markdown/tool folding. That build compiles and its final home was visually
+rechecked. The final search overlay (including nested text-menu Escape and IME),
+action-strip wrapping, tool expanders and Markdown still require a complete
+manual pass; automated desktop control was stopped by the user. Do not treat
+the earlier dialog checks as validation of the replacement overlay.
+
 ## Status semantics
 
 The standalone preview has no access to the desktop's in-memory Agent and
@@ -81,7 +150,7 @@ metadata; it labels live execution and approval status as unavailable. A zero
 running. Failed refreshes retain the last successful snapshot with its timestamp
 and an error banner; selecting a different database clears the old snapshot.
 
-## Shared boundary and WinUI 3 seam
+## Shared native boundary
 
 - `wisp-app::projects` owns the project-list query and activity enrichment. The
   existing Tauri command calls the same service with real runtime snapshots.
@@ -89,14 +158,15 @@ and an error banner; selecting a different database clears the old snapshot.
 - `wisp-service --database <path>` exposes those queries over stdin/stdout JSONL.
 - `apps/macos` contains a Foundation transport client and SwiftUI presentation.
 - `apps/windows/Wisp.ProjectBrowser.Contracts` provides `IProjectBrowserClient`
-  and C# response/project/session/transcript DTOs for a future WinUI 3 view model. It intentionally
-  contains no WinUI window or transport implementation yet.
+  and C# response/project/session/transcript DTOs.
+- `apps/windows/Wisp.ProjectBrowser` contains the transport, testable navigation
+  state and layout breakpoints; `Wisp.Science.Preview` provides the WinUI window.
 - `contracts/project-browser/v1/{projects,sessions,transcript}.json` are decoded by Rust, Swift, and
   the C# contract smoke test to detect wire-format drift.
 
-The UI never queries SQLite directly. The macOS adapter starts one short-lived
+The UI never queries SQLite directly. Both adapters start one short-lived
 service per query and closes stdin after one request. The service also accepts
-multiple requests per process, enabling a future persistent Windows adapter.
+multiple requests per process, enabling a future persistent adapter.
 
 Each UTF-8 request is one JSON line, at most 64 KiB including its newline:
 
@@ -127,10 +197,15 @@ dotnet run --project apps/windows/Wisp.ProjectBrowser.ContractTests -- contracts
 ```
 
 The Native Preview workflow runs the Swift build/tests on macOS and the C#
-contract check plus Rust service tests on Windows. Tests use temporary databases,
+contract/transport/navigation checks, Rust service tests and full WinUI publish
+on Windows, uploading the runnable Windows directory as an artifact. Tests use temporary databases,
 shared JSON fixtures, and a fake child process; no API key, remote host, or model
 is required. Swift presentation tests cover filtered selection, project identity,
-both palettes, and native SVG loading for the bundled wordmarks/icons.
+both palettes, and native SVG loading for the bundled wordmarks/icons. C# tests
+exercise Unicode/spaced paths, pipe pressure, malformed/mismatched envelopes,
+service failures, deadline/cancellation process cleanup, exact-session navigation,
+database changes during refresh, stale responses, pagination, DPI breakpoints and
+lossless separation of tool arguments from ordinary prose.
 
 Manual smoke steps:
 
@@ -143,7 +218,9 @@ Manual smoke steps:
 6. Open home search, appearance/project menus, or the database chooser, then
    immediately press Escape. Only the topmost surface should close.
 7. Check light/dark themes and narrow windows. Refresh and directory reveal must
-   still work. Failed queries must offer visible errors rather than blank content.
+   still work. On Windows, check 1200×850 physical pixels at 150% scaling: recent
+   sessions must remain beside projects and the session list must have usable height.
+   Failed queries must offer visible errors rather than blank content.
 
 ## Shell alignment checks
 
@@ -154,8 +231,8 @@ Manual smoke steps:
 | Project shell | Back/project switch/collapse at the top of the left sidebar, navigation above saved sessions, utility entries below. |
 | Session controls | Selection and sorting/grouping retain their positions; not connected yet. |
 | Conversation | Session title and action strip above, scrollable saved transcript in the center, composer position below. |
-| Search | Home/project scope, Up/Down and Enter navigation, topmost Escape, Command-K even with the sidebar collapsed. |
-| Preview utilities | Database selection, refresh and appearance remain in the footer; these do not replace WebView actions. |
+| Search | Home/project scope, Up/Down and Enter navigation, topmost Escape, Command-K / Ctrl+K even with the sidebar collapsed. |
+| Preview utilities | Database selection, refresh and appearance remain in the home footer / Windows sidebar footer; these do not replace WebView actions. |
 
 ## Remaining feature work
 
@@ -165,6 +242,7 @@ calendar/library/settings entry points, the sidebar tools, artifact
 search, and composer/live runtime integration still require their native services.
 Their action slots are visible but explicitly disabled in the preview.
 The transcript currently renders saved text and tool records, not the WebView's
-rich attachments, branch/review cards, or interactive tool surfaces. WinUI retains
-the expanded contract seam; its transport/window, native signing/distribution,
-and capability negotiation remain follow-ups. The preview remains read-only.
+rich attachments, branch/review cards, or interactive tool surfaces. Native
+signing/distribution and capability negotiation remain follow-ups. The preview
+remains read-only; Windows Markdown is intentionally limited to native text
+formatting, with no interactive HTML or attachment rendering.
