@@ -19,8 +19,15 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
   const listeners: Record<string, ((e: { payload: unknown }) => void) | undefined> = {};
   const windowListeners: Record<string, ((e: { payload: unknown }) => void) | undefined> = {};
   const hydrationApprovals = new Map<string, any>();
+  const planProgressSnapshots = new Map<string, string | null>();
   const emit = (event: string, payload: unknown) => {
     const request = payload as any;
+    if (event === "agent" && planProgressSnapshots.has(request.frame_id)) {
+      if (request.kind === "User") planProgressSnapshots.set(request.frame_id, null);
+      if (request.kind === "ToolResult" && request.name === "update_plan" && request.ok) {
+        planProgressSnapshots.set(request.frame_id, request.content);
+      }
+    }
     if (event === "confirm-request") {
       hydrationApprovals.set(request.frame_id, { ...request, approval_id: request.approval_id ?? `mock-${request.frame_id}` });
     } else if (event === "confirm-resolved" || (event === "agent" && request.kind === "Done")) {
@@ -2269,6 +2276,15 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
             }
             if (query.get("mockSessionModels") === "1") {
               const id = String(arg("id") ?? "");
+              const plan = planProgressSnapshots.get(id);
+              if (plan) return {
+                items: [
+                  { role: "user", text: "PLANPROGRESS", tool_name: null, ok: null },
+                  { role: "tool", text: plan, tool_name: "update_plan", ok: true },
+                ],
+                next_before_seq: null,
+                user_offset: 0,
+              };
               return {
                 items: [
                   { role: "user", text: `Question in ${id}`, tool_name: null, ok: null },
@@ -5170,6 +5186,16 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
               }, 30);
               if (String(msg).includes("LONG")) return await new Promise<string>((resolve) => { acpLongResolvers[fid] = resolve; });
               return fid;
+            }
+            if (String(msg).includes("PLANPROGRESS")) {
+              return await new Promise<string>((resolve) => {
+                planProgressSnapshots.set(fid, null);
+                emit("agent", { kind: "User", frame_id: fid, text: msg });
+                (window as any).__finishPlanProgress = () => {
+                  emit("agent", { kind: "Done", frame_id: fid, stop_reason: "end_turn" });
+                  resolve(fid);
+                };
+              });
             }
             if (String(msg).includes("PRESTARTFAIL")) {
               throw new Error("No model profile is available");

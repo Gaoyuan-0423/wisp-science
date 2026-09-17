@@ -11155,6 +11155,92 @@ test("large image approval warns before resizing and cannot be remembered", asyn
   });
 });
 
+test("composer plan stays visible through folded tools, live updates and session switches", async ({ page }, testInfo) => {
+  await enterApp(page, "/?mockSessionModels=1");
+  await page.locator('[data-session-id="s-model-a"]').click();
+  await composer(page).fill("PLANPROGRESS");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishPlanProgress)).toBe("function");
+  const strip = page.getByTestId("composer-plan-progress");
+  const update = async (content: string, ok = true) => {
+    await emitTauriEvent(page, "agent", { kind: "ToolCall", frame_id: "s-model-a", name: "update_plan", preview: "Plan update" });
+    await emitTauriEvent(page, "agent", { kind: "ToolResult", frame_id: "s-model-a", name: "update_plan", ok, content });
+  };
+  await expect(strip).toHaveCount(0);
+  await update("[x] Inspect data\n[~] Check barcode alignment\n[ ] Verify results");
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText("1 / 3 completed");
+  await expect(strip.locator(".composer-plan-current")).toHaveText("Check barcode alignment");
+  await expect(strip).toHaveClass(/is-running/);
+  const stepsHead = page.locator(".steps-head").last();
+  if (await stepsHead.getAttribute("aria-expanded") === "true") await stepsHead.click();
+  await expect(stepsHead).toHaveAttribute("aria-expanded", "false");
+  await expect(strip).toBeVisible();
+  await expect(strip.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  const marker = strip.locator(".composer-plan-mark");
+  await expect(marker).toHaveCSS("animation-name", "composer-plan-orbit");
+  await strip.evaluate(el => { (window as any).__planStripNode = el; });
+  await emitTauriEvent(page, "agent", { kind: "Reasoning", frame_id: "s-model-a", delta: "Inspecting more evidence" });
+  expect(await strip.evaluate(el => el === (window as any).__planStripNode)).toBe(true);
+  // Rejected revisions cannot create false completion.
+  await update("[x] Everything done", false);
+  await expect(strip).toContainText("1 / 3 completed");
+  await update("[x] Inspect data\n[x] Check barcode alignment\n[~] Verify results");
+  await expect(strip).toContainText("2 / 3 completed");
+  await expect(strip.locator(".composer-plan-current")).toHaveText("Verify results");
+  await expect(strip.locator(".composer-plan-track > span")).toHaveAttribute("style", /66\.66/);
+  await page.locator("#chat-scroller").evaluate(el => { el.scrollTop = 0; });
+  await expect(strip).toBeInViewport();
+  const stripBox = (await strip.boundingBox())!;
+  const composerBox = (await composer(page).boundingBox())!;
+  expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(composerBox.y);
+  const inputBox = (await page.locator(".composer-inner").boundingBox())!;
+  expect(Math.abs(stripBox.x - inputBox.x)).toBeLessThan(1);
+  expect(Math.abs(stripBox.width - inputBox.width)).toBeLessThan(1);
+  await expect(strip.locator(".composer-plan-current")).toHaveCSS("opacity", "1");
+  await page.screenshot({ path: testInfo.outputPath("composer-plan-running.png") });
+  await page.locator(".composer").screenshot({ path: testInfo.outputPath("composer-plan-detail.png") });
+  await page.locator('[data-session-id="s-model-b"]').click();
+  await expect(strip).toHaveCount(0);
+  await page.locator('[data-session-id="s-model-a"]').click();
+  await expect(strip).toContainText("2 / 3 completed");
+  await expect(strip).toHaveClass(/is-running/);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(marker).toHaveCSS("animation-name", "none");
+  await expect(strip.locator(".composer-plan-track > span")).toHaveCSS("transition-duration", "0s");
+  await page.evaluate(() => (window as any).__finishPlanProgress());
+  await expect(strip).not.toHaveClass(/is-running/);
+  await expect(strip).toContainText("not running");
+  await update("[x] Inspect data\n[x] Check barcode alignment\n[x] Verify results");
+  await expect(strip).toContainText("Plan completed");
+  await expect(strip).toContainText("3 / 3 completed");
+  await expect(strip.locator(".composer-plan-current")).toHaveCount(0);
+  await emitTauriEvent(page, "agent", { kind: "User", frame_id: "s-model-a", text: "A new task" });
+  await expect(strip).toHaveCount(0);
+});
+
+test("composer plan supports Chinese, cancelled steps and narrow light/dark layouts", async ({ page }, testInfo) => {
+  await page.goto("/?mockSessionModels=1&mockLocale=zh");
+  await page.locator(".proj-card-main").first().click();
+  await page.locator('[data-session-id="s-model-a"]').click();
+  await emitTauriEvent(page, "agent", { kind: "ToolResult", frame_id: "s-model-a", name: "update_plan", ok: true,
+    content: "[x] 检查输入数据\n[~] 检查训练输出数据中 barcode 与 species 的对应关系并回溯数据拼接逻辑\n[-] 可选对照分析" });
+  const strip = page.getByTestId("composer-plan-progress");
+  await expect(strip).toContainText("1 / 3 已完成");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(theme => document.documentElement.setAttribute("data-theme", theme), theme);
+    await strip.evaluate(el => { (el as HTMLElement).style.width = "280px"; });
+    expect(await strip.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await expect(strip.locator(".composer-plan-current")).toHaveAttribute("title", /barcode 与 species/);
+    await expect(strip.locator(".composer-plan-current")).toHaveCSS("opacity", "1");
+    await strip.screenshot({ path: testInfo.outputPath(`composer-plan-${theme}-narrow.png`) });
+  }
+  await emitTauriEvent(page, "agent", { kind: "ToolResult", frame_id: "s-model-a", name: "update_plan", ok: true,
+    content: "[x] 检查输入数据\n[-] 停止分析\n[-] 可选对照分析" });
+  await expect(strip).toContainText("计划已结束");
+  await expect(strip).not.toHaveClass(/is-complete/);
+});
+
 test("execution plan shows real steps and keeps tool metadata in details", async ({ page }) => {
   await enterApp(page, "/?mockSessionModels=1");
   await page.locator('[data-session-id="s-model-a"]').click();
