@@ -1152,6 +1152,87 @@ fn execution_plan_data(
     (steps, counts)
 }
 
+/// The composer follows the latest accepted snapshot in the current user turn.
+/// Pending/rejected updates must not replace accepted progress; queued messages
+/// must not hide it before their turn actually starts.
+fn composer_plan_steps(items: &[ChatItem]) -> Vec<(&'static str, String)> {
+    for item in items.iter().rev() {
+        match item {
+            ChatItem::User(_) => break,
+            ChatItem::Tool {
+                name,
+                ok: Some(true),
+                output,
+                ..
+            } if name == "update_plan" => {
+                return parse_plan_steps(output);
+            }
+            _ => {}
+        }
+    }
+    vec![]
+}
+
+#[component]
+pub(crate) fn ComposerPlanProgress(
+    items: RwSignal<Vec<ChatItem>>,
+    busy: RwSignal<bool>,
+) -> impl IntoView {
+    let locale = use_locale();
+    // Equality prevents unrelated token/tool events from restarting animations.
+    let steps = create_memo(move |_| items.with(|items| composer_plan_steps(items)));
+    let done = create_memo(move |_| {
+        steps.with(|steps| steps.iter().filter(|(status, _)| *status == "done").count())
+    });
+    let total = create_memo(move |_| steps.with(Vec::len));
+    let complete = create_memo(move |_| total.get() > 0 && done.get() == total.get());
+    let current = create_memo(move |_| {
+        steps.with(|steps| {
+            steps
+                .iter()
+                .find(|(status, _)| *status == "running")
+                .or_else(|| steps.iter().find(|(status, _)| *status == "pending"))
+                .cloned()
+        })
+    });
+    let animating = create_memo(move |_| {
+        busy.get() && current.get().is_some_and(|(status, _)| status == "running")
+    });
+    view! {
+        <Show when=move || { total.get() > 0 }>
+            <section class="composer-plan-progress" data-testid="composer-plan-progress"
+                class:is-running=move || animating.get() class:is-complete=move || complete.get()
+                aria-label=move || t(locale.get(), "execution_plan.title")>
+                <span class="composer-plan-mark" aria-hidden="true">
+                    {move || compose_icon(if complete.get() { "circle-check" } else if animating.get() { "activity-orbit" } else { "plan" })}
+                </span>
+                <div class="composer-plan-copy" role="status" aria-live="polite" aria-atomic="true">
+                    <div class="composer-plan-summary">
+                        <span class="composer-plan-label">{move || t(locale.get(), if complete.get() {
+                            "execution_plan.complete"
+                        } else if current.get().is_none() {
+                            "execution_plan.ended"
+                        } else if !busy.get() {
+                            "execution_plan.idle"
+                        } else { "execution_plan.title" })}</span>
+                        <span class="composer-plan-count">{move || tf(locale.get(), "execution_plan.count", &[("done", &done.get().to_string()), ("total", &total.get().to_string())])}</span>
+                    </div>
+                    <For each=move || { current.get().into_iter().collect::<Vec<_>>() } key=|step| step.clone()
+                        children=move |(_, text)| view! {
+                            <div class="composer-plan-current" title=text.clone()>{text}</div>
+                        } />
+                </div>
+                <div class="composer-plan-track" role="progressbar"
+                    aria-label=move || t(locale.get(), "execution_plan.progress")
+                    aria-valuemin="0" aria-valuemax=move || total.get().to_string()
+                    aria-valuenow=move || done.get().to_string()>
+                    <span style:width=move || format!("{}%", done.get() as f64 / total.get().max(1) as f64 * 100.0)></span>
+                </div>
+            </section>
+        </Show>
+    }
+}
+
 fn render_execution_plan(
     input: &str,
     output: &str,
@@ -1260,7 +1341,43 @@ fn render_execution_plan(
 
 #[cfg(test)]
 mod execution_plan_tests {
-    use super::execution_plan_data;
+    use super::{composer_plan_steps, execution_plan_data};
+    use crate::dto::ChatItem;
+
+    #[test]
+    fn composer_plan_uses_accepted_current_turn_and_ignores_queued_followups() {
+        let plan = |ok, output: &str| ChatItem::Tool {
+            name: "update_plan".into(),
+            ok,
+            input: String::new(),
+            output: output.into(),
+            started_at_ms: None,
+            duration_ms: None,
+        };
+        let mut items = vec![
+            ChatItem::User("Analyze".into()),
+            plan(Some(true), "[x] Inspect\n[~] Analyze"),
+            ChatItem::QueuedUser {
+                id: 1,
+                text: "Next task".into(),
+            },
+            plan(None, ""),
+            plan(Some(false), "[x] Incorrect completion"),
+        ];
+        assert_eq!(
+            composer_plan_steps(&items),
+            vec![("done", "Inspect".into()), ("running", "Analyze".into())]
+        );
+        items.push(plan(Some(true), "Steps unavailable"));
+        assert!(composer_plan_steps(&items).is_empty());
+        items.push(plan(Some(true), "[x] Finished"));
+        assert_eq!(
+            composer_plan_steps(&items),
+            vec![("done", "Finished".into())]
+        );
+        items.push(ChatItem::User("Next task".into()));
+        assert!(composer_plan_steps(&items).is_empty());
+    }
 
     #[test]
     fn result_steps_replace_preview_counts_and_keep_cancelled_separate() {
