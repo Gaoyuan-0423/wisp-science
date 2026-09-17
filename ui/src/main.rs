@@ -342,6 +342,7 @@ fn App() -> impl IntoView {
     // instance. Content fingerprints intentionally remount changed rows while
     // streaming, so keeping this state here preserves explicit user choices.
     let step_disclosure_state = create_rw_signal::<HashMap<String, bool>>(HashMap::new());
+    let nested_link_disclosure = create_rw_signal::<HashMap<String, bool>>(HashMap::new());
     let empty_title_idx = create_rw_signal(
         (js_sys::Math::random() * EMPTY_TITLE_COUNT as f64).floor() as usize % EMPTY_TITLE_COUNT,
     );
@@ -12289,6 +12290,7 @@ fn App() -> impl IntoView {
                                 } => {
                                     // Rebuilt only when the fingerprint key changed,
                                     // so this is the one clone that actually pays off.
+                                    let nest_session_id = session_id.clone();
                                     let item = if streaming_reasoning {
                                         ChatItem::Reasoning(String::new())
                                     } else {
@@ -12449,82 +12451,137 @@ fn App() -> impl IntoView {
                                                     Callback::new(move |detail| branch_merge_detail.set(Some(detail))),
                                                 ).into_view()
                                             }}
-                                            {(!message_branches.is_empty() || !message_explorations.is_empty()).then(|| view! {
+                                            {(!message_branches.is_empty() || !message_explorations.is_empty()).then(|| {
+                                                let loc = locale.get();
+                                                let branch_count = message_branches.len();
+                                                let exploration_count = message_explorations.len();
+                                                let branches = store_value(message_branches);
+                                                let explorations = store_value(message_explorations);
+                                                let branch_open_id = format!("{nest_session_id}:{i}:branches");
+                                                let exploration_open_id = format!("{nest_session_id}:{i}:explorations");
+                                                let branch_open_show = branch_open_id.clone();
+                                                let exploration_open_show = exploration_open_id.clone();
+                                                let open_branch = load_session.clone();
+                                                let open_exploration = open_exploration.clone();
+                                                view! {
                                                 <div class="message-branch-links">
-                                                    {message_branches.into_iter().map(|branch| {
-                                                        let open = load_session.clone();
-                                                        let open_id = branch.id.clone();
-                                                        let merged = branch.merged;
-                                                        let merge_summary = branch.merge_summary.clone();
-                                                        let title = if branch.title.trim().is_empty() {
-                                                            t(locale.get(), "sidebar.untitled").to_string()
-                                                        } else {
-                                                            branch.title
-                                                        };
-                                                        let detail_title = title.clone();
-                                                        view! {
-                                                            <div class="message-branch-entry">
-                                                                <button type="button" class="message-branch-link"
-                                                                    data-testid="message-branch-link"
-                                                                    data-session-id=branch.id
-                                                                    data-session-title=title.clone()
-                                                                    data-session-branch="true"
-                                                                    data-session-family="true"
-                                                                    data-branch-merged=if merged { "true" } else { "false" }
-                                                                    on:click=move |_| open.call(open_id.clone())>
-                                                                    <span aria-hidden="true">{compose_icon("branch")}</span>
-                                                                    <span>{title}</span>
-                                                                </button>
-                                                                {merge_summary.map(|summary| {
-                                                                    let detail_summary = summary.clone();
-                                                                    view! {
-                                                                        <button type="button" class="branch-merge-card" data-testid="branch-merge-card"
-                                                                            on:click=move |_| branch_merge_detail.set(Some((detail_title.clone(), detail_summary.clone())))>
-                                                                            <span class="branch-merge-card-icon" aria-hidden="true">{compose_icon("check")}</span>
-                                                                            <span class="branch-merge-card-copy">
-                                                                                <strong>{t(locale.get(), "branch.merged_result")}</strong>
-                                                                            </span>
-                                                                            <span class="branch-merge-card-open">{compose_icon("chevron-right")}</span>
-                                                                        </button>
-                                                                    }
-                                                                })}
-                                                            </div>
-                                                        }
-                                                    }).collect_view()}
-                                                    {message_explorations.into_iter().map(|summary| {
-                                                        let isolation_is_full = summary.isolation_is_full();
-                                                        let exploration = summary.exploration;
-                                                        let exploration_for_open = exploration.clone();
-                                                        let open = open_exploration.clone();
-                                                        let status_key = match exploration.status.as_str() {
-                                                            "active" => "exploration.status_active",
-                                                            "promoting" => "exploration.status_promoting",
-                                                            "creating" => "exploration.status_creating",
-                                                            _ => "exploration.status_failed",
-                                                        };
-                                                        let isolation_key = if isolation_is_full {
-                                                            "exploration.isolation_full"
-                                                        } else {
-                                                            "exploration.isolation_partial"
-                                                        };
-                                                        view! {
-                                                            <div class="message-branch-entry message-exploration-entry">
-                                                                <button type="button" class="message-branch-link exploration-message-card"
-                                                                    data-testid="exploration-message-card"
-                                                                    data-exploration-id=exploration.id.clone()
-                                                                    data-exploration-status=exploration.status.clone()
-                                                                    title=exploration.name.clone()
-                                                                    on:click=move |_| open.call(exploration_for_open.clone())>
-                                                                    <span aria-hidden="true">{compose_icon("flask")}</span>
-                                                                    <span class="message-exploration-copy">
-                                                                        <strong>{exploration.name}</strong>
-                                                                        <span>{format!("{} · {}", t(locale.get(), status_key), t(locale.get(), isolation_key))}</span>
-                                                                    </span>
-                                                                </button>
-                                                            </div>
-                                                        }
-                                                    }).collect_view()}
+                                                    {(branch_count > 0).then(|| view! {
+                                                        <div class="message-nest-group" data-testid="message-branches">
+                                                            {nested_links_toggle(
+                                                                loc,
+                                                                "branch.group",
+                                                                "branch.expand",
+                                                                "branch.collapse",
+                                                                branch_count,
+                                                                branch_open_id,
+                                                                nested_link_disclosure,
+                                                                "message-branch-toggle",
+                                                            )}
+                                                            {move || disclosure_open(nested_link_disclosure, &branch_open_show, true).then(|| {
+                                                                let open = open_branch.clone();
+                                                                view! {
+                                                                    <div class="message-nest-entries">
+                                                                        {branches.get_value().into_iter().map(|branch| {
+                                                                            let open = open.clone();
+                                                                            let open_id = branch.id.clone();
+                                                                            let merged = branch.merged;
+                                                                            let merge_summary = branch.merge_summary.clone();
+                                                                            let title = if branch.title.trim().is_empty() {
+                                                                                t(loc, "sidebar.untitled").to_string()
+                                                                            } else {
+                                                                                branch.title
+                                                                            };
+                                                                            let detail_title = title.clone();
+                                                                            view! {
+                                                                                <div class="message-branch-entry">
+                                                                                    <button type="button" class="message-branch-link"
+                                                                                        data-testid="message-branch-link"
+                                                                                        data-session-id=branch.id
+                                                                                        data-session-title=title.clone()
+                                                                                        data-session-branch="true"
+                                                                                        data-session-family="true"
+                                                                                        data-branch-merged=if merged { "true" } else { "false" }
+                                                                                        on:click=move |_| open.call(open_id.clone())>
+                                                                                        <span aria-hidden="true">{compose_icon("branch")}</span>
+                                                                                        <span>{title}</span>
+                                                                                    </button>
+                                                                                    {merge_summary.map(|summary| {
+                                                                                        let detail_summary = summary.clone();
+                                                                                        view! {
+                                                                                            <button type="button" class="branch-merge-card" data-testid="branch-merge-card"
+                                                                                                on:click=move |_| branch_merge_detail.set(Some((detail_title.clone(), detail_summary.clone())))>
+                                                                                                <span class="branch-merge-card-icon" aria-hidden="true">{compose_icon("check")}</span>
+                                                                                                <span class="branch-merge-card-copy">
+                                                                                                    <strong>{t(loc, "branch.merged_result")}</strong>
+                                                                                                </span>
+                                                                                                <span class="branch-merge-card-open">{compose_icon("chevron-right")}</span>
+                                                                                            </button>
+                                                                                        }
+                                                                                    })}
+                                                                                </div>
+                                                                            }
+                                                                        }).collect_view()}
+                                                                    </div>
+                                                                }
+                                                            })}
+                                                        </div>
+                                                    })}
+                                                    {(exploration_count > 0).then(|| view! {
+                                                        <div class="message-nest-group" data-testid="message-explorations">
+                                                            {nested_links_toggle(
+                                                                loc,
+                                                                "exploration.group",
+                                                                "exploration.expand",
+                                                                "exploration.collapse",
+                                                                exploration_count,
+                                                                exploration_open_id,
+                                                                nested_link_disclosure,
+                                                                "message-exploration-toggle",
+                                                            )}
+                                                            {move || disclosure_open(nested_link_disclosure, &exploration_open_show, true).then(|| {
+                                                                let open = open_exploration.clone();
+                                                                view! {
+                                                                    <div class="message-nest-entries">
+                                                                        {explorations.get_value().into_iter().map(|summary| {
+                                                                            let isolation_is_full = summary.isolation_is_full();
+                                                                            let exploration = summary.exploration;
+                                                                            let exploration_for_open = exploration.clone();
+                                                                            let open = open.clone();
+                                                                            let status_key = match exploration.status.as_str() {
+                                                                                "active" => "exploration.status_active",
+                                                                                "promoting" => "exploration.status_promoting",
+                                                                                "creating" => "exploration.status_creating",
+                                                                                _ => "exploration.status_failed",
+                                                                            };
+                                                                            let isolation_key = if isolation_is_full {
+                                                                                "exploration.isolation_full"
+                                                                            } else {
+                                                                                "exploration.isolation_partial"
+                                                                            };
+                                                                            view! {
+                                                                                <div class="message-branch-entry message-exploration-entry">
+                                                                                    <button type="button" class="message-branch-link exploration-message-card"
+                                                                                        data-testid="exploration-message-card"
+                                                                                        data-exploration-id=exploration.id.clone()
+                                                                                        data-exploration-status=exploration.status.clone()
+                                                                                        title=exploration.name.clone()
+                                                                                        on:click=move |_| open.call(exploration_for_open.clone())>
+                                                                                        <span aria-hidden="true">{compose_icon("flask")}</span>
+                                                                                        <span class="message-exploration-copy">
+                                                                                            <strong>{exploration.name}</strong>
+                                                                                            <span>{format!("{} · {}", t(loc, status_key), t(loc, isolation_key))}</span>
+                                                                                        </span>
+                                                                                    </button>
+                                                                                </div>
+                                                                            }
+                                                                        }).collect_view()}
+                                                                    </div>
+                                                                }
+                                                            })}
+                                                        </div>
+                                                    })}
                                                 </div>
+                                                }
                                             })}
                                         </div>
                                     }.into_view()

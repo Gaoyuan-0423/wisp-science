@@ -201,6 +201,20 @@ impl Store {
         Ok(Self { pool })
     }
 
+    /// Open an existing database for explicit native commands. Never creates,
+    /// migrates, or changes journal mode; the desktop still owns schema upgrades.
+    pub async fn open_existing_for_commands(path: &Path) -> Result<Self> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(false)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await?;
+        Ok(Self { pool })
+    }
+
     /// Open (or create) the SQLite database at `path` and run migrations.
     pub async fn open(path: &Path) -> Result<Self> {
         Self::open_with_journal(path, true).await

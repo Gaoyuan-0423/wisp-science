@@ -16,7 +16,7 @@ if (response.Schema != ProjectBrowserProtocol.Schema || response.Id != "projects
     || response.Type != "projects" || response.ActivitySource != ProjectBrowserProtocol.PersistedOnly)
     throw new InvalidOperationException("Protocol envelope drift");
 var project = response.Projects?.Single() ?? throw new InvalidOperationException("Missing project");
-if (project.Id != "research-1" || project.Name != "RNA-seq 研究"
+if (project.Id != "research-1" || project.Name != "RNA-seq 鐮旂┒"
     || project.WorkspaceDirectory != "/Users/researcher/Projects/RNA seq"
     || project.SessionCount != 3 || project.ArtifactCount != 2
     || project.NeedsYouCount != 1 || !project.Starred || !project.SyncConfigured
@@ -35,3 +35,12 @@ if (transcript.Type != "transcript" || transcript.Messages?.Count != 2
     throw new InvalidOperationException("Transcript DTO drift");
 
 await BrowserTests.RunAsync(fixtureDirectory);
+var star = JsonSerializer.Deserialize<SetProjectStarredRequest>(File.ReadAllText(Path.Combine(fixtureDirectory, "set-project-starred.json")))!;
+if (star.Schema != ProjectBrowserProtocol.Schema || star.Id != "projects-1"
+    || star.Type != "set_project_starred" || star.ProjectId != "research-1" || !star.Starred)
+    throw new InvalidOperationException("Project star command drift");
+var encodedStar = JsonSerializer.SerializeToElement(star);
+if (!encodedStar.GetProperty("starred").GetBoolean() || encodedStar.GetProperty("project_id").GetString() != "research-1")
+    throw new InvalidOperationException("Project star serialization drift");
+
+await NativeSettingsContractTests.Run(Path.GetFullPath(Path.Combine(fixtureDirectory, "../../native-settings/v1")));

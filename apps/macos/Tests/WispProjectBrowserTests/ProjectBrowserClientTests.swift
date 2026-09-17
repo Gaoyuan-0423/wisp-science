@@ -70,6 +70,35 @@ final class ProjectBrowserClientTests: XCTestCase {
         XCTAssertEqual(snapshot.projects.count, 1)
     }
 
+    func testStarTransportOptsInAndEncodesBooleanCommand() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("mock service")
+        let response = String(decoding: try fixture(), as: UTF8.self)
+        let quotedResponse = "'" + response.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let script = """
+        #!/bin/sh
+        test "$#" -eq 3 || exit 2
+        test "$3" = '--allow-project-writes' || exit 3
+        IFS= read -r request || exit 4
+        printf '%s' "$request" > "$2"
+        printf '%s\\n' \(quotedResponse)
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let captured = directory.appendingPathComponent("request.json")
+        let client = ProjectBrowserClient(executableURL: executable)
+        _ = try await client.setProjectStarred(databaseURL: captured, projectID: "research-1", starred: true)
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let expected = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("contracts/project-browser/v1/set-project-starred.json"))) as! NSDictionary
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(contentsOf: captured)) as! NSDictionary, expected)
+        _ = try await client.setProjectStarred(databaseURL: captured, projectID: "research-1", starred: false)
+        let unstar = try JSONSerialization.jsonObject(with: Data(contentsOf: captured)) as! [String: Any]
+        XCTAssertEqual(unstar["starred"] as? Bool, false)
+    }
+
     func testSessionAndTranscriptFixturesAndIdentityValidation() throws {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }

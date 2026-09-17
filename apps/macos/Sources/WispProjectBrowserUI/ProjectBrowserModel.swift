@@ -5,6 +5,9 @@ import WispProjectBrowser
 @MainActor
 public final class ProjectBrowserModel: ObservableObject {
     @Published public var searchPresented = false
+    @Published public var settingsPresented = false
+    @Published public var projectSettingsID: String?
+    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsPresented = true }
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var recentSessions: [BrowserSession] = []
     @Published private(set) var sessions: [BrowserSession] = []
@@ -19,6 +22,7 @@ public final class ProjectBrowserModel: ObservableObject {
     private var navigationGeneration = UUID()
     @Published public private(set) var isLoading = false
     @Published private(set) var error: String?
+    @Published private(set) var savingProjectID: String?
     @Published private(set) var lastLoaded: Date?
     @Published private(set) var databaseURL: URL
     private let client: any ProjectBrowserQuerying
@@ -57,10 +61,28 @@ public final class ProjectBrowserModel: ObservableObject {
         }
     }
 
+    func toggleStar(_ id: String) async {
+        guard !isLoading, let project = projects.first(where: { $0.id == id }),
+              let writer = client as? any ProjectBrowserWriting else { return }
+        isLoading = true
+        savingProjectID = id
+        error = nil
+        defer { isLoading = false; savingProjectID = nil }
+        do {
+            // Apply the authoritative ordering only after the write succeeds.
+            // No navigation changes and no optimistic state to roll back.
+            let snapshot = try await writer.setProjectStarred(databaseURL: databaseURL, projectID: id, starred: !project.starred)
+            projects = snapshot.projects
+        } catch {
+            self.error = "收藏未能确认保存：\(error.localizedDescription)"
+        }
+    }
+
     public func chooseDatabase() {
+        guard !isLoading else { return }
         let panel = NSOpenPanel()
         panel.title = "选择 Wisp 数据库"
-        panel.message = "仅查询已有的 wisp.sqlite，不修改数据或执行数据库升级。"
+        panel.message = "打开已有的 wisp.sqlite；点击项目星标会保存收藏状态，不执行数据库升级。"
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = databaseURL.deletingLastPathComponent()

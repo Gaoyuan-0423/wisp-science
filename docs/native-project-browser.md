@@ -64,12 +64,25 @@ Use **Choose database / 选择数据库** (Command-O) for another existing datab
 preview. For development, `WISP_BROWSER_DATABASE` overrides the path and
 `WISP_SERVICE_PATH` overrides the bundled service executable.
 
-The service opens SQLite in read-only mode. It does not create a missing
-database, run migrations, mutate projects, access model credentials, or execute
-tools. Databases from before project stars are supported without migration;
-their projects are treated as unstarred. Other incompatible older schemas may fail to query; open them
-with the current desktop to perform the normal upgrade. SQLite may use its
-ordinary WAL/SHM coordination files when a desktop writer is also active.
+Queries open SQLite read-only. Clicking a project-card star explicitly launches
+`wisp-service --database <path> --allow-project-writes` and sends the desired
+Boolean state. Only that command opens an existing writable connection; it does
+not create a database, run migrations, change journal mode, access credentials,
+or execute tools. Database selection and refresh remain queries.
+
+Stars are local project metadata shared with the WebView. They do not touch
+activity timestamps, workspace files, or selected sessions. While saving, star
+buttons, refresh, and database selection are disabled to prevent competing
+updates. The UI applies the server's ordered snapshot only after success. Failures
+preserve the previous display and show an error; refresh to confirm the persisted
+state if a response was lost. Repeating the same desired state is idempotent.
+
+Databases from before project stars are readable without migration, with projects
+treated as unstarred. Attempting to save a star explains that the current WebView
+desktop must upgrade the database first. Other incompatible older schemas may
+fail to query. SQLite may use ordinary WAL/SHM coordination files when a desktop
+writer is also active. Native star writes do not push events to an already-open
+WebView; refresh its home list to see the change (and vice versa).
 
 ## Build and run on Windows
 
@@ -152,7 +165,7 @@ and an error banner; selecting a different database clears the old snapshot.
 
 ## Shared native boundary
 
-- `wisp-app::projects` owns the project-list query and activity enrichment. The
+- `wisp-app::projects` owns project-list queries, activity enrichment, and the project-star command. The
   existing Tauri command calls the same service with real runtime snapshots.
 - `wisp-dto::project_browser` owns the native protocol shapes.
 - `wisp-service --database <path>` exposes those queries over stdin/stdout JSONL.
@@ -180,9 +193,18 @@ Each UTF-8 request is one JSON line, at most 64 KiB including its newline:
 
 Every response repeats `schema` and `id`. A `projects` response contains
 `projects: ProjectSummary[]` and `activity_source: persisted_only`. A
-`capabilities` response contains `commands` and `read_only: true`. An `error`
+`capabilities` response contains `commands` and `read_only: true` by default.
+With `--allow-project-writes`, it additionally advertises `set_project_starred`
+and `read_only: false`. The additive v1 command is:
+
+```json
+{"schema":"wisp.project-browser.v1","id":"projects-1","type":"set_project_starred","project_id":"project-id","starred":true}
+```
+
+Success returns the same ordered `projects` response as `list_projects`. Without
+explicit write mode it returns `write_disabled`. An `error`
 response contains `code` (`invalid_request`, `unsupported_schema`, or
-`query_failed`) and `message`. Malformed requests have `id: null`. Stdout carries
+`query_failed`, `write_disabled`, or `command_failed`) and `message`. Malformed requests have `id: null`. Stdout carries
 protocol responses only; startup/transport failures go to stderr and exit
 nonzero. EOF exits the process. Clients validate schema, correlation ID, response
 type, and supported activity source before presenting results. The macOS client
@@ -246,3 +268,7 @@ rich attachments, branch/review cards, or interactive tool surfaces. Native
 signing/distribution and capability negotiation remain follow-ups. The preview
 remains read-only; Windows Markdown is intentionally limited to native text
 formatting, with no interactive HTML or attachment rendering.
+
+## Native settings
+
+See [native-settings.md](native-settings.md) for the shared authenticated desktop settings transport introduced by #1281. macOS provides the full native settings navigation; Windows parity is incremental.

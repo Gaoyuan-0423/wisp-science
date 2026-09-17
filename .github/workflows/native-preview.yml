@@ -14,7 +14,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
       - run: python3 scripts/sync_native_design.py --check
-      - run: cargo test --locked -p wisp-app -p wisp-service
+      - run: python3 scripts/sync_native_settings_contract.py --check
+      - run: cargo test --locked -p wisp-app -p wisp-service -p wisp-dto
       - run: swift test --package-path apps/macos --scratch-path target/native-macos/swift
       - run: bash scripts/build_native_macos.sh
 
@@ -27,7 +28,7 @@ jobs:
           dotnet-version: '8.0.x'
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
-      - run: cargo test --locked -p wisp-app -p wisp-service
+      - run: cargo test --locked -p wisp-app -p wisp-service -p wisp-dto
       - run: dotnet run --project apps/windows/Wisp.ProjectBrowser.ContractTests -- contracts/project-browser/v1/projects.json
       - run: pwsh -File scripts/build_native_windows.ps1
       - uses: actions/upload-artifact@v4

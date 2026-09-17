@@ -10,6 +10,60 @@ use crate::window_capture_escape;
 use leptos::*;
 use std::collections::{HashMap, HashSet};
 
+fn toggle_collapsed_key(set: &mut HashSet<String>, key: String) {
+    if !set.insert(key.clone()) {
+        set.remove(&key);
+    }
+}
+
+#[cfg(test)]
+mod nest_toggle_tests {
+    use super::toggle_collapsed_key;
+    use std::collections::HashSet;
+
+    #[test]
+    fn toggle_collapsed_key_inserts_then_removes() {
+        let mut set = HashSet::new();
+        toggle_collapsed_key(&mut set, "e:main".into());
+        assert!(set.contains("e:main"));
+        toggle_collapsed_key(&mut set, "e:main".into());
+        assert!(set.is_empty());
+        toggle_collapsed_key(&mut set, "b:main".into());
+        toggle_collapsed_key(&mut set, "e:main".into());
+        assert_eq!(set.len(), 2);
+    }
+}
+
+fn nest_group_toggle(
+    locale: Locale,
+    label_key: &'static str,
+    expand_key: &'static str,
+    collapse_key: &'static str,
+    count: usize,
+    collapsed: bool,
+    test_id: &'static str,
+    on_click: impl Fn(web_sys::MouseEvent) + 'static,
+) -> impl IntoView {
+    let action = t(locale, if collapsed { expand_key } else { collapse_key });
+    let count_label = count.to_string();
+    let aria = format!("{action} ({count})");
+    view! {
+        <button type="button" class="side-nest-toggle"
+            class:collapsed=collapsed
+            data-testid=test_id
+            aria-expanded=if collapsed { "false" } else { "true" }
+            title=action
+            aria-label=aria
+            on:click=on_click>
+            <span class="side-nest-caret" class:collapsed=collapsed aria-hidden="true">
+                {compose_icon("chevron-down")}
+            </span>
+            <span class="side-nest-label">{t(locale, label_key)}</span>
+            <span class="side-nest-count">{count_label}</span>
+        </button>
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct SidebarState {
     pub(super) locale: RwSignal<Locale>,
@@ -127,6 +181,8 @@ pub(super) fn Sidebar(
         &["folder", "date", "none"],
     ));
     let sort_menu_open = create_rw_signal(false);
+    // Collapsed nested branch / exploration groups, keyed as "b:{parent}" / "e:{parent}".
+    let collapsed_nests = create_rw_signal(HashSet::<String>::new());
     let selecting_sessions = create_rw_signal(false);
     let selected_sessions = create_rw_signal::<HashSet<String>>(HashSet::new());
     let bulk_move_target = create_rw_signal(String::new());
@@ -609,19 +665,74 @@ pub(super) fn Sidebar(
                         if kids.is_empty() && exploration_kids.is_empty() {
                             return item(s);
                         }
+                        let nests = collapsed_nests.get();
+                        let exploration_key = format!("e:{}", s.id);
+                        let branch_key = format!("b:{}", s.id);
+                        let exploration_collapsed = nests.contains(&exploration_key);
+                        let branch_collapsed = nests.contains(&branch_key);
+                        let exploration_count = exploration_kids.len();
+                        let branch_count = kids.len();
+                        let exploration_toggle_key = exploration_key.clone();
+                        let branch_toggle_key = branch_key.clone();
+                        let parent = item(s);
                         view! {
                             <div class="side-branch-group">
-                                {item(s)}
-                                {(!exploration_kids.is_empty()).then(|| view! {
+                                {parent}
+                                {(!exploration_kids.is_empty()).then(|| {
+                                    let exploration_toggle_key = exploration_toggle_key.clone();
+                                    view! {
                                     <div class="side-exploration-group" data-testid="sidebar-explorations">
-                                        <div class="side-exploration-group-title">{t(loc, "exploration.group")}</div>
-                                        {exploration_kids.iter().map(&exploration_item).collect_view()}
+                                        {nest_group_toggle(
+                                            loc,
+                                            "exploration.group",
+                                            "exploration.expand",
+                                            "exploration.collapse",
+                                            exploration_count,
+                                            exploration_collapsed,
+                                            "sidebar-exploration-toggle",
+                                            move |ev: web_sys::MouseEvent| {
+                                                ev.prevent_default();
+                                                ev.stop_propagation();
+                                                collapsed_nests.update(|set| {
+                                                    toggle_collapsed_key(set, exploration_toggle_key.clone());
+                                                });
+                                            },
+                                        )}
+                                        {(!exploration_collapsed).then(|| view! {
+                                            <div class="side-nest-items">
+                                                {exploration_kids.iter().map(&exploration_item).collect_view()}
+                                            </div>
+                                        })}
                                     </div>
+                                    }
                                 })}
-                                {(!kids.is_empty()).then(|| view! {
-                                    <div class="side-branch-kids">
-                                        {kids.iter().map(&item).collect_view()}
+                                {(!kids.is_empty()).then(|| {
+                                    let branch_toggle_key = branch_toggle_key.clone();
+                                    view! {
+                                    <div class="side-branch-kids" data-testid="sidebar-branches">
+                                        {nest_group_toggle(
+                                            loc,
+                                            "branch.group",
+                                            "branch.expand",
+                                            "branch.collapse",
+                                            branch_count,
+                                            branch_collapsed,
+                                            "sidebar-branch-toggle",
+                                            move |ev: web_sys::MouseEvent| {
+                                                ev.prevent_default();
+                                                ev.stop_propagation();
+                                                collapsed_nests.update(|set| {
+                                                    toggle_collapsed_key(set, branch_toggle_key.clone());
+                                                });
+                                            },
+                                        )}
+                                        {(!branch_collapsed).then(|| view! {
+                                            <div class="side-nest-items">
+                                                {kids.iter().map(&item).collect_view()}
+                                            </div>
+                                        })}
                                     </div>
+                                    }
                                 })}
                             </div>
                         }.into_view()

@@ -119,8 +119,21 @@
 /* Branch sessions nested under the session they were forked from (#531). */
 .side-branch-group { display: flex; flex-direction: column; gap: 1px; }
 .side-branch-kids { display: flex; flex-direction: column; gap: 1px; margin-left: 12px; padding-left: 8px; border-left: 1px solid var(--border); }
-.message-branch-links { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; margin: 8px 0 4px; padding-left: 28px; }
-.message-branch-entry { display: flex; width: min(320px, 80vw); flex-direction: column; align-items: stretch; gap: 5px; }
+.message-branch-links { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 8px 0 4px; padding-left: 28px; }
+.message-nest-group { display: flex; width: min(320px, 80vw); flex-direction: column; align-items: stretch; gap: 5px; }
+.message-nest-toggle {
+  display: inline-flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%;
+  padding: 2px 4px; border: 0; border-radius: var(--radius-xs);
+  background: transparent; color: var(--text-faint); font: inherit;
+  font-size: 11px; font-weight: 600; cursor: pointer; text-align: left;
+}
+.message-nest-toggle:hover { color: var(--text); background: var(--bg-elev); }
+.message-nest-caret { display: inline-flex; flex: 0 0 auto; transition: transform .15s ease; }
+.message-nest-caret.collapsed { transform: rotate(-90deg); }
+.message-nest-toggle svg { width: 13px; height: 13px; }
+.message-nest-count { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.message-nest-entries { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; width: 100%; }
+.message-branch-entry { display: flex; width: 100%; flex-direction: column; align-items: stretch; gap: 5px; }
 .message-branch-link { display: inline-flex; width: 100%; min-width: 0; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); color: var(--text-muted); font-size: 11px; }
 .message-branch-link:hover { border-color: var(--border-active); color: var(--text); }
 .message-branch-link > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

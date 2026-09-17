@@ -1,0 +1,1750 @@
+{
+  "schema": "wisp.native-settings.v1",
+  "commands": [
+    {
+      "command": "add_custom_credential",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "envVar",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "value",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<models::CustomCredentialStatus, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "add_mcp_connection",
+      "arguments": [
+        {
+          "name": "conn",
+          "rust_type": "McpConnection",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "add_ssh_host",
+      "arguments": [
+        {
+          "name": "host",
+          "rust_type": "SshHost",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<SshHost>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "authenticate_acp_agent",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "methodId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Option<crate::terminal_sessions::TerminalSessionSummary>, String>",
+      "source": "src-tauri/src/acp.rs"
+    },
+    {
+      "command": "authorize_http_connection",
+      "arguments": [
+        {
+          "name": "conn",
+          "rust_type": "McpConnection",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "browser_extension_status",
+      "arguments": [],
+      "result": "Result<wisp_dto::BrowserExtensionStatus, String>",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "cancel_oauth_authorization",
+      "arguments": [],
+      "result": null,
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "channels_status",
+      "arguments": [],
+      "result": "Result<ChannelsStatus, String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "check_for_updates",
+      "arguments": [],
+      "result": "Result<UpdateCheck, String>",
+      "source": "src-tauri/src/app_updates.rs"
+    },
+    {
+      "command": "clear_memory",
+      "arguments": [
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Vec<MemoryFile>, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "close_terminal",
+      "arguments": [
+        {
+          "name": "sessionId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/terminal_sessions.rs"
+    },
+    {
+      "command": "confirm_feishu_pending_owner",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "context_disposal_report",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<crate::run_context::remote_files::ContextDisposalReport, String>",
+      "source": "src-tauri/src/runtime_commands.rs"
+    },
+    {
+      "command": "create_global_memory",
+      "arguments": [
+        {
+          "name": "content",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<wisp_store::GlobalMemory, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "credential_status",
+      "arguments": [],
+      "result": "Result<Vec<(String, bool)>, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "delete_global_memory",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "delete_mcp_connection",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "delete_memory_file",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Vec<MemoryFile>, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "detect_local_environment",
+      "arguments": [],
+      "result": "BootstrapStatus",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "feishu_bind_cancel",
+      "arguments": [
+        {
+          "name": "flowId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "feishu_bind_poll",
+      "arguments": [
+        {
+          "name": "flowId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<FeishuBindPoll, String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "feishu_bind_start",
+      "arguments": [
+        {
+          "name": "international",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<FeishuBindStart, String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "feishu_unbind",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "get_appearance_prefs",
+      "arguments": [],
+      "result": "Result<AppearancePrefsView, String>",
+      "source": "src-tauri/src/configure.rs"
+    },
+    {
+      "command": "get_auto_failure_analysis_settings",
+      "arguments": [],
+      "result": "Result<AutoFailureAnalysisSettings, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "get_auto_review_enabled",
+      "arguments": [],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "get_bootstrap_status",
+      "arguments": [],
+      "result": "BootstrapStatus",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "get_browser_auto_close_tabs",
+      "arguments": [],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "get_browser_auto_launch",
+      "arguments": [],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "get_browser_url_filters",
+      "arguments": [],
+      "result": "Result<BrowserUrlFilters, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "get_context_storage_prefs",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<ContextStoragePrefsView, String>",
+      "source": "src-tauri/src/storage_prefs.rs"
+    },
+    {
+      "command": "get_default_execution_context",
+      "arguments": [],
+      "result": "Result<Option<String>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "get_device_bridge_token",
+      "arguments": [],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/device_bridge.rs"
+    },
+    {
+      "command": "get_memory_view",
+      "arguments": [
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<MemoryView, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "get_network_settings",
+      "arguments": [],
+      "result": "Result<NetworkSettings, String>",
+      "source": "src-tauri/src/network.rs"
+    },
+    {
+      "command": "get_pet",
+      "arguments": [],
+      "result": "Result<PetStatus, String>",
+      "source": "src-tauri/src/pet_commands.rs"
+    },
+    {
+      "command": "get_pet_runtime_status",
+      "arguments": [],
+      "result": "Result<PetRuntimeStatus, String>",
+      "source": "src-tauri/src/pet_commands.rs"
+    },
+    {
+      "command": "get_project_run_retention",
+      "arguments": [],
+      "result": "Result<ProjectRunRetention, String>",
+      "source": "src-tauri/src/project_commands.rs"
+    },
+    {
+      "command": "get_project_settings",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<ProjectSettings, String>",
+      "source": "src-tauri/src/project_commands.rs"
+    },
+    {
+      "command": "get_session_token_usage",
+      "arguments": [
+        {
+          "name": "projectId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "offset",
+          "rust_type": "Option<i64>",
+          "optional": true
+        },
+        {
+          "name": "limit",
+          "rust_type": "Option<i64>",
+          "optional": true
+        }
+      ],
+      "result": "Result<wisp_store::SessionTokenUsagePage, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "get_settings",
+      "arguments": [],
+      "result": "Result<Settings, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "get_storage_usage",
+      "arguments": [],
+      "result": "Result<serde_json::Value, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "get_token_usage",
+      "arguments": [],
+      "result": "Result<TokenUsageOverview, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "get_update_check_enabled",
+      "arguments": [],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "import_ssh_config_hosts",
+      "arguments": [],
+      "result": "Result<Vec<SshHost>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "import_wsl_contexts",
+      "arguments": [],
+      "result": "Result<Vec<wisp_store::ExecutionContext>, String>",
+      "source": "src-tauri/src/wsl_contexts.rs"
+    },
+    {
+      "command": "install_github_skill",
+      "arguments": [
+        {
+          "name": "source",
+          "rust_type": "SkillInstallSource",
+          "optional": false
+        }
+      ],
+      "result": "Result<SkillInstallResult, String>",
+      "source": "src-tauri/src/skill_store.rs"
+    },
+    {
+      "command": "install_plugin",
+      "arguments": [
+        {
+          "name": "srcPath",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "expectedSha256",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<PluginView, String>",
+      "source": "src-tauri/src/plugins.rs"
+    },
+    {
+      "command": "install_plugin_url",
+      "arguments": [
+        {
+          "name": "sourceUrl",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "expectedSha256",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<PluginView, String>",
+      "source": "src-tauri/src/plugins.rs"
+    },
+    {
+      "command": "install_skill",
+      "arguments": [
+        {
+          "name": "srcPath",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "install_update",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/app_updates.rs"
+    },
+    {
+      "command": "join_synced_project",
+      "arguments": [
+        {
+          "name": "code",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Option<ProjectSummary>, String>",
+      "source": "src-tauri/src/project_sync.rs"
+    },
+    {
+      "command": "list_acp_agents",
+      "arguments": [],
+      "result": "Result<Vec<AcpAgentProfile>, String>",
+      "source": "src-tauri/src/acp.rs"
+    },
+    {
+      "command": "list_approval_grants",
+      "arguments": [],
+      "result": "Vec<ApprovalGrantInfo>",
+      "source": "src-tauri/src/approval_commands.rs"
+    },
+    {
+      "command": "list_community_skills",
+      "arguments": [
+        {
+          "name": "refresh",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<CommunitySkillCatalog, String>",
+      "source": "src-tauri/src/skill_store.rs"
+    },
+    {
+      "command": "list_connectors",
+      "arguments": [],
+      "result": "Result<ConnectorsView, String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "list_custom_credentials",
+      "arguments": [],
+      "result": "Result<Vec<models::CustomCredentialStatus>, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "list_execution_contexts",
+      "arguments": [],
+      "result": "Result<Vec<wisp_store::ExecutionContext>, String>",
+      "source": "src-tauri/src/runtime_commands.rs"
+    },
+    {
+      "command": "list_mcp_connections",
+      "arguments": [],
+      "result": "Result<McpConnectionsView, String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "list_models",
+      "arguments": [],
+      "result": "Result<Vec<ModelProfile>, String>",
+      "source": "src-tauri/src/models.rs"
+    },
+    {
+      "command": "list_plugins",
+      "arguments": [],
+      "result": "Result<Vec<PluginView>, String>",
+      "source": "src-tauri/src/plugins.rs"
+    },
+    {
+      "command": "list_projects",
+      "arguments": [],
+      "result": "Result<Vec<ProjectSummary>, String>",
+      "source": "src-tauri/src/project_commands.rs"
+    },
+    {
+      "command": "list_quick_actions",
+      "arguments": [],
+      "result": "Result<Vec<QuickAction>, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "list_skill_files",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<String>, String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "list_skills",
+      "arguments": [],
+      "result": "Result<Vec<SkillInfo>, String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "list_specialists",
+      "arguments": [],
+      "result": "Result<Vec<Specialist>, String>",
+      "source": "src-tauri/src/specialists.rs"
+    },
+    {
+      "command": "list_ssh_hosts",
+      "arguments": [],
+      "result": "Result<Vec<SshHost>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "list_ssh_trust_edges",
+      "arguments": [],
+      "result": "Result<Vec<crate::run_context::SshTrustEdge>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "list_workflow_templates",
+      "arguments": [],
+      "result": "Result<Vec<WorkflowTemplate>, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "model_catalog_lookup",
+      "arguments": [
+        {
+          "name": "provider",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "apiUrl",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "model",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Option<CatalogEntryDto>",
+      "source": "src-tauri/src/model_catalog.rs"
+    },
+    {
+      "command": "native_download_update",
+      "arguments": [],
+      "result": "()",
+      "source": "src-tauri/src/native_settings.rs"
+    },
+    {
+      "command": "native_settings_capabilities",
+      "arguments": [],
+      "result": "NativeSettingsCapabilities",
+      "source": "src-tauri/src/native_settings.rs"
+    },
+    {
+      "command": "native_terminal_snapshot",
+      "arguments": [
+        {
+          "name": "sessionId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "TerminalSnapshot",
+      "source": "src-tauri/src/native_settings.rs"
+    },
+    {
+      "command": "open_browser_extension_page",
+      "arguments": [],
+      "result": "wisp_dto::BrowserExtensionSetup",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "plan_skill_portfolio",
+      "arguments": [
+        {
+          "name": "request",
+          "rust_type": "SkillPortfolioRequest",
+          "optional": false
+        },
+        {
+          "name": "conversionId",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "expectedProjectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<SkillPortfolioDraft, String>",
+      "source": "src-tauri/src/skill_portfolio.rs"
+    },
+    {
+      "command": "preview_github_skills",
+      "arguments": [
+        {
+          "name": "sourceUrl",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "exactRef",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<SkillStoreCandidate>, String>",
+      "source": "src-tauri/src/skill_store.rs"
+    },
+    {
+      "command": "probe_execution_context",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<wisp_store::ExecutionContext, String>",
+      "source": "src-tauri/src/context_probe.rs"
+    },
+    {
+      "command": "project_sync_code",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/project_sync.rs"
+    },
+    {
+      "command": "read_memory_file",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "read_skill_file",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "path",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<wisp_dto::SkillFileContent, String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "reject_feishu_pending_owner",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "reload_skills",
+      "arguments": [],
+      "result": "Result<Vec<SkillInfo>, String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "remove_acp_agent",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<AcpAgentProfile>, String>",
+      "source": "src-tauri/src/acp.rs"
+    },
+    {
+      "command": "remove_custom_credential",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "remove_model",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<ModelProfile>, String>",
+      "source": "src-tauri/src/models.rs"
+    },
+    {
+      "command": "remove_plugin",
+      "arguments": [
+        {
+          "name": "pluginId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "version",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/plugins.rs"
+    },
+    {
+      "command": "remove_quick_action",
+      "arguments": [
+        {
+          "name": "actionId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<QuickAction>, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "remove_skill",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "remove_specialist",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<Specialist>, String>",
+      "source": "src-tauri/src/specialists.rs"
+    },
+    {
+      "command": "remove_ssh_host",
+      "arguments": [
+        {
+          "name": "alias",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<SshHost>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "remove_workflow_template",
+      "arguments": [
+        {
+          "name": "templateId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<WorkflowTemplate>, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "reorder_models",
+      "arguments": [
+        {
+          "name": "ids",
+          "rust_type": "Vec<String>",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<ModelProfile>, String>",
+      "source": "src-tauri/src/models.rs"
+    },
+    {
+      "command": "resolve_project_sync",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "strategy",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<ProjectSyncResult, String>",
+      "source": "src-tauri/src/project_sync.rs"
+    },
+    {
+      "command": "revoke_all_approval_grants",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/approval_commands.rs"
+    },
+    {
+      "command": "revoke_approval_grant",
+      "arguments": [
+        {
+          "name": "scope",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "kind",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "target",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "sessionId",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/approval_commands.rs"
+    },
+    {
+      "command": "revoke_device_bridge_token",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/device_bridge.rs"
+    },
+    {
+      "command": "revoke_ssh_trust_edge",
+      "arguments": [
+        {
+          "name": "sourceContextId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "destinationContextId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<crate::run_context::RevokeTrustResponse, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "rotate_device_bridge_token",
+      "arguments": [],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/device_bridge.rs"
+    },
+    {
+      "command": "save_acp_agent",
+      "arguments": [
+        {
+          "name": "profile",
+          "rust_type": "AcpAgentProfile",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<AcpAgentProfile>, String>",
+      "source": "src-tauri/src/acp.rs"
+    },
+    {
+      "command": "save_local_environment_paths",
+      "arguments": [
+        {
+          "name": "paths",
+          "rust_type": "std::collections::BTreeMap<String, String>",
+          "optional": false
+        }
+      ],
+      "result": "Result<BootstrapStatus, String>",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "save_model",
+      "arguments": [
+        {
+          "name": "profile",
+          "rust_type": "ModelProfile",
+          "optional": false
+        },
+        {
+          "name": "key",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "useForVision",
+          "rust_type": "Option<bool>",
+          "optional": true
+        },
+        {
+          "name": "useForImageGeneration",
+          "rust_type": "Option<bool>",
+          "optional": true
+        },
+        {
+          "name": "useForVideoGeneration",
+          "rust_type": "Option<bool>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Vec<ModelProfile>, String>",
+      "source": "src-tauri/src/models.rs"
+    },
+    {
+      "command": "save_quick_action",
+      "arguments": [
+        {
+          "name": "action",
+          "rust_type": "QuickAction",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<QuickAction>, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "save_specialist_cmd",
+      "arguments": [
+        {
+          "name": "spec",
+          "rust_type": "Specialist",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<Specialist>, String>",
+      "source": "src-tauri/src/specialists.rs"
+    },
+    {
+      "command": "save_workflow_template",
+      "arguments": [
+        {
+          "name": "template",
+          "rust_type": "WorkflowTemplate",
+          "optional": false
+        },
+        {
+          "name": "conversionSourceSha256",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<WorkflowTemplate, String>",
+      "source": "src-tauri/src/quick_actions.rs"
+    },
+    {
+      "command": "set_active_model",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "sessionId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Vec<ModelProfile>, String>",
+      "source": "src-tauri/src/models.rs"
+    },
+    {
+      "command": "set_appearance_prefs",
+      "arguments": [
+        {
+          "name": "prefs",
+          "rust_type": "AppearancePrefs",
+          "optional": false
+        }
+      ],
+      "result": "Result<AppearancePrefs, String>",
+      "source": "src-tauri/src/configure.rs"
+    },
+    {
+      "command": "set_approval_scope",
+      "arguments": [
+        {
+          "name": "scope",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "set_auto_failure_analysis_settings",
+      "arguments": [
+        {
+          "name": "settings",
+          "rust_type": "AutoFailureAnalysisSettings",
+          "optional": false
+        }
+      ],
+      "result": "Result<AutoFailureAnalysisSettings, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "set_auto_review_enabled",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "set_browser_auto_close_tabs",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "set_browser_auto_launch",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "set_browser_url_filters",
+      "arguments": [
+        {
+          "name": "filters",
+          "rust_type": "BrowserUrlFilters",
+          "optional": false
+        }
+      ],
+      "result": "Result<BrowserUrlFilters, String>",
+      "source": "src-tauri/src/browser_url_filters.rs"
+    },
+    {
+      "command": "set_connector_enabled",
+      "arguments": [
+        {
+          "name": "key",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "set_connector_skip_approvals",
+      "arguments": [
+        {
+          "name": "key",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "set_context_storage_prefs",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "remoteDataRoot",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "remoteWorkdirRoot",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "localResultsDir",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<ContextStoragePrefsView, String>",
+      "source": "src-tauri/src/storage_prefs.rs"
+    },
+    {
+      "command": "set_credential",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "value",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "set_default_execution_context",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Option<String>, String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "set_device_bridge",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        },
+        {
+          "name": "mode",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "bindIpv4",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "port",
+          "rust_type": "u32",
+          "optional": false
+        }
+      ],
+      "result": "Result<DeviceBridgeSettingsStatus, String>",
+      "source": "src-tauri/src/device_bridge.rs"
+    },
+    {
+      "command": "set_feishu_channel",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        },
+        {
+          "name": "international",
+          "rust_type": "bool",
+          "optional": false
+        },
+        {
+          "name": "appId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "appSecret",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "set_feishu_owner",
+      "arguments": [
+        {
+          "name": "openId",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "set_mcp_connection_enabled",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "set_memory_enabled",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        },
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<MemoryView, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "set_network_settings",
+      "arguments": [
+        {
+          "name": "settings",
+          "rust_type": "NetworkSettings",
+          "optional": false
+        }
+      ],
+      "result": "Result<NetworkSettings, String>",
+      "source": "src-tauri/src/network.rs"
+    },
+    {
+      "command": "set_plugin_enabled",
+      "arguments": [
+        {
+          "name": "pluginId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "version",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/plugins.rs"
+    },
+    {
+      "command": "set_project_run_retention",
+      "arguments": [
+        {
+          "name": "runRetentionDays",
+          "rust_type": "Option<i64>",
+          "optional": true
+        },
+        {
+          "name": "failedRunRetentionDays",
+          "rust_type": "Option<i64>",
+          "optional": true
+        },
+        {
+          "name": "orphanFileRetentionDays",
+          "rust_type": "Option<i64>",
+          "optional": true
+        }
+      ],
+      "result": "Result<ProjectRunRetention, String>",
+      "source": "src-tauri/src/project_commands.rs"
+    },
+    {
+      "command": "set_settings",
+      "arguments": [
+        {
+          "name": "settings",
+          "rust_type": "Settings",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "set_skill_enabled",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "set_skill_tags",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "tags",
+          "rust_type": "Vec<String>",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/skill_commands.rs"
+    },
+    {
+      "command": "set_tool_approval",
+      "arguments": [
+        {
+          "name": "tool",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "mode",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "set_update_check_enabled",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<bool, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "set_weixin_channel",
+      "arguments": [
+        {
+          "name": "enabled",
+          "rust_type": "bool",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "sync_project",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<ProjectSyncResult, String>",
+      "source": "src-tauri/src/project_sync.rs"
+    },
+    {
+      "command": "test_acp_agent",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<AcpAgentInfoDto, String>",
+      "source": "src-tauri/src/acp.rs"
+    },
+    {
+      "command": "test_mcp_connection",
+      "arguments": [
+        {
+          "name": "conn",
+          "rust_type": "McpConnection",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<wisp_mcp::RemoteTool>, String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "test_oauth_mcp_connection",
+      "arguments": [
+        {
+          "name": "conn",
+          "rust_type": "McpConnection",
+          "optional": false
+        }
+      ],
+      "result": "Result<Vec<wisp_mcp::RemoteTool>, String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "test_ssh_connection",
+      "arguments": [
+        {
+          "name": "host",
+          "rust_type": "SshHost",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/ssh_hosts.rs"
+    },
+    {
+      "command": "update_browser_extension",
+      "arguments": [],
+      "result": "Result<wisp_dto::BrowserExtensionUpdateResult, String>",
+      "source": "src-tauri/src/app_commands.rs"
+    },
+    {
+      "command": "update_execution_context_interpreters",
+      "arguments": [
+        {
+          "name": "contextId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "pythonExecutable",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "rscriptExecutable",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<wisp_store::ExecutionContext, String>",
+      "source": "src-tauri/src/runtime_launcher.rs"
+    },
+    {
+      "command": "update_global_memory",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "content",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "update_mcp_connection",
+      "arguments": [
+        {
+          "name": "conn",
+          "rust_type": "McpConnection",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/connector_commands.rs"
+    },
+    {
+      "command": "update_project",
+      "arguments": [
+        {
+          "name": "id",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "description",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "agentContext",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<ProjectSummary, String>",
+      "source": "src-tauri/src/project_commands.rs"
+    },
+    {
+      "command": "validate_settings",
+      "arguments": [
+        {
+          "name": "settings",
+          "rust_type": "Settings",
+          "optional": false
+        },
+        {
+          "name": "key",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "profileId",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
+        {
+          "name": "useForImageGeneration",
+          "rust_type": "Option<bool>",
+          "optional": true
+        }
+      ],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/settings_commands.rs"
+    },
+    {
+      "command": "weixin_bind_poll",
+      "arguments": [
+        {
+          "name": "qrcode",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<String, String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "weixin_bind_start",
+      "arguments": [],
+      "result": "Result<WeixinBindStart, String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "weixin_unbind",
+      "arguments": [],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/channels/mod.rs"
+    },
+    {
+      "command": "write_memory_file",
+      "arguments": [
+        {
+          "name": "name",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "content",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "projectId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
+      "result": "Result<Vec<MemoryFile>, String>",
+      "source": "src-tauri/src/memory_commands.rs"
+    },
+    {
+      "command": "write_terminal",
+      "arguments": [
+        {
+          "name": "sessionId",
+          "rust_type": "String",
+          "optional": false
+        },
+        {
+          "name": "data",
+          "rust_type": "String",
+          "optional": false
+        }
+      ],
+      "result": "Result<(), String>",
+      "source": "src-tauri/src/terminal_sessions.rs"
+    }
+  ]
+}

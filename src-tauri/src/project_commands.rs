@@ -105,9 +105,7 @@ pub(super) async fn set_project_starred(
     id: String,
     starred: bool,
 ) -> Result<(), String> {
-    state
-        .store
-        .set_project_starred(&id, starred)
+    wisp_app::projects::set_project_starred(&state.store, &id, starred)
         .await
         .map_err(|e| e.to_string())
 }

@@ -22,6 +22,62 @@ async function lastInvokeArgs(page: Page, cmd: string) {
   }, cmd);
 }
 
+test("sidebar exploration and branch groups collapse independently", async ({ page }) => {
+  await page.goto("/?mockExplorations=1&mockBranches=1");
+  await page.locator(".proj-card-main").first().click();
+
+  const explorations = page.getByTestId("sidebar-explorations");
+  const explorationToggle = page.getByTestId("sidebar-exploration-toggle");
+  await expect(explorations.locator(".side-exploration")).toHaveCount(2);
+  await expect(explorationToggle).toHaveAttribute("aria-expanded", "true");
+
+  await explorationToggle.click();
+  await expect(explorationToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(explorations.locator(".side-exploration")).toHaveCount(0);
+  await expect(explorations).toBeVisible();
+  await expect(page.locator('.sidebar [data-session-id="conversation-branch"]')).toBeVisible();
+
+  await explorationToggle.click();
+  await expect(explorations.locator(".side-exploration")).toHaveCount(2);
+
+  const branchToggle = page.getByTestId("sidebar-branch-toggle");
+  await expect(branchToggle).toHaveAttribute("aria-expanded", "true");
+  await branchToggle.click();
+  await expect(branchToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator('.sidebar [data-session-id="conversation-branch"]')).toHaveCount(0);
+  await expect(explorations.locator(".side-exploration")).toHaveCount(2);
+
+  await branchToggle.click();
+  await expect(page.locator('.sidebar [data-session-id="conversation-branch"]')).toBeVisible();
+});
+
+test("inline exploration and branch cards collapse independently", async ({ page }) => {
+  await page.goto("/?mockExplorations=1&mockBranches=1");
+  await page.locator(".proj-card-main").first().click();
+  await page.locator('[data-session-id="exploration-mainline"]').click();
+
+  const explorationCards = page.getByTestId("exploration-message-card");
+  const explorationToggle = page.getByTestId("message-exploration-toggle");
+  await expect(explorationCards).toHaveCount(2);
+  await expect(explorationToggle).toHaveAttribute("aria-expanded", "true");
+
+  await explorationToggle.click();
+  await expect(explorationToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(explorationCards).toHaveCount(0);
+  await expect(page.getByTestId("message-branch-link")).toHaveCount(1);
+
+  await explorationToggle.click();
+  await expect(explorationCards).toHaveCount(2);
+
+  const branchToggle = page.getByTestId("message-branch-toggle");
+  await expect(branchToggle).toHaveAttribute("aria-expanded", "true");
+  await branchToggle.click();
+  await expect(page.getByTestId("message-branch-link")).toHaveCount(0);
+  await expect(explorationCards).toHaveCount(2);
+  await branchToggle.click();
+  await expect(page.getByTestId("message-branch-link")).toHaveCount(1);
+});
+
 test("exploration sidebar, banners, diff tabs, and Escape stack remain distinct from Branch", async ({ page }) => {
   await enterExplorationProject(page);
 

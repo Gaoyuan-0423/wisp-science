@@ -185,3 +185,9 @@ pub async fn browser_transcript(
         .collect();
     Ok((messages, page.next_before_seq))
 }
+
+/// Explicit desired state makes retries safe after a lost response. Activity
+/// timestamps, workspace files, and active session identities are untouched.
+pub async fn set_project_starred(store: &Store, id: &str, starred: bool) -> Result<()> {
+    store.set_project_starred(id, starred).await
+}

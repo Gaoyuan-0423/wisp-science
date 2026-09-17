@@ -23,7 +23,7 @@ struct ProjectWorkspace: View {
                             .buttonStyle(.plain).help("展开侧边栏").accessibilityLabel("展开侧边栏")
                     }
                     Text(model.sessions.first(where: { $0.id == model.activeSessionID })?.title ?? project.name)
-                        .font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        .font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                     Spacer()
                     WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true, compact: true)
                     WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
@@ -37,7 +37,7 @@ struct ProjectWorkspace: View {
                 Rectangle().fill(color("border")).frame(height: 1)
                 if let error = model.sessionError {
                     HStack {
-                        Text(error).font(.system(size: 12)).textSelection(.enabled)
+                        Text(error).font(WispDesign.font(size: 12)).textSelection(.enabled)
                         Button("重试") { Task { await model.openProject(project.id, sessionID: model.activeSessionID) } }
                     }.padding().foregroundStyle(.orange)
                 }
@@ -51,9 +51,9 @@ struct ProjectWorkspace: View {
                         ForEach(model.messages) { message in
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(message.role == "user" ? "你" : (message.role == "tool" ? (message.toolName ?? "工具") : "Wisp Science"))
-                                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(color("text-muted"))
+                                    .font(WispDesign.font(size: 12, weight: .semibold)).foregroundStyle(color("text-muted"))
                                 Text((try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
-                                    .font(.system(size: 14)).textSelection(.enabled)
+                                    .font(WispDesign.font(size: 14)).textSelection(.enabled)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -86,8 +86,8 @@ struct ProjectWorkspace: View {
                 .padding(16).background(color("bg-elev"), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color("border")))
                 .padding(.horizontal, 24).frame(maxWidth: 850)
-                Text("原生预览 · 只读 · 灰色操作、发送消息与实时运行尚未接入")
-                    .font(.system(size: 11)).foregroundStyle(color("text-faint"))
+                Text("原生预览 · 会话只读 · 发送消息与实时运行尚未接入")
+                    .font(WispDesign.font(size: 11)).foregroundStyle(color("text-faint"))
                     .padding(18).frame(maxWidth: .infinity)
             }
         }
@@ -101,12 +101,12 @@ struct ProjectWorkspace: View {
                     .buttonStyle(.plain).help("返回项目").accessibilityLabel("返回项目")
                     .accessibilityIdentifier("back-projects")
                 Menu {
-                    Button("项目设置（尚未接入）") {}.disabled(true)
+                    Button("项目设置") { model.openProjectSettings(project.id) }
                     Divider()
                     ForEach(model.projects) { item in
                         Button(item.name) { Task { await model.openProject(item.id) } }
                     }
-                } label: { Text(project.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }
+                } label: { Text(project.name).font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1) }
                 .menuStyle(.borderlessButton).accessibilityLabel("切换项目")
                 Button { sidebarVisible = false } label: { WispIcon(name: "chevron-left", size: 16) }
                     .buttonStyle(.plain).help("收起侧边栏").accessibilityLabel("收起侧边栏")
@@ -123,7 +123,7 @@ struct ProjectWorkspace: View {
                 WispUnavailableAction(title: "收藏", icon: "star", expanded: true)
             }
             HStack {
-                Text("会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(color("text-faint"))
+                Text("会话").font(WispDesign.font(size: 11, weight: .semibold)).foregroundStyle(color("text-faint"))
                 Spacer()
                 WispUnavailableAction(title: "选择", compact: true)
                 WispUnavailableAction(title: "排序与分组", icon: "adjustments", iconOnly: true, compact: true)
@@ -132,7 +132,7 @@ struct ProjectWorkspace: View {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(model.sessions) { session in
                         Button { Task { await model.openSession(session.id) } } label: {
-                            Text(session.title).font(.system(size: 13)).lineLimit(1)
+                            Text(session.title).font(WispDesign.font(size: 13)).lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(10)
                                 .background(session.id == model.activeSessionID ? color("surface-hover") : .clear,
                                             in: RoundedRectangle(cornerRadius: 8))
@@ -146,9 +146,9 @@ struct ProjectWorkspace: View {
             VStack(spacing: 4) {
                 WispUnavailableAction(title: "能力", icon: "grid", expanded: true)
                 WispUnavailableAction(title: "反馈问题", icon: "chat", expanded: true)
-                WispUnavailableAction(title: "设置", icon: "gear", expanded: true)
+                Button { model.settingsPresented = true } label: { HStack { WispIcon(name: "gear"); Text("设置"); Spacer() } }.buttonStyle(WispButtonStyle())
             }
-            Text(project.workspaceDirectory).font(.system(size: 10)).lineLimit(1).truncationMode(.head)
+            Text(project.workspaceDirectory).font(WispDesign.font(size: 10)).lineLimit(1).truncationMode(.head)
                 .foregroundStyle(color("text-faint")).help(project.workspaceDirectory)
         }
         .padding(16).background(color("bg-sunken"))
