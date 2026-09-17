@@ -59,6 +59,7 @@ pub(super) fn category(loc: Locale, kind: &str) -> &'static str {
         "next" => j(loc, "Next step", "待继续"),
         "run" => j(loc, "Experiment", "实验"),
         "session" => j(loc, "Conversation", "会话"),
+        "archive" => j(loc, "Research archive", "研究归档"),
         "paper" => j(loc, "Paper", "文献"),
         "data_asset" => j(loc, "Data", "数据"),
         _ => j(loc, "Output", "产出"),
@@ -71,6 +72,7 @@ fn icon(kind: &str) -> &'static str {
         "next" => "play",
         "run" => "flask",
         "session" => "chat",
+        "archive" => "archive",
         "data_asset" => "database",
         "paper" => "book",
         "artifact" => "image",
@@ -141,6 +143,7 @@ pub(super) fn ResearchJourneyView(
     on_close: Callback<()>,
     on_artifact: Callback<(String, String, String)>,
     on_session: Callback<String>,
+    on_archive: Callback<String>,
 ) -> impl IntoView {
     let month = create_rw_signal(month_of(initial_day.unwrap_or_else(now)));
     let refresh = create_rw_signal(0u32);
@@ -323,6 +326,7 @@ pub(super) fn ResearchJourneyView(
                                             }}
                                             <button class="journey-link journey-open-output" disabled=e.source_discarded on:click=move |_| on_artifact.call((format!("artifact-version:{}",open.source_id),open.title.clone(),file_kind(&open.title).unwrap_or("text").into()))>{compose_icon("external-link")}{if e.source_discarded{j(loc,"Source unavailable","源文件已不可用")}else{j(loc,"Open output","打开产物")}}</button>
                                         }.into_view()}else{view!{<p class="journey-muted">{if e.manual{j(loc,"This entry was added by the researcher.","这条记录由研究者手动补充。")}else{j(loc,"Recorded project object. Related evidence is available in Relationships.","已记录的项目对象，可在关系图中查看关联依据。")}}</p>}.into_view()}}
+                                        {(e.kind=="archive").then(||e.frame_id.clone()).flatten().map(|id|view!{<button class="journey-link" data-testid="journey-open-archive" on:click=move |_|on_archive.call(id.clone())>{compose_icon("archive")}{j(loc,"View archive / Continue research","查看归档 / 继续研究")}</button>})}
                                         {e.frame_id.map(|id|view!{<button class="journey-link" on:click=move |_| on_session.call(id.clone())>{compose_icon("chat")}{j(loc,"Open conversation","打开会话")}</button>})}
                                     }.into_view()
                                 }
@@ -379,7 +383,8 @@ fn JourneyDay(
         .collect::<Vec<_>>();
     let headline = notes
         .iter()
-        .find(|e| e.kind == "progress")
+        .find(|e| e.kind == "archive")
+        .or_else(|| notes.iter().find(|e| e.kind == "progress"))
         .or_else(|| notes.iter().find(|e| e.kind == "decision"))
         .or_else(|| activities.iter().find(|e| e.status != "started"))
         .or_else(|| entries.first())

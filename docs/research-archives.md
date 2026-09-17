@@ -1,0 +1,59 @@
+# Research notebook archives / 研究阶段归档
+
+Deleting an ordinary conversation removes its stored conversation records; it
+does not remove generated files from the project workspace. Use the archive
+review below to preserve a completed research stage and explicitly clean up its
+recorded local intermediate files.
+
+Use **Archive research** in the conversation toolbar, or `/archive`, after a
+research stage is complete. Wisp prepares an editable draft using the saved
+notebook and recorded operations. This does not run analysis code or remove files.
+
+The review brings together the research question, findings and limitations,
+parameter comparisons and selection rationale, assembled scripts, and local
+materials. Scripts are records of operations; archiving does not certify a rerun
+or scientific correctness. Missing steps must remain explicit.
+
+For each listed file, choose **Keep snapshot**, **Keep in place**, or **Permanently
+delete**. Snapshots preserve the current reviewed bytes. References retain the
+original file and its reviewed checksum, but its live contents can later change.
+Deletion is only available for recorded creations without protected/shared use.
+Unregistered files, remote files, original inputs, and uncertain ownership are
+not automatically cleaned. No server connection is required.
+
+Read the complete review and select its confirmation checkbox. Confirmation
+saves the retained materials and original notebook export before locking the
+conversation and deleting the selected local files immediately. There is no
+recycle bin or recovery period. A changed notebook or file invalidates the
+review. A snapshot failure removes the incomplete attempt and leaves the notebook
+editable and original files untouched. A cleanup failure leaves the archive and notebook locked; the archive
+shows per-file receipts and allows retry of the already-approved cleanup.
+Changed or newly protected files are skipped, including on retry.
+
+The original conversation remains readable. Sending, compaction, undo, deletion,
+and moving that notebook to another project cannot rewrite the archived record.
+The milestone appears in **Research journey**, with links to retained materials,
+the original notebook and **Continue research**. Continue creates a new linked
+conversation. Later findings can revise earlier conclusions without overwriting
+the historical milestone. New mainline conversations receive a concise archive
+index and can read its reports on demand. Project exports and sync include sealed
+archive metadata and workspace snapshots; unconfirmed drafts are not exported.
+
+归档相当于完成实验记录本中的一个研究阶段：保留完整原始记录，把结论、关键代码、
+必要数据和最终结果整理成一个研究历程节点。集中确认后，会话只读，确认过的本地
+中间文件立即永久删除。后续研究从节点创建关联的新会话，保留旧结论及其材料。
+
+Current limits: preparation accepts up to 4 MiB of saved source records, split
+into bounded model requests when necessary. Files must be regular local files
+inside the project; links/junctions and directory deletion are excluded. Only
+recorded file identities can be offered for cleanup. Large retained data is copied
+only when the review selects a snapshot. Archive files live under
+`.wisp/research-archives/<archive-id>/`; keep this directory with the project.
+
+Validation: store/backend tests use temporary projects and fake notebook content,
+without model keys, remote servers or deletion of user files. UI tests use the
+mock Tauri bridge and cover the single confirmation, stale review, read-only
+conversation, journey navigation, continuation, immediate Escape, Chinese and
+narrow layouts. For a live smoke check, finish a disposable local analysis, run
+`/archive`, review each action, confirm, reopen the milestone, and continue it in
+a new conversation; verify the retained snapshot still matches its reviewed bytes.

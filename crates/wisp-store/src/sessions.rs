@@ -336,6 +336,14 @@ pub(crate) const RECENT_TURN_TOOL_PREVIEW_MAX_CHARS: usize = 4_000;
 /// Runs are project-level records and survive, but their stale frame reference
 /// is cleared. Artifact files are also left untouched in the workspace.
 async fn delete_session_rows(tx: &mut Transaction<'_, Sqlite>, frame_id: &str) -> Result<()> {
+    sqlx::query("DELETE FROM research_archive_continuations WHERE frame_id=?")
+        .bind(frame_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM research_archives WHERE frame_id=? AND frozen_at IS NULL")
+        .bind(frame_id)
+        .execute(&mut **tx)
+        .await?;
     sqlx::query(
         "UPDATE runs SET frame_id=NULL \
          WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
@@ -1823,6 +1831,7 @@ impl Store {
 
     /// Delete a saved conversation (root frame) and all of its messages/artifacts.
     pub async fn delete_session(&self, frame_id: &str, project_id: &str) -> Result<()> {
+        self.require_unarchived_session(frame_id).await?;
         let exists: Option<(String,)> = sqlx::query_as(
             "SELECT id FROM frames WHERE id=? AND project_id=? AND parent_frame_id=id",
         )
@@ -1918,6 +1927,7 @@ impl Store {
         }
 
         if remove_source {
+            self.require_unarchived_session(frame_id).await?;
             if self
                 .session_has_conversation_branches(frame_id, source_project_id)
                 .await?
@@ -2068,6 +2078,7 @@ impl Store {
         project_id: &str,
         title: &str,
     ) -> Result<()> {
+        self.require_unarchived_session(frame_id).await?;
         let title = title.trim();
         if title.is_empty() {
             anyhow::bail!("Title cannot be empty");

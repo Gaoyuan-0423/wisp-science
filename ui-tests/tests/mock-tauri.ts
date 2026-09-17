@@ -1577,6 +1577,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
       { source_id: "run:r1", target_id: "artifact:h1", relation: "produced", metadata_json: "{}" },
     ],
   };
+  const researchArchives: Record<string, any> = {};
   const journeyZh = new URL(location.href).searchParams.get("mockJourney") === "design";
   const journeyText = (en: string, zh: string) => journeyZh ? zh : en;
   const journeyTime = (daysAgo: number, hour = 12, minute = 0) => {
@@ -1791,6 +1792,29 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
             if (delay) await new Promise(resolve=>setTimeout(resolve,delay));
             return result;
           }
+          case "get_research_archive": return researchArchives[String(arg("frameId"))] ?? null;
+          case "prepare_research_archive": {
+            const frame = String(arg("frameId"));
+            return researchArchives[frame] = {
+              id: "archive-" + frame, project_id: "default", frame_id: frame, source_hash: "source",
+              title: "Root cell annotation", report: "## Finding\nSelected resolution 0.8.\n\n## Decisions\nCompared 0.5, 0.8 and 1.2; retained marker evidence.",
+              scripts: [{filename:"analysis.R",content:"# Recorded operations\nprint(0.8)"}],
+              files: [
+                {path:"results/final.csv",checksum:"final",size_bytes:256,action:"snapshot",can_delete:false,reason:"Final evidence",snapshot_path:null,cleanup_status:""},
+                {path:"scratch/trial.rds",checksum:"trial",size_bytes:1048576,action:"delete",can_delete:true,reason:"Exclusive creation",snapshot_path:null,cleanup_status:""}],
+              created_at:Math.floor(Date.now()/1000),frozen_at:null,warnings:["Recorded local files only. Scripts were not rerun."]
+            };
+          }
+          case "confirm_research_archive": {
+            if ((window as any).__archiveFailure) throw new Error("File changed since review: scratch/trial.rds");
+            const frame=String(arg("frameId")), input=plain(arg("input")), old=researchArchives[frame];
+            const saved=researchArchives[frame]={...old,...input,frozen_at:Math.floor(Date.now()/1000),files:old.files.map((f:any)=>({...f,...input.files.find((v:any)=>v.path===f.path),cleanup_status:input.files.find((v:any)=>v.path===f.path)?.action==="delete"?"deleted":"",snapshot_path:f.path==="results/final.csv"?".wisp/research-archives/a/final.csv":null}))};
+            journeyEntries.unshift(journeyEntry(saved.id,"archive",saved.title,0,{source_id:saved.id,frame_id:frame,summary:saved.report,status:"archived"}));
+            emit("research-archived",{frame_id:frame,project_id:"default"});
+            return saved;
+          }
+          case "retry_research_archive_cleanup": return researchArchives[String(arg("frameId"))];
+          case "continue_research_archive": return await (window as any).__TAURI__.core.invoke("new_session",{});
           case "get_research_journey": {
             const mode = new URL(location.href).searchParams.get("mockJourney");
             if (mode === "error" || (window as any).__journeyError) throw new Error("Research store unavailable");

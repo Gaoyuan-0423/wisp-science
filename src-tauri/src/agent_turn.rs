@@ -95,6 +95,11 @@ pub(crate) async fn send_message_inner(
     // run the turn in the owner project — never error out on a mismatch or,
     // worse, run tools in a stranger's workspace (#182, #194).
     if let Some(id) = session_id.as_deref().filter(|id| !id.is_empty()) {
+        state
+            .store
+            .require_unarchived_session(id)
+            .await
+            .map_err(|e| e.to_string())?;
         if matches!(
             state
                 .store
@@ -113,6 +118,13 @@ pub(crate) async fn send_message_inner(
         explicit_scope = Some(scope);
     }
     let _project_activity = state.begin_project_activity(&ap.id)?;
+    if let Some(id) = session_id.as_deref().filter(|id| !id.is_empty()) {
+        state
+            .store
+            .require_unarchived_session(id)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     ensure_project_live_approvals(state, &ap.id).await;
     let frame_scope = explicit_scope
         .clone()
@@ -198,6 +210,14 @@ pub(crate) async fn send_message_inner(
         }
         if let Some(memory) = memory_commands::global_memory_runtime_injection(&state.store).await {
             injected_context.push(memory);
+        }
+        let archive_index = state
+            .store
+            .research_archive_index(&ap.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if !archive_index.is_empty() {
+            injected_context.push(archive_index);
         }
         if let Some(context) = runtime.mcp_app_context_injection() {
             injected_context.push(context);
@@ -896,6 +916,16 @@ pub(crate) async fn send_message_inner(
         .map(|delivery| delivery.id)
         .collect::<Vec<_>>();
     agent.ctx.clear_runtime_injections();
+    if matches!(&frame_scope, wisp_store::StateScope::Mainline { .. }) {
+        let archive_index = state
+            .store
+            .research_archive_index(&ap.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if !archive_index.is_empty() {
+            agent.ctx.inject_user(archive_index);
+        }
+    }
     if let Some(memory) = memory_commands::global_memory_runtime_injection(&state.store).await {
         agent.ctx.inject_user(memory);
     }
