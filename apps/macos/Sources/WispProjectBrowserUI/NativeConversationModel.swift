@@ -82,13 +82,17 @@ final class NativeConversationModel: ObservableObject {
     }
     func create(project: String) async -> String? {
         guard !busy else { return nil }; busy = true; operationError = nil
-        defer { busy = false }
+        let current = generation
+        defer { if generation == current { busy = false } }
         do {
             let id = try await client.invoke("native_conversation_create", args: [:], projectID: project).string
             guard !id.isEmpty else { throw ProjectBrowserError.invalidResponse }
             return id
         }
-        catch { operationError = "新建会话未确认成功，请刷新列表后检查：\(error.localizedDescription)"; return nil }
+        catch {
+            if generation == current { operationError = "新建会话未确认成功，请刷新列表后检查：\(error.localizedDescription)" }
+            return nil
+        }
     }
     func send() async {
         guard canSend, let project = projectID, let session = sessionID else { return }

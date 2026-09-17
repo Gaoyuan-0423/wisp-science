@@ -48,7 +48,12 @@ struct NativeConversationView: View {
                         Text("需要确认 · \(approval.tool)").font(WispDesign.font(size: 13, weight: .semibold))
                         Text(approval.message).font(WispDesign.font(size: 13)).textSelection(.enabled)
                         if !approval.preview.isEmpty {
-                            ScrollView { Text(approval.preview).font(WispDesign.font(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 130)
+                            ViewThatFits(in: .vertical) {
+                                Text(approval.preview).fixedSize(horizontal: false, vertical: true)
+                                ScrollView { Text(approval.preview).frame(maxWidth: .infinity, alignment: .leading) }.frame(height: 130)
+                            }.font(WispDesign.font(size: 12, design: .monospaced)).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, maxHeight: 130, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         HStack {
                             Spacer()

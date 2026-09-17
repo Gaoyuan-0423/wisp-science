@@ -22,13 +22,19 @@ final class NativeConversationRenderTests: XCTestCase {
         }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
-        let value = try JSONDecoder().decode(ConversationSnapshot.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/snapshot.json")))
-        let model = NativeConversationModel(client: RenderConversationClient(value))
-        await model.open(project: value.project_id, session: value.session_id)
-        model.pause()
-        model.draft = "请继续检查样本，并总结质量控制结果。"
+        let fixture = try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/snapshot.json")))
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-        for (name, width, height, scheme) in [("desktop", 859.0, 760.0, ColorScheme.light), ("narrow", 419.0, 538.0, ColorScheme.light), ("dark", 859.0, 760.0, ColorScheme.dark)] {
+        for (name, width, height, scheme) in [("desktop", 859.0, 760.0, ColorScheme.light), ("narrow", 419.0, 538.0, ColorScheme.light), ("dark", 859.0, 760.0, ColorScheme.dark), ("long-preview", 419.0, 538.0, ColorScheme.light)] {
+            var payload = fixture
+            if name == "long-preview" {
+                var approvals = payload["approvals"].array
+                approvals[0]["preview"] = .string((1...30).map { "echo sample-\($0)" }.joined(separator: "\n"))
+                payload["approvals"] = .array(approvals)
+            }
+            let value = try ConversationSnapshot.decode(payload, projectID: "project-a", sessionID: "session-a")
+            let model = NativeConversationModel(client: RenderConversationClient(value))
+            await model.open(project: value.project_id, session: value.session_id)
+            model.pause(); model.draft = "请继续检查样本，并总结质量控制结果。"
             let view = NSHostingView(rootView: NativeConversationView(conversation: model)
                 .background(WispDesign.color("bg-app", scheme))
                 .foregroundStyle(WispDesign.color("text", scheme))

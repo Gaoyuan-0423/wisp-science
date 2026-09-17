@@ -63,7 +63,8 @@ struct ProjectWorkspace: View {
     }
 
     private func createSession() {
-        Task { if let id = await conversation.create(project: project.id) { await model.openNativeDraft(id, projectID: project.id) } }
+        let database = model.databaseURL; let sourceSession = model.activeSessionID
+        Task { if let id = await conversation.create(project: project.id) { await model.openNativeDraft(id, projectID: project.id, database: database, sourceSession: sourceSession) } }
     }
 
     private var sidebar: some View {

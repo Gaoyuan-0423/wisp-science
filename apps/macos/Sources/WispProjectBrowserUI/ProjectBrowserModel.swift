@@ -33,10 +33,11 @@ public final class ProjectBrowserModel: ObservableObject {
         nativeModels[databaseURL] = model
         return model
     }
-    func openNativeDraft(_ id: String, projectID: String) async {
+    func openNativeDraft(_ id: String, projectID: String, database: URL, sourceSession: String?) async {
+        guard database == databaseURL else { return }
         let draft = BrowserSession(id: id, projectID: projectID, title: "新对话", ts: Int64(Date().timeIntervalSince1970), status: "idle")
         nativeDrafts[id] = draft
-        guard activeProjectID == projectID else { return }
+        guard activeProjectID == projectID, activeSessionID == sourceSession else { return }
         if !sessions.contains(where: { $0.id == id }) { sessions.insert(draft, at: 0) }
         await openSession(id)
     }
@@ -102,6 +103,8 @@ public final class ProjectBrowserModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.directoryURL = databaseURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        nativeModels[databaseURL]?.pause()
+        nativeDrafts.removeAll()
         databaseURL = url
         UserDefaults.standard.set(url.path, forKey: "projectBrowser.database")
         goHome()

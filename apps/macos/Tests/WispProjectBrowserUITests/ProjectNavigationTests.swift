@@ -85,4 +85,25 @@ final class ProjectNavigationTests: XCTestCase {
         XCTAssertTrue(model.sessions.isEmpty)
         XCTAssertFalse(model.sessionsLoading)
     }
+    @MainActor
+    func testNativeDraftSurvivesNavigationAndLateOtherDatabaseCannotInsert() async {
+        let database = URL(fileURLWithPath: "/unused")
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: database)
+        await model.openProject("p")
+        await model.openNativeDraft("draft", projectID: "p", database: database, sourceSession: model.activeSessionID)
+        XCTAssertEqual(model.activeSessionID, "draft")
+        model.goHome()
+        await model.openProject("p", sessionID: "draft")
+        XCTAssertEqual(model.activeSessionID, "draft"); XCTAssertNil(model.sessionError)
+        await model.openNativeDraft("foreign", projectID: "p", database: URL(fileURLWithPath: "/old-db"), sourceSession: model.activeSessionID)
+        XCTAssertFalse(model.sessions.contains { $0.id == "foreign" })
+        XCTAssertEqual(model.activeSessionID, "draft")
+        await model.openNativeDraft("late-same-project", projectID: "p", database: database, sourceSession: "old-selection")
+        XCTAssertEqual(model.activeSessionID, "draft")
+        await model.openProject("other")
+        let selected = model.activeSessionID
+        await model.openNativeDraft("late", projectID: "p", database: database, sourceSession: model.activeSessionID)
+        XCTAssertEqual(model.activeProjectID, "other"); XCTAssertEqual(model.activeSessionID, selected)
+    }
+
 }
