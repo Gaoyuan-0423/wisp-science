@@ -92,7 +92,10 @@ mod tests {
     use super::*;
     #[test]
     fn inbox_fixture_preserves_cross_project_navigation_identity() {
-        let rows: Vec<crate::SessionSearchInfo> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/inbox.json")).unwrap();
+        let rows: Vec<crate::SessionSearchInfo> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/inbox.json"
+        ))
+        .unwrap();
         assert_eq!(rows[0].project_id, "project-a");
         assert_eq!(rows[1].project_id, "project-b");
         assert_eq!(rows[1].id, "session-b");
@@ -100,7 +103,10 @@ mod tests {
     }
     #[test]
     fn trajectory_fixture_uses_existing_shared_contract() {
-        let snapshot: crate::TrajectorySnapshotDto = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/trajectory.json")).unwrap();
+        let snapshot: crate::TrajectorySnapshotDto = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/trajectory.json"
+        ))
+        .unwrap();
         assert_eq!(snapshot.frame_id, "session-a");
         assert_eq!(snapshot.turns[0].cells[0].duration_ms, Some(40));
         assert!(snapshot.turns[0].cells[0].is_error);
@@ -108,7 +114,10 @@ mod tests {
     }
     #[test]
     fn outline_fixture_retains_indexes_and_exclusive_cursors() {
-        let rows: Vec<OutlineEntry> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/outline.json")).unwrap();
+        let rows: Vec<OutlineEntry> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/outline.json"
+        ))
+        .unwrap();
         assert_eq!(rows[0].text, rows[1].text);
         assert_eq!(rows[0].before_seq, Some(8));
         assert_eq!(rows[1].before_seq, None);
