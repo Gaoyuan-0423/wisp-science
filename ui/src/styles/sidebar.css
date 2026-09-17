@@ -190,10 +190,20 @@ button.side-item.ses.selecting { padding-right: 10px; }
   display: grid; gap: 2px; margin: 2px 0 5px 14px; padding: 5px 0 2px 9px;
   border-left: 1px solid color-mix(in srgb, var(--clay) 42%, var(--border));
 }
-.side-exploration-group-title {
-  padding: 0 7px 3px; color: var(--text-faint); font-size: 9.5px;
-  font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+.side-nest-toggle {
+  display: flex; align-items: center; gap: 5px; width: 100%;
+  padding: 1px 4px 3px; border: 0; border-radius: var(--radius-xs);
+  background: transparent; color: var(--text-faint); font: inherit;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  cursor: pointer; text-align: left;
 }
+.side-nest-toggle:hover { color: var(--text-muted); background: var(--bg-elev); }
+.side-nest-caret { display: inline-flex; flex: 0 0 auto; transition: transform .15s ease; }
+.side-nest-caret.collapsed { transform: rotate(-90deg); }
+.side-nest-toggle svg { width: 12px; height: 12px; }
+.side-nest-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-nest-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.side-nest-items { display: flex; flex-direction: column; gap: 1px; }
 .side-exploration {
   display: flex; min-width: 0; width: 100%; align-items: center; gap: 7px;
   padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-xs);
@@ -327,8 +337,10 @@ button.side-item.ses.selecting { padding-right: 10px; }
   .sidebar .side-folder-sessions .side-item { padding-left: 8px; }
   .sidebar .side-branch-kids { margin-left: 0; padding-left: 4px; }
   .sidebar .side-exploration-group { margin-left: 0; padding-left: 4px; }
-  .sidebar .side-exploration-group-title,
+  .sidebar .side-nest-label,
+  .sidebar .side-nest-count,
   .sidebar .side-exploration-copy { display: none; }
+  .sidebar .side-nest-toggle { justify-content: center; padding: 6px 4px; }
   .sidebar .side-exploration { justify-content: center; padding: 8px; }
   .sidebar .side-foot { padding-top: 8px; }
   .sidebar .nav { gap: 4px; }

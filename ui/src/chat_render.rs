@@ -598,6 +598,47 @@ pub(crate) fn toggle_disclosure(
     });
 }
 
+pub(crate) fn nested_links_toggle(
+    locale: Locale,
+    label_key: &'static str,
+    expand_key: &'static str,
+    collapse_key: &'static str,
+    count: usize,
+    open_id: String,
+    states: RwSignal<HashMap<String, bool>>,
+    test_id: &'static str,
+) -> impl IntoView {
+    let id_expanded = open_id.clone();
+    let id_class = open_id.clone();
+    let id_click = open_id.clone();
+    let id_title = open_id.clone();
+    let id_label = open_id;
+    let count_label = count.to_string();
+    view! {
+        <button type="button" class="message-nest-toggle"
+            data-testid=test_id
+            aria-expanded=move || disclosure_open(states, &id_expanded, true).to_string()
+            title=move || t(
+                locale,
+                if disclosure_open(states, &id_title, true) { collapse_key } else { expand_key },
+            )
+            aria-label=move || {
+                let action = t(
+                    locale,
+                    if disclosure_open(states, &id_label, true) { collapse_key } else { expand_key },
+                );
+                format!("{action} ({count})")
+            }
+            on:click=move |_| toggle_disclosure(states, &id_click, true)>
+            <span class="message-nest-caret" class:collapsed=move || !disclosure_open(states, &id_class, true) aria-hidden="true">
+                {compose_icon("chevron-down")}
+            </span>
+            <span class="message-nest-label">{t(locale, label_key)}</span>
+            <span class="message-nest-count">{count_label}</span>
+        </button>
+    }
+}
+
 /// Collapsed-header label for a step group. `elapsed` is the pre-formatted run
 /// duration, and is only ever `Some` for a settled step-count header — the
 /// running and activity-done headers show it in the meta slot instead.
