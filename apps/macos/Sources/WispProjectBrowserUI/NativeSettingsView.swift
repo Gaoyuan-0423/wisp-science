@@ -17,10 +17,7 @@ struct NativeSettingsView: View {
 
     init(databaseURL: URL, projects: [ProjectSummary], projectID: String?, editProject: Bool = false, close: @escaping () -> Void) {
         self.projects = projects; self.close = close; self.editProject = editProject
-        let configured = ProcessInfo.processInfo.environment["WISP_DESKTOP_HOST_PATH"].map { URL(fileURLWithPath: $0) }
-        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Wisp Desktop Host.app/Contents/MacOS/wisp-tauri")
-        let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "science.wisp-science").flatMap { Bundle(url: $0)?.executableURL }
-        _state = StateObject(wrappedValue: NativeSettingsModel(client: NativeSettingsClient(databaseURL: databaseURL, executableURL: configured ?? (FileManager.default.isExecutableFile(atPath: bundled.path) ? bundled : installed)), projectID: projectID ?? projects.first?.id))
+        _state = StateObject(wrappedValue: NativeSettingsModel(client: NativeSettingsClient(databaseURL: databaseURL, executableURL: nativeDesktopHostURL()), projectID: projectID ?? projects.first?.id))
     }
 
     var body: some View {
