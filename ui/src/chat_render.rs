@@ -14,7 +14,10 @@ use std::rc::Rc;
 /// The submission result is the durable link between a transcript row and a Run.
 /// Never infer ownership from a command, title, or nearby timestamp.
 pub(crate) fn submitted_run_id(name: &str, output: &str) -> Option<String> {
-    if !matches!(name, "run_in_context" | "wisp_run_in_context") {
+    if !matches!(
+        name,
+        "run_in_context" | "wisp_run_in_context" | "transfer_between_contexts"
+    ) {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(output).ok()?;
@@ -56,6 +59,99 @@ pub(crate) fn completed_run_owners(
         }
     }
     owners
+}
+
+#[cfg(test)]
+mod submitted_run_id_tests {
+    use super::{completed_run_owners, submitted_run_id};
+    use crate::dto::{ChatItem, RunSummary};
+
+    fn tool(name: &str, output: &str) -> ChatItem {
+        ChatItem::Tool {
+            name: name.into(),
+            ok: Some(true),
+            input: "ssh:CPU3:/data/file.png".into(),
+            output: output.into(),
+            started_at_ms: None,
+            duration_ms: Some(46),
+        }
+    }
+
+    fn run(id: &str, frame_id: &str, status: &str) -> RunSummary {
+        RunSummary {
+            id: id.into(),
+            frame_id: Some(frame_id.into()),
+            context_id: "ssh:CPU3".into(),
+            title: "Download file.png from CPU3".into(),
+            kind: "file_transfer".into(),
+            status: status.into(),
+            created_at: 1,
+            started_at: Some(1),
+            ended_at: Some(2),
+            exit_code: Some(0),
+            remote_workdir: None,
+            timeout_secs: None,
+            last_polled_at: None,
+            last_poll_error: None,
+            progress_json: "{}".into(),
+            harvested_at: None,
+            cleaned_at: None,
+            cleanup_error: None,
+            output_fingerprint: String::new(),
+        }
+    }
+
+    #[test]
+    fn extracts_ids_from_compute_and_transfer_submissions() {
+        let output = r#"{"run_id":"xfer-1","status":"submitted"}"#;
+        assert_eq!(
+            submitted_run_id("run_in_context", r#"{"run_id":"run-1"}"#).as_deref(),
+            Some("run-1")
+        );
+        assert_eq!(
+            submitted_run_id("wisp_run_in_context", r#"{"id":"run-2"}"#).as_deref(),
+            Some("run-2")
+        );
+        assert_eq!(
+            submitted_run_id("transfer_between_contexts", output).as_deref(),
+            Some("xfer-1")
+        );
+        assert_eq!(submitted_run_id("monitor_run", output), None);
+        assert_eq!(submitted_run_id("harvest_run", output), None);
+        assert_eq!(submitted_run_id("shell", output), None);
+    }
+
+    #[test]
+    fn completed_transfers_are_owned_by_their_submission_row() {
+        let items = vec![
+            ChatItem::User("download results".into()),
+            tool(
+                "transfer_between_contexts",
+                r#"{"run_id":"xfer-1","status":"submitted"}"#,
+            ),
+            tool("shell", r#"{"run_id":"xfer-1"}"#),
+        ];
+        let owners = completed_run_owners(
+            &items,
+            &[run("xfer-1", "live-session", "succeeded")],
+            "live-session",
+        );
+        assert_eq!(owners.get("xfer-1"), Some(&1));
+    }
+
+    #[test]
+    fn running_transfers_stay_unowned_until_they_settle() {
+        let items = vec![tool(
+            "transfer_between_contexts",
+            r#"{"run_id":"xfer-1","status":"submitted"}"#,
+        )];
+        let owners = completed_run_owners(
+            &items,
+            &[run("xfer-1", "live-session", "running")],
+            "live-session",
+        );
+        assert!(owners.is_empty());
+    }
 }
 
 #[derive(Clone, Copy)]

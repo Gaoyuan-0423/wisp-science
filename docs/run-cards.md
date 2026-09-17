@@ -1,11 +1,12 @@
 # Conversation Run cards
 
-Runs launched by `run_in_context` (or `wisp_run_in_context`) stay visible in the
-conversation while submitted, running, or cancelling. Once a Run succeeds,
-fails, is cancelled, times out, or is lost, its card moves inside its submission
-tool row in the **Processed / 已处理** activity group. Tool rows are collapsed by
-default. Expand the group and the submission row to inspect the Run status,
-command, output, environment, and available result-review actions.
+Runs launched by `run_in_context` (or `wisp_run_in_context`) and file transfers
+launched by `transfer_between_contexts` stay visible in the conversation while
+submitted, running, or cancelling. Once a Run succeeds, fails, is cancelled,
+times out, or is lost, its card moves inside its submission tool row in the
+**Processed / 已处理** activity group. Tool rows are collapsed by default. Expand
+the group and the submission row to inspect the Run status, command, output,
+environment, and available result-review actions.
 
 Cards are linked by the exact Run ID in the tool result, including both
 background submission results and `wait_for_completion` results. Multiple Runs

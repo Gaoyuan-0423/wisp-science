@@ -123,6 +123,84 @@ test("a Run from another session is not attached to a submission row", async ({ 
   await expect((await openRunStep(page, 1)).getByTestId("run-monitor-card")).toHaveAttribute("data-run-id", "second");
 });
 
+function transferRunsFixture(options: { status?: string } = {}) {
+  const w = window as any;
+  const now = Math.floor(Date.now() / 1000);
+  const base = w.__mockRuns.find((run: any) => run.id === "run-local-002");
+  const run = {
+    ...base,
+    id: "xfer-1",
+    title: "Download compare_fixed_cluster_nesting.png from CPU3",
+    command: "download ssh:CPU3:/data/compare_fixed_cluster_nesting.png -> local:/tmp/compare_fixed_cluster_nesting.png",
+    kind: "file_transfer",
+    context_id: "ssh:CPU3",
+    status: options.status ?? "succeeded",
+    created_at: now - 120,
+    started_at: now - 119,
+    ended_at: options.status === "running" ? null : now - 90,
+    stdout_tail: "downloaded compare_fixed_cluster_nesting.png",
+    stderr_tail: "",
+    exit_code: options.status === "running" ? null : 0,
+    remote_workdir: "E:\\\\cross-species-root\\\\analysis\\\\compare-fixed",
+  };
+  w.__mockRuns.splice(0, w.__mockRuns.length, run);
+  const output = JSON.stringify({
+    run_id: "xfer-1",
+    status: "submitted",
+    route: "local",
+    transport: "scp",
+    destination_path: "/tmp/compare_fixed_cluster_nesting.png",
+  });
+  const invoke = w.__TAURI__.core.invoke;
+  w.__TAURI__.core.invoke = async (cmd: string, args: any) => {
+    const arg = (key: string) => args instanceof Map ? args.get(key) : args?.[key];
+    if (cmd === "load_session" && arg("id") === "s-complete") return {
+      items: [
+        { role: "user", text: "Download the comparison figures" },
+        { role: "tool", tool_name: "transfer_between_contexts",
+          input: "ssh:CPU3:/data/compare_fixed_cluster_nesting.png", text: output, ok: true },
+        { role: "assistant", text: "Transfer submitted" },
+      ], next_before_seq: null, user_offset: 0,
+    };
+    return invoke(cmd, args);
+  };
+}
+
+async function setupTransfer(page: Page, options: { status?: string } = {}) {
+  await page.addInitScript({ content: `(${tauriMock.toString()})(); (${transferRunsFixture.toString()})(${JSON.stringify(options)});` });
+  await page.goto("/");
+  await page.getByTestId("recent-session-card").nth(1).click();
+  await expect(page.getByText("Transfer submitted", { exact: true })).toBeVisible();
+}
+
+test("completed file transfers fold into transfer_between_contexts rows", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await setupTransfer(page);
+  await expect(page.getByTestId("auto-run-monitor")).toHaveCount(0);
+  await expect(page.getByTestId("run-monitor-card")).toHaveCount(0);
+  const step = await openRunStep(page, 0);
+  await expect(step.getByTestId("run-monitor-card")).toHaveAttribute("data-run-id", "xfer-1");
+  await expect(step).toContainText("Download compare_fixed_cluster_nesting.png from CPU3");
+  await expect(step.getByRole("button", { name: "Dismiss completed run card" })).toHaveCount(0);
+});
+
+test("active file transfer folds into its submission when it settles", async ({ page }) => {
+  await setupTransfer(page, { status: "running" });
+  await expect(page.getByTestId("auto-run-monitor")).toContainText("Download compare_fixed_cluster_nesting.png from CPU3");
+  await page.evaluate(() => {
+    Object.assign((window as any).__mockRuns[0], {
+      status: "succeeded",
+      ended_at: Math.floor(Date.now() / 1000),
+      exit_code: 0,
+    });
+  });
+  await expect(page.getByTestId("auto-run-monitor")).toHaveCount(0);
+  await expect(page.getByTestId("run-monitor-card")).toHaveCount(0);
+  const step = await openRunStep(page, 0);
+  await expect(step.locator(".run-status.succeeded")).toBeVisible();
+  await expect(step).toContainText("downloaded compare_fixed_cluster_nesting.png");
+});
+
 test("a live wait-for-completion result folds before the next Run poll", async ({ page }) => {
   await setup(page);
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__tauriListenerReady?.("agent")))).toBe(true);
