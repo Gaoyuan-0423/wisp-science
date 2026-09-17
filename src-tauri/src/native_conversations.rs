@@ -14,7 +14,12 @@ pub(crate) struct Conversations {
     sessions: Mutex<HashMap<String, Arc<Mutex<Record>>>>,
 }
 impl Default for Conversations {
-    fn default() -> Self { Self { epoch: uuid::Uuid::new_v4().to_string(), sessions: Mutex::new(HashMap::new()) } }
+    fn default() -> Self {
+        Self {
+            epoch: uuid::Uuid::new_v4().to_string(),
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
 }
 #[derive(Default)]
 struct Record {
@@ -26,17 +31,35 @@ struct Record {
     accepted: HashMap<String, [u8; 32]>,
 }
 impl Record {
-    fn accept(&mut self, request: &dto::SendRequest, external_running: bool) -> Result<bool, String> {
+    fn accept(
+        &mut self,
+        request: &dto::SendRequest,
+        external_running: bool,
+    ) -> Result<bool, String> {
         uuid::Uuid::parse_str(&request.request_id).map_err(|_| "Invalid send request ID")?;
-        if request.message.trim().is_empty() || request.message.len() > 128 * 1024 { return Err("Message must contain 1–131072 bytes".into()); }
+        if request.message.trim().is_empty() || request.message.len() > 128 * 1024 {
+            return Err("Message must contain 1–131072 bytes".into());
+        }
         let digest: [u8; 32] = Sha256::digest(request.message.as_bytes()).into();
         if let Some(previous) = self.accepted.get(&request.request_id) {
-            return if previous == &digest { Ok(false) } else { Err("Request ID was already used for another message".into()) };
+            return if previous == &digest {
+                Ok(false)
+            } else {
+                Err("Request ID was already used for another message".into())
+            };
         }
-        if self.running || external_running { return Err("This conversation is already running".into()); }
-        if self.accepted.len() >= 1024 { return Err("Native request ledger is full; restart the host after current tasks finish".into()); }
+        if self.running || external_running {
+            return Err("This conversation is already running".into());
+        }
+        if self.accepted.len() >= 1024 {
+            return Err(
+                "Native request ledger is full; restart the host after current tasks finish".into(),
+            );
+        }
         self.accepted.insert(request.request_id.clone(), digest);
-        self.running = true; self.stopping = false; self.error = None;
+        self.running = true;
+        self.stopping = false;
+        self.error = None;
         self.request_id = Some(request.request_id.clone());
         Ok(true)
     }
@@ -44,57 +67,130 @@ impl Record {
 impl Conversations {
     async fn session(&self, id: &str) -> Result<Arc<Mutex<Record>>, String> {
         let mut sessions = self.sessions.lock().await;
-        if let Some(record) = sessions.get(id) { return Ok(record.clone()); }
-        if sessions.len() >= 512 { return Err("Too many native conversation contexts; restart the host".into()); }
+        if let Some(record) = sessions.get(id) {
+            return Ok(record.clone());
+        }
+        if sessions.len() >= 512 {
+            return Err("Too many native conversation contexts; restart the host".into());
+        }
         let record = Arc::new(Mutex::new(Record::default()));
         sessions.insert(id.to_owned(), record.clone());
         Ok(record)
     }
 }
-fn decode<T: DeserializeOwned>(value: &Value) -> Result<T, String> { serde_json::from_value(value.clone()).map_err(|error| error.to_string()) }
+fn decode<T: DeserializeOwned>(value: &Value) -> Result<T, String> {
+    serde_json::from_value(value.clone()).map_err(|error| error.to_string())
+}
 
-pub(crate) async fn require_owner(store: &wisp_store::Store, project: &str, session: &str) -> Result<(), String> {
-    if session.is_empty() || store.frame_project_id(session).await.map_err(|e| e.to_string())?.as_deref() != Some(project) {
+pub(crate) async fn require_owner(
+    store: &wisp_store::Store,
+    project: &str,
+    session: &str,
+) -> Result<(), String> {
+    if session.is_empty()
+        || store
+            .frame_project_id(session)
+            .await
+            .map_err(|e| e.to_string())?
+            .as_deref()
+            != Some(project)
+    {
         return Err("Conversation does not belong to the selected project".into());
     }
     Ok(())
 }
 async fn running(broker: &Broker, session: &str) -> bool {
-    broker.app.state::<crate::AppState>().running_turns.lock().await.contains(session)
+    broker
+        .app
+        .state::<crate::AppState>()
+        .running_turns
+        .lock()
+        .await
+        .contains(session)
 }
 async fn call(broker: &Broker, project: &str, command: &str, args: Value) -> Result<Value, String> {
     invoke_command(broker, Some(project.to_owned()), command, args).await
 }
 
 pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
-    let project = request.project_id.as_deref().filter(|v| !v.is_empty()).ok_or("A project is required")?;
+    let project = request
+        .project_id
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .ok_or("A project is required")?;
     if request.command == "native_conversation_create" {
-        if !request.args.as_object().is_some_and(|v| v.is_empty()) { return Err("Create takes no arguments".into()); }
+        if !request.args.as_object().is_some_and(|v| v.is_empty()) {
+            return Err("Create takes no arguments".into());
+        }
         return call(broker, project, "new_session", json!({})).await;
     }
-    let session = request.args.get("session_id").and_then(Value::as_str).ok_or("A conversation is required")?;
-    require_owner(&broker.app.state::<crate::AppState>().store, project, session).await?;
+    let session = request
+        .args
+        .get("session_id")
+        .and_then(Value::as_str)
+        .ok_or("A conversation is required")?;
+    require_owner(
+        &broker.app.state::<crate::AppState>().store,
+        project,
+        session,
+    )
+    .await?;
     let record = broker.conversations.session(session).await?;
     match request.command.as_str() {
         "native_conversation_snapshot" => {
             let args: dto::SessionRequest = decode(&request.args)?;
             let mut record = record.lock().await;
             let state = broker.app.state::<crate::AppState>();
-            let (items, next_before_seq, frozen) = crate::session_commands::native_transcript(&state, session, args.before_seq).await?;
-            let model = call(broker, project, "get_session_model", json!({"sessionId":session})).await?;
+            let (items, next_before_seq, frozen) =
+                crate::session_commands::native_transcript(&state, session, args.before_seq)
+                    .await?;
+            let model = call(
+                broker,
+                project,
+                "get_session_model",
+                json!({"sessionId":session}),
+            )
+            .await?;
             record.sequence += 1;
-            let read_only = frozen
-                || model.as_str().is_some_and(|id| id.starts_with("acp:"));
+            let read_only = frozen || model.as_str().is_some_and(|id| id.starts_with("acp:"));
             let snapshot = dto::Snapshot {
-                schema: dto::SCHEMA.into(), epoch: broker.conversations.epoch.clone(), sequence: record.sequence,
-                project_id: project.into(), session_id: session.into(),
-                items: items.into_iter().map(|item| dto::Item { role: item.role, text: item.text, tool_name: item.tool_name, input: item.input, ok: item.ok, status: item.status }).collect(),
-                next_before_seq, running: record.running || running(broker, session).await,
-                stopping: record.stopping, read_only, model_id: model.as_str().unwrap_or_default().into(),
-                request_id: record.request_id.clone(), error: record.error.clone(),
-                approvals: state.confirms.lock().unwrap().get(session).map(|pending| wisp_dto::PendingToolApproval {
-                    approval_id: pending.request.approval_id.clone(), frame_id: session.into(), message: pending.request.message.clone(), tool: pending.request.tool.clone(), preview: pending.request.preview.clone(),
-                }).into_iter().collect(),
+                schema: dto::SCHEMA.into(),
+                epoch: broker.conversations.epoch.clone(),
+                sequence: record.sequence,
+                project_id: project.into(),
+                session_id: session.into(),
+                items: items
+                    .into_iter()
+                    .map(|item| dto::Item {
+                        role: item.role,
+                        text: item.text,
+                        tool_name: item.tool_name,
+                        input: item.input,
+                        ok: item.ok,
+                        status: item.status,
+                    })
+                    .collect(),
+                next_before_seq,
+                running: record.running || running(broker, session).await,
+                stopping: record.stopping,
+                read_only,
+                model_id: model.as_str().unwrap_or_default().into(),
+                request_id: record.request_id.clone(),
+                error: record.error.clone(),
+                approvals: state
+                    .confirms
+                    .lock()
+                    .unwrap()
+                    .get(session)
+                    .map(|pending| wisp_dto::PendingToolApproval {
+                        approval_id: pending.request.approval_id.clone(),
+                        frame_id: session.into(),
+                        message: pending.request.message.clone(),
+                        tool: pending.request.tool.clone(),
+                        preview: pending.request.preview.clone(),
+                    })
+                    .into_iter()
+                    .collect(),
             };
             serde_json::to_value(snapshot).map_err(|e| e.to_string())
         }
@@ -102,15 +198,31 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
             let args: dto::SendRequest = decode(&request.args)?;
             // ACP authorization/questions need a separate native protocol. Keep
             // saved ACP transcripts readable, but never start an invisible flow.
-            if broker.app.state::<crate::AppState>().store.get_acp_session(session).await.map_err(|e| e.to_string())?.is_some() {
+            if broker
+                .app
+                .state::<crate::AppState>()
+                .store
+                .get_acp_session(session)
+                .await
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
                 return Err("ACP conversations are read-only in the native preview".into());
             }
             let mut guard = record.lock().await;
             if guard.accept(&args, running(broker, session).await)? {
-                let broker = broker.clone(); let project = project.to_owned(); let record = record.clone();
-                let session = session.to_owned(); let message = args.message.clone();
+                let broker = broker.clone();
+                let project = project.to_owned();
+                let record = record.clone();
+                let session = session.to_owned();
+                let message = args.message.clone();
                 tauri::async_runtime::spawn(async move {
-                    let mut turn = Box::pin(call(&broker, &project, "send_message", json!({"sessionId":session,"message":message})));
+                    let mut turn = Box::pin(call(
+                        &broker,
+                        &project,
+                        "send_message",
+                        json!({"sessionId":session,"message":message}),
+                    ));
                     // The Stop request can precede creation of SessionRuntime.
                     // Keep cancelling until the turn settles, without dropping
                     // its persistence/cleanup future or affecting other sessions.
@@ -125,32 +237,55 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
                         }
                     };
                     let mut record = record.lock().await;
-                    record.running = false; record.stopping = false;
+                    record.running = false;
+                    record.stopping = false;
                     record.error = result.err();
                 });
             }
-            Ok(json!({"request_id":args.request_id,"session_id":session,"epoch":broker.conversations.epoch}))
+            Ok(
+                json!({"request_id":args.request_id,"session_id":session,"epoch":broker.conversations.epoch}),
+            )
         }
         "native_conversation_stop" => {
             let _: dto::SessionRequest = decode(&request.args)?;
             record.lock().await.stopping = true;
             let result = call(broker, project, "stop_agent", json!({"sessionId":session})).await;
             let mut record = record.lock().await;
-            if !record.running { record.stopping = false; }
+            if !record.running {
+                record.stopping = false;
+            }
             result
         }
         "native_conversation_approve" => {
             let args: dto::ApprovalRequest = decode(&request.args)?;
-            crate::approval_commands::respond_native_confirmation(&broker.app.state::<crate::AppState>(), project, &args).await?;
+            crate::approval_commands::respond_native_confirmation(
+                &broker.app.state::<crate::AppState>(),
+                project,
+                &args,
+            )
+            .await?;
             Ok(Value::Null)
         }
         "native_conversation_model" => {
             let args: dto::ModelRequest = decode(&request.args)?;
             let record = record.lock().await;
-            if record.running || running(broker, session).await { return Err("Wait for the current turn before changing its model".into()); }
+            if record.running || running(broker, session).await {
+                return Err("Wait for the current turn before changing its model".into());
+            }
             let profiles = call(broker, project, "list_models", json!({})).await?;
-            if !profiles.as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_str() == Some(&args.model_id))) { return Err("Model does not exist".into()); }
-            call(broker, project, "set_active_model", json!({"sessionId":session,"id":args.model_id})).await
+            if !profiles.as_array().is_some_and(|rows| {
+                rows.iter()
+                    .any(|row| row["id"].as_str() == Some(&args.model_id))
+            }) {
+                return Err("Model does not exist".into());
+            }
+            call(
+                broker,
+                project,
+                "set_active_model",
+                json!({"sessionId":session,"id":args.model_id}),
+            )
+            .await
         }
         _ => Err("Unsupported native conversation command".into()),
     }
@@ -162,7 +297,11 @@ mod tests {
     #[test]
     fn sending_is_idempotent_and_rejects_ambiguous_id_reuse_and_busy_sessions() {
         let mut record = Record::default();
-        let mut request = dto::SendRequest { session_id:"a".into(), request_id:uuid::Uuid::new_v4().to_string(), message:"hello".into() };
+        let mut request = dto::SendRequest {
+            session_id: "a".into(),
+            request_id: uuid::Uuid::new_v4().to_string(),
+            message: "hello".into(),
+        };
         assert!(record.accept(&request, false).unwrap());
         assert!(!record.accept(&request, false).unwrap());
         request.message = "different".into();
@@ -176,9 +315,17 @@ mod tests {
     #[tokio::test]
     async fn session_ownership_is_required_even_for_read_and_stop() {
         let directory = std::env::temp_dir().join(format!("wisp_native_{}", uuid::Uuid::new_v4()));
-        let store = wisp_store::Store::open(&directory.join("test.sqlite")).await.unwrap();
-        store.create_project("a", "A", &directory.to_string_lossy()).await.unwrap();
-        store.create_frame("s", "a", "OPERON", "model").await.unwrap();
+        let store = wisp_store::Store::open(&directory.join("test.sqlite"))
+            .await
+            .unwrap();
+        store
+            .create_project("a", "A", &directory.to_string_lossy())
+            .await
+            .unwrap();
+        store
+            .create_frame("s", "a", "OPERON", "model")
+            .await
+            .unwrap();
         assert!(require_owner(&store, "a", "s").await.is_ok());
         assert!(require_owner(&store, "b", "s").await.is_err());
         assert!(require_owner(&store, "a", "").await.is_err());

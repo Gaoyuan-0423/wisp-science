@@ -231,20 +231,31 @@ pub(super) async fn confirm_response(
 /// An approval ID must match while removing the pending entry: a stale native
 /// button must never approve a newer request in the same conversation.
 pub(crate) async fn respond_native_confirmation(
-    state: &AppState, project: &str, request: &wisp_dto::native_conversations::ApprovalRequest,
+    state: &AppState,
+    project: &str,
+    request: &wisp_dto::native_conversations::ApprovalRequest,
 ) -> Result<(), String> {
     ensure_project_frame(state, project, &request.session_id).await?;
     let pending = take_native_confirmation(&mut state.confirms.lock().unwrap(), project, request)?;
-    let decision = if request.approved { wisp_tools::ConfirmDecision::Approved }
-        else { wisp_tools::ConfirmDecision::Denied { feedback: request.feedback.clone().filter(|s| !s.trim().is_empty()) } };
+    let decision = if request.approved {
+        wisp_tools::ConfirmDecision::Approved
+    } else {
+        wisp_tools::ConfirmDecision::Denied {
+            feedback: request.feedback.clone().filter(|s| !s.trim().is_empty()),
+        }
+    };
     settle_confirmation(state, &request.session_id, pending, decision, Some("once")).await
 }
 
 fn take_native_confirmation(
-    pending: &mut HashMap<String, PendingConfirm>, project: &str,
+    pending: &mut HashMap<String, PendingConfirm>,
+    project: &str,
     request: &wisp_dto::native_conversations::ApprovalRequest,
 ) -> Result<PendingConfirm, String> {
-    if !pending.get(&request.session_id).is_some_and(|p| p.request.approval_id == request.approval_id && p.project_id == project) {
+    if !pending
+        .get(&request.session_id)
+        .is_some_and(|p| p.request.approval_id == request.approval_id && p.project_id == project)
+    {
         return Err("Approval expired; refresh the conversation".into());
     }
     Ok(pending.remove(&request.session_id).unwrap())
@@ -369,7 +380,10 @@ mod tests {
     fn native_approval_checks_exact_identity_and_scope_before_consuming() {
         let mut entries = HashMap::from([("session".into(), pending("new-approval"))]);
         let mut request = wisp_dto::native_conversations::ApprovalRequest {
-            session_id: "session".into(), approval_id: "old-approval".into(), approved: true, feedback: None,
+            session_id: "session".into(),
+            approval_id: "old-approval".into(),
+            approved: true,
+            feedback: None,
         };
         assert!(take_native_confirmation(&mut entries, "project", &request).is_err());
         assert_eq!(entries.len(), 1);

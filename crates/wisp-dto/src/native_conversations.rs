@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
-    "native_conversation_create", "native_conversation_snapshot", "native_conversation_send",
-    "native_conversation_stop", "native_conversation_approve", "native_conversation_model",
+    "native_conversation_create",
+    "native_conversation_snapshot",
+    "native_conversation_send",
+    "native_conversation_stop",
+    "native_conversation_approve",
+    "native_conversation_model",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -70,13 +74,25 @@ mod tests {
     use super::*;
     #[test]
     fn shared_native_conversation_fixtures_roundtrip() {
-        let snapshot: Snapshot = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/snapshot.json")).unwrap();
+        let snapshot: Snapshot = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/snapshot.json"
+        ))
+        .unwrap();
         assert_eq!(snapshot.schema, SCHEMA);
         assert_eq!(snapshot.items[1].text, "正在检查样本…");
         assert_eq!(snapshot.approvals[0].frame_id, snapshot.session_id);
-        let send: SendRequest = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/send.json")).unwrap();
-        assert_eq!(snapshot.request_id.as_deref(), Some(send.request_id.as_str()));
-        let approval: ApprovalRequest = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/approval.json")).unwrap();
+        let send: SendRequest = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/send.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            snapshot.request_id.as_deref(),
+            Some(send.request_id.as_str())
+        );
+        let approval: ApprovalRequest = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/approval.json"
+        ))
+        .unwrap();
         assert!(!approval.approved);
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
@@ -84,8 +100,13 @@ mod tests {
     }
     #[test]
     fn mutation_arguments_reject_unscoped_and_unexpected_fields() {
-        assert!(serde_json::from_str::<SendRequest>(r#"{"message":"hello","request_id":"x"}"#).is_err());
-        assert!(serde_json::from_str::<ApprovalRequest>(r#"{"session_id":"s","approval_id":"a","approved":true,"scope":"global"}"#).is_err());
+        assert!(
+            serde_json::from_str::<SendRequest>(r#"{"message":"hello","request_id":"x"}"#).is_err()
+        );
+        assert!(serde_json::from_str::<ApprovalRequest>(
+            r#"{"session_id":"s","approval_id":"a","approved":true,"scope":"global"}"#
+        )
+        .is_err());
         assert!(!COMMANDS.contains(&"send_message"));
     }
 }

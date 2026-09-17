@@ -116,7 +116,9 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
         return Err("Invalid native settings request".into());
     }
     if request.command == "native_settings_capabilities" {
-        return Ok(serde_json::json!({ "commands": COMMANDS, "schema": SCHEMA, "conversations": wisp_dto::native_conversations::COMMANDS, "conversation_schema": wisp_dto::native_conversations::SCHEMA }));
+        return Ok(
+            serde_json::json!({ "commands": COMMANDS, "schema": SCHEMA, "conversations": wisp_dto::native_conversations::COMMANDS, "conversation_schema": wisp_dto::native_conversations::SCHEMA }),
+        );
     }
     if wisp_dto::native_conversations::COMMANDS.contains(&request.command.as_str()) {
         return crate::native_conversations::dispatch(broker, request).await;
@@ -149,10 +151,21 @@ async fn dispatch(broker: &Broker, request: &Request) -> Result<Value, String> {
         .await?;
         return Ok(Value::Null);
     }
-    invoke_command(broker, request.project_id.clone(), &request.command, request.args.clone()).await
+    invoke_command(
+        broker,
+        request.project_id.clone(),
+        &request.command,
+        request.args.clone(),
+    )
+    .await
 }
 
-pub(crate) async fn invoke_command(broker: &Broker, project_id: Option<String>, command: &str, args: Value) -> Result<Value, String> {
+pub(crate) async fn invoke_command(
+    broker: &Broker,
+    project_id: Option<String>,
+    command: &str,
+    args: Value,
+) -> Result<Value, String> {
     let label = {
         let mut contexts = broker.contexts.lock().await;
         if let Some(label) = contexts.get(&project_id) {

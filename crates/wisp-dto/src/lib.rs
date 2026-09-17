@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub mod native_settings;
 pub mod native_conversations;
+pub mod native_settings;
 pub mod project_browser;
 
 mod mcp_app_child;
