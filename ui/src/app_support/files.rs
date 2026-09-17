@@ -418,7 +418,7 @@ pub(crate) fn toggle_workspace_path(selected_paths: RwSignal<HashSet<String>>, p
     });
 }
 
-fn is_absolute_workspace_path(path: &str) -> bool {
+pub(crate) fn is_absolute_workspace_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     normalized.starts_with('/')
         || matches!(
