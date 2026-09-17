@@ -121,7 +121,10 @@ mod tests {
     use super::*;
     #[test]
     fn share_fixture_excludes_tool_machinery() {
-        let rows: Vec<ShareRow> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/share.json")).unwrap();
+        let rows: Vec<ShareRow> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/share.json"
+        ))
+        .unwrap();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[1].role, "reasoning");
         assert!(rows.iter().all(|row| row.role != "tool"));

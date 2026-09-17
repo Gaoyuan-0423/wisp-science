@@ -164,14 +164,30 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
             let mut pages = Vec::new();
             let mut bytes = 0usize;
             loop {
-                let (items, next, _, _) = crate::session_commands::native_transcript(&state, session, cursor).await?;
-                let rows = items.into_iter().filter(|item| matches!(item.role.as_str(), "user" | "assistant" | "reasoning") && !item.text.trim().is_empty())
-                    .map(|item| dto::ShareRow { role: item.role, text: item.text }).collect::<Vec<_>>();
+                let (items, next, _, _) =
+                    crate::session_commands::native_transcript(&state, session, cursor).await?;
+                let rows = items
+                    .into_iter()
+                    .filter(|item| {
+                        matches!(item.role.as_str(), "user" | "assistant" | "reasoning")
+                            && !item.text.trim().is_empty()
+                    })
+                    .map(|item| dto::ShareRow {
+                        role: item.role,
+                        text: item.text,
+                    })
+                    .collect::<Vec<_>>();
                 bytes += rows.iter().map(|row| row.text.len()).sum::<usize>();
-                if bytes > 16 * 1024 * 1024 { return Err("Conversation exceeds the 16 MiB share limit".into()); }
+                if bytes > 16 * 1024 * 1024 {
+                    return Err("Conversation exceeds the 16 MiB share limit".into());
+                }
                 pages.push(rows);
-                if next.is_none() { break; }
-                if cursor.is_some_and(|old| next.unwrap() >= old) { return Err("Transcript cursor did not advance".into()); }
+                if next.is_none() {
+                    break;
+                }
+                if cursor.is_some_and(|old| next.unwrap() >= old) {
+                    return Err("Transcript cursor did not advance".into());
+                }
                 cursor = next;
             }
             let rows = pages.into_iter().rev().flatten().collect::<Vec<_>>();
