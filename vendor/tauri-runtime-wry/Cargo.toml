@@ -36,7 +36,11 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/tauri-apps/tauri"
 
 [features]
-common-controls-v6 = []
+common-controls-v6 = [
+    "windows/Win32_UI_Controls",
+    "windows/Win32_UI_Shell",
+    "windows/Win32_UI_WindowsAndMessaging",
+]
 dbus = ["tao/dbus"]
 default = [
     "x11",

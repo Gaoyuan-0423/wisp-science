@@ -2,7 +2,10 @@
 
 Windows 修复采用 **Tao 0.37.0 + 最小范围的 runtime 接入**。
 主工程已通过根目录 Cargo patch 接入 `vendor/tauri-runtime-wry`，其源码来自
-正式发布的 2.11.4，只将 Tao 约束从 `0.35.0` 改为 `0.37.0`。
+正式发布的 2.11.4，将 Tao 约束从 `0.35.0` 改为 `0.37.0`，并显式声明
+`common-controls-v6` 对 Windows Controls、Shell 和 WindowsAndMessaging 的依赖。
+Tao 升级后使用 `windows 0.62`，无法再为 runtime 的 `windows 0.61` 间接启用
+Controls；缺少该声明会导致 Windows 编译报 E0432。
 来源、许可证和退出条件见 [WISP-PATCH.md](../vendor/tauri-runtime-wry/WISP-PATCH.md)。
 macOS #1250 仍需独立修复，不能把这次升级视为两个问题都已解决。
 

@@ -18,12 +18,25 @@ members and selected through the root `[patch.crates-io]` section.
 
 ## Local change
 
-Only the normalized, active `Cargo.toml` is changed:
+Only the normalized, active `Cargo.toml` is changed. The Tao constraint is updated:
 
 ```diff
  [dependencies.tao]
 -version = "0.35.0"
 +version = "0.37.0"
+```
+
+The `common-controls-v6` feature also explicitly enables
+`windows/Win32_UI_Controls`, `windows/Win32_UI_Shell`, and
+`windows/Win32_UI_WindowsAndMessaging`, which its task-dialog implementation uses.
+Tao 0.35 enabled Controls on the shared `windows 0.61` dependency implicitly;
+Tao 0.37 uses `windows 0.62`, whose features do not unify with the runtime's
+`windows 0.61`. Without this declaration, Windows builds can fail with E0432 at
+the `windows::Win32::UI::Controls` import. Validate with an explicit Windows
+target so host build-dependency features cannot mask missing target features:
+
+```powershell
+cargo check --locked -p wisp-tauri --target x86_64-pc-windows-msvc
 ```
 
 `Cargo.toml.orig` is retained as unmodified provenance, not as the build manifest.
