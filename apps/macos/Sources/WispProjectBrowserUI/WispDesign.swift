@@ -69,7 +69,9 @@ enum WispDesign {
     }
 
     static func image(_ name: String) -> NSImage {
-        NSImage(contentsOf: resources.url(forResource: name, withExtension: "svg")!)!
+        let image = NSImage(contentsOf: resources.url(forResource: name, withExtension: "svg")!)!
+        if name.hasPrefix("icon-") { image.isTemplate = true }
+        return image
     }
 }
 

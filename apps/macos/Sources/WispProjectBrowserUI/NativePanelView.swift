@@ -4,6 +4,8 @@ import WispProjectBrowser
 struct NativePanelView: View {
     @StateObject private var model: NativePanelModel
     @AppStorage("native.workspace.panel.tab") private var tab = "artifacts"
+    @AppStorage("native.workspace.panel.tabs") private var savedTabs = ""
+    @State private var draggedTab: String?
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
@@ -16,9 +18,9 @@ struct NativePanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Picker("面板", selection: $tab) { Text("产物").tag("artifacts"); Text("代理").tag("agents"); Text("文件").tag("files"); Text("执行环境").tag("hosts") }.labelsHidden()
+                tabStrip
                 Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新")
-                Button("关闭", action: close)
+                Button(action: close) { WispIcon(name: "close", size: 16) }.buttonStyle(.plain).help("关闭面板").accessibilityLabel("关闭面板")
             }
             TextField("筛选名称", text: $query)
             if model.loading { ProgressView().controlSize(.small) }
@@ -54,8 +56,9 @@ struct NativePanelView: View {
                 }
             }
         }.padding(12).frame(maxHeight: .infinity).background(WispDesign.color("bg-sunken", scheme))
+            .onAppear { var value = layout; value.reopen(); store(value) }
             .task(id: tab) {
-                if !["artifacts", "agents", "files", "hosts"].contains(tab) { tab = "artifacts" }
+                if !NativePanelTabs.defaults.contains(tab) { tab = "artifacts" }
                 await model.refresh(tab)
                 while tab == "agents" && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -72,6 +75,60 @@ struct NativePanelView: View {
                 NativeContextActivityView(client: model.client, projectID: model.projectID, sessionID: model.sessionID, selection: selection) { activity = nil }
             }
             .onDisappear { model.close() }
+    }
+    private var layout: NativePanelTabs { NativePanelTabs(saved: savedTabs, selected: tab) }
+    private func store(_ value: NativePanelTabs) { savedTabs = value.saved; tab = value.selected }
+    private func title(_ id: String) -> String {
+        ["artifacts": "产物", "agents": "代理", "files": "文件", "hosts": "执行环境"][id] ?? id
+    }
+    private func removeTab(_ id: String) {
+        var value = layout; value.remove(id); store(value)
+        if value.open.isEmpty { close() }
+    }
+    private func moveTab(_ id: String, to target: String) {
+        var value = layout; value.move(id, to: target); store(value)
+    }
+    private var tabStrip: some View {
+        HStack(spacing: 4) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(layout.open, id: \.self) { id in
+                            HStack(spacing: 4) {
+                                Button(title(id)) { var value = layout; value.show(id); store(value) }
+                                    .font(.system(size: 12, weight: tab == id ? .semibold : .regular))
+                                    .accessibilityAddTraits(tab == id ? .isSelected : [])
+                                Button { removeTab(id) } label: { WispIcon(name: "close", size: 12) }
+                                    .help("关闭" + title(id)).accessibilityLabel("关闭" + title(id))
+                            }.buttonStyle(.plain).padding(.horizontal, 8).padding(.vertical, 7)
+                                .background(tab == id ? WispDesign.color("bg-elev", scheme) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                                .id(id)
+                                .onDrag { draggedTab = id; return NSItemProvider(item: id as NSString, typeIdentifier: "science.wisp.native-panel-tab") }
+                                .onDrop(of: ["science.wisp.native-panel-tab"], isTargeted: nil) { _ in
+                                    guard let source = draggedTab else { return false }
+                                    draggedTab = nil; moveTab(source, to: id); return true
+                                }
+                                .contextMenu {
+                                    if let index = layout.open.firstIndex(of: id) {
+                                        Button("向左移动") { moveTab(id, to: layout.open[index - 1]) }.disabled(index == 0)
+                                        Button("向右移动") { moveTab(id, to: layout.open[index + 1]) }.disabled(index == layout.open.count - 1)
+                                    }
+                                    Button("关闭标签") { removeTab(id) }
+                                }
+                        }
+                    }
+                }.onChange(of: tab) { id in proxy.scrollTo(id) }
+                    .onAppear { proxy.scrollTo(tab) }
+            }
+            Menu {
+                ForEach(NativePanelTabs.defaults, id: \.self) { id in
+                    Button { var value = layout; value.show(id); store(value) } label: {
+                        if layout.open.contains(id) { Label(title(id), systemImage: "checkmark") } else { Text(title(id)) }
+                    }
+                }
+            } label: { WispIcon(name: "plus", size: 14) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("添加面板").accessibilityLabel("添加面板")
+        }
     }
     private func row(title: String, subtitle: String, icon: String) -> some View {
         HStack(alignment: .top, spacing: 8) {

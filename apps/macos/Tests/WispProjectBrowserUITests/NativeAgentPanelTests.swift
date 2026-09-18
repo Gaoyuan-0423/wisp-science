@@ -132,6 +132,8 @@ final class NativeAgentPanelTests: XCTestCase {
         let draftModel = NativePanelModel(client: draftClient, projectID: "project-a", sessionID: "session-a")
         await draftModel.refresh("agents")
         let views: [(String, AnyView, NSSize)] = [
+            ("panel-tabs", AnyView(NativePanelView(client: try client(), projectID: "project-a", sessionID: "session-a", close: {})), NSSize(width: 360, height: 600)),
+            ("panel-tabs-dark", AnyView(NativePanelView(client: try client(), projectID: "project-a", sessionID: "session-a", close: {})), NSSize(width: 300, height: 600)),
             ("agents-actions", AnyView(NativeAgentPanelView(model: draftModel).padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(WispDesign.color("bg-sunken", .light))), NSSize(width: 300, height: 600)),
             ("agents-retry", AnyView(NativeAgentRetryView(snapshot: model.agents[0], close: {}, submit: { _ in })), NSSize(width: 500, height: 400)),
             ("agents-panel", AnyView(NativeAgentPanelView(model: model).padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(WispDesign.color("bg-sunken", .light))), NSSize(width: 300, height: 600)),

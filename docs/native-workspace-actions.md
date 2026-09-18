@@ -355,3 +355,36 @@ Manual smoke for this increment:
    project; close it and open project settings to verify the project editor.
 3. Simulate a save failure and confirm the displayed value stays unchanged and
    no second save request is issued automatically.
+
+## Native right-panel tab strip
+
+The native panel now uses a horizontally scrollable tab strip instead of a
+single picker. Each implemented tab can be closed, reopened through Add Panel,
+dragged to a new position, or moved left/right through its native context menu.
+Closing the selected tab picks its left neighbor (or the first remaining tab),
+matching `close_right_tab` in WebView. Closing the last tab collapses the panel;
+opening it again restores the default tabs. Selecting an offscreen tab scrolls
+it into view. Order and selection persist in local native preferences.
+
+Swift `NativePanelTabs` and C# `NativePanelTabs` expose the same stable IDs,
+restoration, selection, close, reorder and reopen operations. This is local UI
+state, not a new backend command or persistence table. Unknown/duplicate saved
+IDs are filtered and malformed preferences fall back to defaults. The registry
+includes Notebook, Highlights, Provenance and SideChat for later data-backed
+integration; the visible menu currently contains the four implemented panels.
+Those optional surfaces remain required follow-up work, not completed parity.
+
+The close glyph is exported from the existing shared `compose_icon` set.
+Native icon NSImages are marked as templates so AppKit menus tint them correctly
+in dark mode. Narrow light/dark tab strips were rendered and inspected; the dark
+menu-icon regression found during inspection was corrected and rerendered.
+All 79 Swift tests and the C# contract executable passed before that final visual
+correction, and the focused render test passed afterward. Tests cover restoration,
+corrupt preferences, left-neighbor selection, last-tab reopening, bidirectional
+moves, deduplication and opting optional surfaces into the registry. Generated
+native design resources pass the sync check.
+
+Manual verification still required: drag tabs in a real window, close/reopen the
+last tab through the toolbar, restart to verify the saved order, and press Escape
+immediately after opening Add Panel or a tab context menu. Full repository gates
+remain pending until the remaining toolbar implementation is ready for review.
