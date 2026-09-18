@@ -8,6 +8,9 @@ internal sealed class PreviewSettings
     public string Appearance { get; set; } = "system";
     public string LightPalette { get; set; } = "paper";
     public string DarkPalette { get; set; } = "charcoal";
+    public bool PanelVisible { get; set; }
+    public string PanelTab { get; set; } = "artifacts";
+    public string PanelTabs { get; set; } = "";
     private static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WispSciencePreview", "settings.json");
 

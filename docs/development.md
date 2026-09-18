@@ -369,7 +369,7 @@ wisp-science/
 │  └─ wisp-cli/     `wisp-science` headless binary
 ├─ src-tauri/       Tauri v2 desktop shell (commands + agent event stream)
 ├─ apps/macos/      SwiftUI project browser preview + Foundation transport
-├─ apps/windows/    WinUI 3 preview, JSONL client, navigation and contract tests
+├─ apps/windows/    WinUI 3 preview, JSONL client, workspace actions, navigation and contract tests
 ├─ ui/              Leptos CSR frontend (built by Trunk, loaded in WebView2)
 ├─ python/          kernel_worker.py + mock MCP server (uv-managed)
 ├─ r/               optional system-R kernel worker (requires jsonlite)

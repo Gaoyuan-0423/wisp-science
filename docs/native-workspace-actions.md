@@ -110,8 +110,12 @@ contains its global question index, text, timestamps and the next question's
 exclusive transcript cursor. Snapshot `user_offset` is additive and allows a
 client to locate identical prompts without text matching. Older hosts omit this
 field; native navigation reports a refresh/upgrade error instead of guessing.
-SwiftUI has a searchable outline popover and history navigation. WinUI has the
-same outline method and DTO. Remaining acceptance items above still apply.
+SwiftUI has a searchable outline popover and history navigation. WinUI now
+opens the same outline, inbox, trajectory, archive and share contracts as
+in-window pages, plus a text terminal pane and a right-hand panel for the
+default artifact/file/host tabs. PNG export, VT rendering, live send and the
+remaining panel editors are still follow-ups. Remaining acceptance items
+above still apply.
 
 ## Initial foundation verification (historical)
 

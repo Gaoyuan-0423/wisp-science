@@ -51,3 +51,4 @@ await NativeConversationContractTests.Run(args[0]);
 
 NativePanelTabsTests.Run();
 await AppearanceSettingsTests.RunAsync();
+await WorkspaceActionTests.RunAsync();
