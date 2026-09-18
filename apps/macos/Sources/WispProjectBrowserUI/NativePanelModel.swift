@@ -26,6 +26,7 @@ final class NativePanelModel: ObservableObject {
     @Published private(set) var agentResultLoading = false
     @Published private(set) var previewEditable = false
     @Published private(set) var savingPreview = false
+    @Published private(set) var fileActionBusy = false
     @Published var preview: NativePanelFileContent?
     let client: any NativeConversationQuerying
     let projectID: String
@@ -76,6 +77,17 @@ final class NativePanelModel: ObservableObject {
                 guard generation == current, !Task.isCancelled else { return }; files = rows; path = requestedPath
             }
         } catch { if generation == current, !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+    func performFileAction(_ action: NativePanelFileAction, path target: String, newPath: String? = nil) async throws {
+        guard !fileActionBusy else { throw ProjectBrowserError.unavailable("文件操作正在进行。") }
+        let epoch = agentEpoch; let directory = path
+        fileActionBusy = true
+        defer { if epoch == agentEpoch { fileActionBusy = false } }
+        var args: [String: SettingsValue] = ["file_action": .string(action.rawValue), "path": .string(target)]
+        if let newPath { args["new_path"] = .string(newPath) }
+        guard case .bool(true) = try await call("file_action", args) else { throw ProjectBrowserError.invalidResponse }
+        guard epoch == agentEpoch, !Task.isCancelled, selectedTab == "files", path == directory else { return }
+        await refresh("files", directory: directory)
     }
     func notebookStar(_ cell: NativeNotebookCell) -> NativeNotebookStar? { notebookStars.first { $0.matches(cell) } }
     func toggleNotebookStar(_ cell: NativeNotebookCell) async {

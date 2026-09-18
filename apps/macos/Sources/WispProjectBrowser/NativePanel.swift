@@ -1,5 +1,17 @@
 import Foundation
 
+public enum NativePanelFileAction: String, Codable, Sendable {
+    case createFile = "create_file", createDirectory = "create_directory", rename, delete
+    public static func destination(directory: String, name: String) throws -> String {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              name != ".", name != "..", !name.contains("/"), !name.contains("\\"),
+              !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw ProjectBrowserError.unavailable("请输入有效名称，不含路径分隔符或控制字符。")
+        }
+        return directory == "." ? name : directory + "/" + name
+    }
+}
+
 /// Existing ArtifactInfo, DirEntry and FileContent contracts from wisp-dto.
 public struct NativePanelArtifact: Codable, Identifiable, Sendable {
     public let id: String

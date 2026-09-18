@@ -97,6 +97,13 @@ static class NativeConversationContractTests
         saveFake.Fail = true;
         try { await fileClient.SaveFileAsync("project-a", "session-a", "analysis.py", "old", "new"); throw new Exception("Expected lost save response"); } catch (IOException) { }
         Require(saveFake.Calls == 2, "File saves must not replay after an uncertain response");
+        var actionFake = new Fake { Reply = JsonValue.Create(true) };
+        var actionClient = new NativePanelClient(actionFake);
+        await actionClient.FileActionAsync("project-a", "session-a", NativePanelFileAction.Rename, "data/a", "data/b");
+        Require(actionFake.Project == "project-a" && actionFake.Args?["session_id"]?.GetValue<string>() == "session-a" && actionFake.Args?["file_action"]?.GetValue<string>() == "rename" && actionFake.Args?["new_path"]?.GetValue<string>() == "data/b", "File rename scope or destination lost");
+        actionFake.Fail = true;
+        try { await actionClient.FileActionAsync("project-a", "session-a", NativePanelFileAction.Delete, "data/b"); throw new Exception("Expected lost delete reply"); } catch (IOException) { }
+        Require(actionFake.Calls == 2, "Uncertain file action must not replay");
         var contexts = JsonSerializer.Deserialize<NativePanelContexts>(File.ReadAllText(Path.Combine(directory, "panel-contexts.json")), ConversationSnapshot.JsonOptions)!;
         Require(contexts.Attached.Select(c => c.Id).SequenceEqual(new[] { "local", "ssh:gpu" }) && contexts.Available.Single().Id == "wsl:ubuntu", "Context session scope drift");
         var activity = JsonSerializer.Deserialize<NativeContextActivity>(File.ReadAllText(Path.Combine(directory, "panel-activity.json")), ConversationSnapshot.JsonOptions)!;

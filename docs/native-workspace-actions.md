@@ -7,6 +7,24 @@ not establish parity.
 
 ## Latest acceptance evidence (2026-09-18)
 
+Local Files now provides New File/New Folder and entry context-menu Rename/Delete.
+The name sheet keeps new/renamed entries in the displayed directory; Delete
+explicitly confirms permanent recursive removal, matching the existing WebView
+backend behavior. Archived/read-only views disable the controls and the host
+revalidates writable scope and session ownership. Mutations are not replayed after
+an uncertain response. Successful actions refresh the same directory only while
+that file view is still current. Errors keep the operation sheet open.
+
+`native_conversation_panel_file_action` carries a typed `file_action`
+(`create_file`, `create_directory`, `rename`, `delete`), `path`, optional
+`new_path` (required for rename), and the explicit session/project scope. It
+returns `true` after the filesystem operation and generation bump. The Rust
+adapter uses the existing workspace file implementation; Swift and WinUI's
+`INativePanelClient.FileActionAsync` use the same wire values. Tests cover
+collision preservation, boundary/root rejection, real temporary-file operations,
+name validation, scope, refreshed listings and no replay after lost responses.
+Packaged interaction acceptance for these new actions is in progress.
+
 The packaged QA app uses a separate bundle identifier and synthetic database.
 Files → README.md → Edit → Save wrote `NATIVE_SAVE_OK` to that workspace.
 Escape on a dirty editor opened the discard confirmation; a second Escape closed

@@ -10,6 +10,7 @@ struct NativePanelView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
+    @State private var fileAction: NativeFileActionSelection?
     private var availableTabs: [String] { NativePanelTabs.defaults + ["notebook", "highlights", "provenance"] + (sideChat == nil ? [] : ["sidechat"]) }
     let highlightRevision: Int
     let highlightRemoved: (String) -> Void
@@ -41,6 +42,11 @@ struct NativePanelView: View {
                 HStack {
                     Button("上级") { Task { await model.refresh("files", directory: model.parent) } }.disabled(model.path == ".")
                     Text(model.path).font(.caption).lineLimit(1).truncationMode(.head).help(model.path)
+                    Spacer()
+                    Menu("新建") {
+                        Button("新建文件") { fileAction = .init(action: .createFile, directory: model.path) }
+                        Button("新建文件夹") { fileAction = .init(action: .createDirectory, directory: model.path) }
+                    }.disabled(readOnly || model.loading || model.fileActionBusy)
                 }
             }
             if tab == "sidechat", let sideChat {
@@ -75,6 +81,10 @@ struct NativePanelView: View {
                                 let path = model.child(file)
                                 Task { if file.is_dir { await model.refresh("files", directory: path) } else { await model.readFile(path) } }
                             } label: { row(title: file.name, subtitle: file.is_dir ? "文件夹" : ByteCountFormatter.string(fromByteCount: Int64(clamping: file.size), countStyle: .file), icon: file.is_dir ? "folder" : "doc") }.buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("重命名") { fileAction = .init(action: .rename, directory: model.path, name: file.name) }.disabled(readOnly || model.fileActionBusy)
+                                    Button("删除", role: .destructive) { fileAction = .init(action: .delete, directory: model.path, name: file.name) }.disabled(readOnly || model.fileActionBusy)
+                                }
                         }
                         if model.files.isEmpty && !model.loading { Text("目录为空").foregroundStyle(.secondary).padding() }
                     }
@@ -107,6 +117,9 @@ struct NativePanelView: View {
             }
             .sheet(item: $activity) { selection in
                 NativeContextActivityView(client: model.client, projectID: model.projectID, sessionID: model.sessionID, selection: selection) { activity = nil }
+            }
+            .sheet(item: $fileAction) { selection in
+                NativeFileActionView(selection: selection, model: model) { fileAction = nil }
             }
             .onChange(of: highlightRevision) { _ in if tab == "highlights" { Task { await model.refresh("highlights") } } }
             .onDisappear { model.close() }

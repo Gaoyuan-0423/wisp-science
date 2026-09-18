@@ -31,6 +31,7 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_panel_files",
     "native_conversation_panel_readfile",
     "native_conversation_panel_savefile",
+    "native_conversation_panel_file_action",
     "native_conversation_panel_readartifact",
     "native_conversation_terminal_list",
     "native_conversation_terminal_open",
@@ -91,8 +92,21 @@ pub struct PanelContexts {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelFileAction {
+    CreateFile,
+    CreateDirectory,
+    Rename,
+    Delete,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub file_action: Option<PanelFileAction>,
+    #[serde(default)]
+    pub new_path: Option<String>,
     #[serde(default)]
     pub original_text: Option<String>,
     #[serde(default)]

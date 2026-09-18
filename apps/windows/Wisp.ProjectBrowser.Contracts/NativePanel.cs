@@ -4,6 +4,7 @@ namespace Wisp.ProjectBrowser.Contracts;
 public sealed record NativePanelArtifact(string Id, string Name, string Kind, string Path, string? Location, long Ts, string? LogicalPath);
 public sealed record NativePanelFile(string Name, bool IsDir, ulong Size, ulong? ModifiedUnixMillis);
 public sealed record NativePanelFileContent(string Path, string Mime, string? Text, string? Base64, bool Truncated, ulong? TotalBytes);
+public enum NativePanelFileAction { CreateFile, CreateDirectory, Rename, Delete }
 public sealed record NativePanelContext(string Id, string Kind, string Label, string ConfigJson, string CapabilitiesJson, string? LastProbeStatus, string? LastProbeError);
 public sealed record NativePanelContexts(NativePanelContext[] Contexts, string[] EnabledIds, bool ReadOnly)
 {
@@ -18,6 +19,7 @@ public interface INativePanelClient
     Task<NativePanelArtifact[]> ArtifactsAsync(string project, string session, CancellationToken token = default);
     Task<NativePanelFile[]> FilesAsync(string project, string session, string path = ".", CancellationToken token = default);
     Task SaveFileAsync(string project, string session, string path, string originalText, string text, CancellationToken token = default);
+    Task FileActionAsync(string project, string session, NativePanelFileAction action, string path, string? newPath = null, CancellationToken token = default);
     Task<NativePanelFileContent> ReadFileAsync(string project, string session, string path, CancellationToken token = default);
     Task<NativePanelFileContent> ReadArtifactAsync(string project, string session, string artifactId, CancellationToken token = default);
 }
@@ -38,6 +40,13 @@ public sealed class NativePanelClient(INativeSettingsClient transport) : INative
     {
         var result = await transport.InvokeAsync("native_conversation_panel_savefile", new() { ["session_id"] = session, ["path"] = path, ["original_text"] = originalText, ["text"] = text }, project, token).ConfigureAwait(false);
         if (result?.GetValue<bool>() != true) throw new InvalidDataException("File save was not confirmed");
+    }
+    public async Task FileActionAsync(string project, string session, NativePanelFileAction action, string path, string? newPath = null, CancellationToken token = default)
+    {
+        var name = action switch { NativePanelFileAction.CreateFile => "create_file", NativePanelFileAction.CreateDirectory => "create_directory", NativePanelFileAction.Rename => "rename", NativePanelFileAction.Delete => "delete", _ => throw new ArgumentOutOfRangeException(nameof(action)) };
+        if (action == NativePanelFileAction.Rename && string.IsNullOrWhiteSpace(newPath)) throw new ArgumentException("Rename requires a destination", nameof(newPath));
+        var result = await transport.InvokeAsync("native_conversation_panel_file_action", new() { ["session_id"] = session, ["file_action"] = name, ["path"] = path, ["new_path"] = newPath }, project, token).ConfigureAwait(false);
+        if (result?.GetValue<bool>() != true) throw new InvalidDataException("File action was not confirmed");
     }
     public Task<NativePanelFileContent> ReadFileAsync(string project, string session, string path, CancellationToken token = default) => Call<NativePanelFileContent>("readfile", project, session, new() { ["path"] = path }, token);
     public Task<NativePanelFileContent> ReadArtifactAsync(string project, string session, string artifactId, CancellationToken token = default) => Call<NativePanelFileContent>("readartifact", project, session, new() { ["artifact_id"] = artifactId }, token);
