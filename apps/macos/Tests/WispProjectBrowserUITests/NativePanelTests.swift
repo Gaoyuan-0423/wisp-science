@@ -42,6 +42,17 @@ final class NativePanelTests: XCTestCase {
         model.preview = preview; model.close()
         XCTAssertNil(model.selectedPreviewQuote(text, path: preview.path))
     }
+    @MainActor func testRenderFilePreviewQuotes() throws {
+        guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in native rendering") }
+        let content = try JSONDecoder().decode(NativePanelFileContent.self, from: JSONEncoder().encode(fixture("panel-preview")))
+        for (name, scheme) in [("file-quote-light", ColorScheme.light), ("file-quote-dark", ColorScheme.dark)] {
+            let view = NSHostingView(rootView: NativePanelFilePreview(content: content, close: {}, quote: { _ in }).background(WispDesign.color("bg-elev", scheme)).environment(\.colorScheme, scheme))
+            view.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+            view.frame = NSRect(x: 0, y: 0, width: 560, height: 420); view.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds)); view.cacheDisplay(in: view.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
+        }
+    }
     @MainActor func testRenderContextsAtNarrowPanelWidth() async throws {
         guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in native rendering") }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

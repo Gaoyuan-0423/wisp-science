@@ -46,6 +46,20 @@ final class NativeSelectionTests: XCTestCase {
         let plain = NativeSelectableMessage.content(text, saved: [], scheme: .light)
         XCTAssertNil(plain.attribute(.underlineStyle, at: first.location, effectiveRange: nil))
     }
+    @MainActor func testToolOutputUsesConfiguredCodeFontAndSize() throws {
+        let defaults = UserDefaults.standard
+        let sizeKey = "nativeSettings.code_font_size", familyKey = "nativeSettings.code_font_family"
+        let oldSize = defaults.object(forKey: sizeKey), oldFamily = defaults.object(forKey: familyKey)
+        defer {
+            if let oldSize { defaults.set(oldSize, forKey: sizeKey) } else { defaults.removeObject(forKey: sizeKey) }
+            if let oldFamily { defaults.set(oldFamily, forKey: familyKey) } else { defaults.removeObject(forKey: familyKey) }
+        }
+        let chosen = NSFont.monospacedSystemFont(ofSize: 19, weight: .regular)
+        defaults.set(19, forKey: sizeKey); defaults.set(chosen.fontName, forKey: familyKey)
+        let content = NativeSelectableMessage.content(AttributedString("print(1)"), saved: [], scheme: .light, monospaced: true)
+        let font = try XCTUnwrap(content.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(font.pointSize, 19); XCTAssertEqual(font.fontName, chosen.fontName)
+    }
     @MainActor func testToolOutputRemainsLiteralMonospacedAndSelectable() throws {
         let source = "**literal**\n🧬 result = [1, 2]"
         let content = NativeSelectableMessage.content(AttributedString(source), saved: ["🧬 result"], scheme: .dark, monospaced: true)

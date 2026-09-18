@@ -41,10 +41,12 @@ struct NativeSelectableMessage: NSViewRepresentable {
         let value = NSMutableAttributedString(text)
         let plain = value.string
         let whole = NSRange(location: 0, length: value.length)
-        let size = UserDefaults.standard.double(forKey: "nativeSettings.ui_font_size")
-        let family = UserDefaults.standard.string(forKey: "nativeSettings.ui_font_family") ?? ""
-        let pointSize = size > 0 ? size : 14
-        let base = monospaced ? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) : (NSFont(name: family, size: pointSize) ?? NSFont.systemFont(ofSize: pointSize))
+        let key = monospaced ? "code" : "ui"
+        let size = UserDefaults.standard.double(forKey: "nativeSettings." + key + "_font_size")
+        let family = UserDefaults.standard.string(forKey: "nativeSettings." + key + "_font_family") ?? ""
+        let pointSize = size > 0 ? size : (monospaced ? 12 : 14)
+        let fallback = monospaced ? NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular) : NSFont.systemFont(ofSize: pointSize)
+        let base = NSFont(name: family, size: pointSize) ?? fallback
         value.addAttributes([.font: base, .foregroundColor: NSColor(WispDesign.color("text", scheme))], range: whole)
         func nsRange(_ range: Range<Int>) -> NSRange {
             let start = plain.index(plain.startIndex, offsetBy: range.lowerBound)

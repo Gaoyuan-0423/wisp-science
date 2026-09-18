@@ -616,3 +616,15 @@ The 103 UI tests passed, including preview-source validation and quote-only menu
 coverage. In this run the same existing process-transport test timed out again
 in the separate 14-test core target; this run is not a full-suite pass. The
 previous 115-test run passed. Full repository checks remain in progress.
+
+Preview validation additionally covers light/dark rendering with explicit native
+appearance and a solid sheet background; both images were inspected. The focused
+panel/selection suite passed 14 tests, followed by a passing configured-code-font
+regression test. Tool and preview text honor the code font family and size.
+A test-only invalid palette token initially crashed the new snapshot; it was
+corrected to the existing `bg-elev` token before the successful rerun.
+
+During full gates, a sample of the Rust `project_queries` test process showed it
+at `_dyld_start` with a 96 KB footprint before it later ran and passed all seven
+tests. This establishes a process-start delay in that run; it does not establish
+the cause of the Swift transport timeout. No production timeout was changed.
