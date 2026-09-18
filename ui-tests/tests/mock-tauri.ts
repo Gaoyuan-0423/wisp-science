@@ -1801,6 +1801,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
           }
           case "get_research_archive": return researchArchives[String(arg("frameId"))] ?? null;
           case "prepare_research_archive": {
+            if ((window as any).__archivePrepareError) throw new Error((window as any).__archivePrepareError);
             const frame = String(arg("frameId"));
             return researchArchives[frame] = {
               id: "archive-" + frame, project_id: "default", frame_id: frame, source_hash: "source",

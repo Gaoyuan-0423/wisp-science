@@ -1,6 +1,6 @@
 use crate::app_support::compose_icon;
 use crate::dto::{ArchiveFileChoice, ConfirmResearchArchive, ResearchArchive};
-use crate::i18n::Locale;
+use crate::i18n::{localize_backend, Locale};
 use crate::research_journey::{call, j};
 use leptos::*;
 
@@ -166,7 +166,7 @@ pub(crate) fn ArchiveReview(
                 <button class="icon-btn" aria-label=move ||j(locale.get(),"Close archive","关闭归档") disabled=move ||busy.get() on:click=move |_|on_close.call(())>{compose_icon("close")}</button></header>
             <div class="archive-body">
                 {move ||busy.get().then(||view!{<p role="status">{j(locale.get(),"Preparing and saving research materials…","正在整理或保存研究材料…")}</p>})}
-                {move ||(!error.get().is_empty()).then(||view!{<p class="archive-error" role="alert">{error.get()}</p>})}
+                {move ||(!error.get().is_empty()).then(||view!{<p class="archive-error" role="alert">{localize_backend(locale.get(), &error.get())}</p>})}
                 {move ||record.get().map(|a|{
                     let readonly=a.frozen_at.is_some();
 

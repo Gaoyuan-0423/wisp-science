@@ -5922,6 +5922,20 @@ pub fn localize_backend(locale: Locale, msg: &str) -> String {
             if locale==Locale::Zh {"实验记录本已归档，无法修改或删除。请从归档节点创建新会话继续研究。".into()}
             else {"This research notebook is archived and cannot be changed or deleted. Continue research from its archive in a new conversation.".into()}
         }
+        "Archive draft ran out of output tokens. Nothing was deleted. Try regenerate, or switch to a model with a larger output limit." => {
+            if locale==Locale::Zh {
+                "归档草稿超出模型输出额度，未删除任何文件。请点击「重新整理」，或改用输出额度更大的模型。".into()
+            } else {
+                "Archive draft ran out of output tokens. Nothing was deleted. Try regenerate, or switch to a model with a larger output limit.".into()
+            }
+        }
+        m if m.contains("max_output_tokens") => {
+            if locale==Locale::Zh {
+                "模型因达到输出额度上限而中止。请重试，或在设置中提高最大输出 tokens。".into()
+            } else {
+                "The model stopped because it reached the output token limit. Try again, or raise Max output tokens in Settings.".into()
+            }
+        }
         "API URL is required." => t(locale, "err.api_url_required"),
         "Model is required." => t(locale, "err.model_required"),
         "API key is required." => t(locale, "err.api_key_required"),
@@ -6560,6 +6574,24 @@ mod api_error_hint_tests {
             send_failed(Locale::En, "Project not found"),
             "Send failed: Project not found"
         );
+    }
+
+    #[test]
+    fn localize_research_archive_output_limit() {
+        let draft = "Archive draft ran out of output tokens. Nothing was deleted. Try regenerate, or switch to a model with a larger output limit.";
+        let zh = localize_backend(Locale::Zh, draft);
+        assert!(zh.contains("输出额度"), "{zh}");
+        assert!(zh.contains("重新整理"), "{zh}");
+        assert!(!zh.contains("max_output_tokens"), "{zh}");
+        assert_eq!(localize_backend(Locale::En, draft), draft);
+
+        let wire = "response ended with status 'incomplete' (max_output_tokens)";
+        let zh_wire = localize_backend(Locale::Zh, wire);
+        assert!(zh_wire.contains("输出额度"), "{zh_wire}");
+        assert!(!zh_wire.contains("incomplete"), "{zh_wire}");
+        let en_wire = localize_backend(Locale::En, wire);
+        assert!(en_wire.contains("output token limit"), "{en_wire}");
+        assert!(!en_wire.contains("incomplete"), "{en_wire}");
     }
 
     #[test]
