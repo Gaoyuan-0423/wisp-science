@@ -355,7 +355,8 @@ mod tests {
     fn highlights_reuse_library_item_contract() {
         let rows: Vec<crate::LibraryItem> = serde_json::from_str(include_str!(
             "../../../contracts/native-conversations/v1/panel-highlights.json"
-        )).unwrap();
+        ))
+        .unwrap();
         assert_eq!(rows[0].kind, "text");
         assert_eq!(rows[0].source_session_id, "session-a");
         assert_eq!(rows[0].code.as_ref(), "样本 质量\n合格");
