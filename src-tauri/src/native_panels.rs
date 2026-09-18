@@ -21,17 +21,32 @@ pub(crate) async fn dispatch(
     }
     match request.command.as_str() {
         "native_conversation_panel_agents" | "native_conversation_panel_agent_result" => {
-            let workflows = crate::delegation_runtime::load_agent_workflow_snapshots(&state.store, project_id, Some(session)).await?;
+            let workflows = crate::delegation_runtime::load_agent_workflow_snapshots(
+                &state.store,
+                project_id,
+                Some(session),
+            )
+            .await?;
             if request.command == "native_conversation_panel_agents" {
-                return contract::<Vec<wisp_dto::AgentWorkflowSnapshot>>(serde_json::to_value(workflows).map_err(|e| e.to_string())?);
+                return contract::<Vec<wisp_dto::AgentWorkflowSnapshot>>(
+                    serde_json::to_value(workflows).map_err(|e| e.to_string())?,
+                );
             }
             let workflow_id = args.workflow_id.ok_or("Workflow ID is required")?;
             let step_id = args.step_id.ok_or("Step ID is required")?;
             if !workflows.iter().any(|row| row.workflow.id == workflow_id) {
                 return Err("Workflow is outside this conversation scope".into());
             }
-            let result = crate::delegation_runtime::load_agent_workflow_result(&state.store, project_id, &workflow_id, &step_id).await?;
-            contract::<wisp_dto::AgentWorkflowResultDetail>(serde_json::to_value(result).map_err(|e| e.to_string())?)
+            let result = crate::delegation_runtime::load_agent_workflow_result(
+                &state.store,
+                project_id,
+                &workflow_id,
+                &step_id,
+            )
+            .await?;
+            contract::<wisp_dto::AgentWorkflowResultDetail>(
+                serde_json::to_value(result).map_err(|e| e.to_string())?,
+            )
         }
         "native_conversation_panel_runtime_start" | "native_conversation_panel_runtime_execute" => {
             crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;

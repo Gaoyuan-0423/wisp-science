@@ -331,10 +331,16 @@ mod tests {
     }
     #[test]
     fn agent_panel_fixtures_preserve_workflow_and_step_identity() {
-        let rows: Vec<crate::AgentWorkflowSnapshot> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agents.json")).unwrap();
+        let rows: Vec<crate::AgentWorkflowSnapshot> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-agents.json"
+        ))
+        .unwrap();
         assert_eq!(rows[0].workflow.frame_id.as_deref(), Some("session-a"));
         assert_eq!(rows[0].dynamic.tasks[0].stored_step_id, "workflow-a:review");
-        let result: crate::AgentWorkflowResultDetail = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agent-result.json")).unwrap();
+        let result: crate::AgentWorkflowResultDetail = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-agent-result.json"
+        ))
+        .unwrap();
         assert_eq!(result.step_id, rows[0].dynamic.tasks[0].stored_step_id);
         assert_eq!(result.attempt, 1);
     }
