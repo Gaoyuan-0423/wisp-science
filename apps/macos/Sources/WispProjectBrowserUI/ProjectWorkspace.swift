@@ -105,7 +105,7 @@ struct ProjectWorkspace: View {
                         if panelDragStart == nil { panelDragStart = panelWidth }
                         panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
                     }.onEnded { _ in panelDragStart = nil })
-                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session) { panelVisible = false }
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, readOnly: conversation.snapshot?.read_only ?? true) { panelVisible = false }
                     .frame(width: panelWidth).id(project.id + ":" + session)
             }
         }

@@ -8,11 +8,22 @@ private actor AgentPanelClient: NativeConversationQuerying {
     let rows: SettingsValue
     let result: SettingsValue
     let delayed: Bool
+    var actions: [[String: SettingsValue]] = []
+    var runPending: CheckedContinuation<SettingsValue, Error>?
+    func actionHistory() -> [[String: SettingsValue]] { actions }
+    func runWaiting() -> Bool { runPending != nil }
+    func finishRun() { runPending?.resume(throwing: ProjectBrowserError.invalidResponse); runPending = nil }
     var pending: CheckedContinuation<SettingsValue, Error>?
     init(rows: SettingsValue, result: SettingsValue, delayed: Bool = false) { self.rows = rows; self.result = result; self.delayed = delayed }
     func snapshot(projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> ConversationSnapshot { throw ProjectBrowserError.invalidResponse }
     func invoke(_ command: String, args: [String: SettingsValue], projectID: String) async throws -> SettingsValue {
         guard projectID == "project-a", args["session_id"]?.string == "session-a" else { throw ProjectBrowserError.invalidResponse }
+        if command.hasSuffix("agent_action") {
+            actions.append(args)
+            if args["action"]?.string == "run" { return try await withCheckedThrowingContinuation { runPending = $0 } }
+            if args["action"]?.string == "approve" { throw ProjectBrowserError.invalidResponse }
+            return .null
+        }
         if command.hasSuffix("agent_result") {
             if delayed { return try await withCheckedThrowingContinuation { pending = $0 } }
             return result
@@ -56,12 +67,48 @@ final class NativeAgentPanelTests: XCTestCase {
         XCTAssertEqual(sections.first { $0.0 == "产物" }?.1.array.count, 2)
         XCTAssertEqual(sections.first { $0.0 == "证据" }?.1.array[0]["reference"].string, "report.md")
     }
+    @MainActor func testRunCanBeCancelledWhilePollingAndFailureIsNotReplayed() async throws {
+        let client = try client(); let model = NativePanelModel(client: client, projectID: "project-a", sessionID: "session-a")
+        await model.refresh("agents")
+        let snapshot = model.agents[0]
+        let running = Task { await model.performAgentAction(snapshot, action: .run) }
+        for _ in 0..<100 { if await client.runWaiting() { break }; await Task.yield() }
+        let waiting = await client.runWaiting(); XCTAssertTrue(waiting)
+        await model.refresh("agents", quiet: true)
+        await model.performAgentAction(snapshot, action: .cancel)
+        XCTAssertTrue(model.agentLaunching.contains(snapshot.id), "Cancel completion must not clear the active run request")
+        await client.finishRun(); await running.value
+        XCTAssertNotNil(model.error)
+        let history = await client.actionHistory()
+        XCTAssertEqual(history.map { $0["action"]?.string }, ["run", "cancel"])
+        XCTAssertFalse(model.agentLaunching.contains(snapshot.id))
+    }
+    @MainActor func testApprovalSendsReviewedVersionOnce() async throws {
+        let client = try client(); let model = NativePanelModel(client: client, projectID: "project-a", sessionID: "session-a")
+        await model.refresh("agents")
+        await model.performAgentAction(model.agents[0], action: .approve)
+        let history = await client.actionHistory()
+        XCTAssertEqual(history.count, 1); XCTAssertEqual(history[0]["expected_version"]?.integer, 1)
+        XCTAssertNotNil(model.error)
+    }
+    func testRetryBudgetsPreserveZeroAndRejectInvalidValues() throws {
+        let values = try NativeAgentRetryView.overrides(["a": "0", "b": " 42 ", "c": ""])
+        XCTAssertEqual(values["a"]?.max_tokens, 0); XCTAssertEqual(values["b"]?.max_tokens, 42); XCTAssertNil(values["c"])
+        for value in ["-1", "1.5", "4294967296"] { XCTAssertThrowsError(try NativeAgentRetryView.overrides(["a": value])) }
+    }
     @MainActor func testRenderAgentPanelAndResult() async throws {
         guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in rendering") }
         let model = NativePanelModel(client: try client(), projectID: "project-a", sessionID: "session-a")
         await model.refresh("agents"); await model.readAgentResult(workflow: "workflow-a", step: "workflow-a:review")
         let result = try XCTUnwrap(model.agentResult)
+        var draftRows = try fixture("panel-agents").array
+        draftRows[0]["workflow"]["status"] = .string("draft")
+        let draftClient = AgentPanelClient(rows: .array(draftRows), result: try fixture("panel-agent-result"))
+        let draftModel = NativePanelModel(client: draftClient, projectID: "project-a", sessionID: "session-a")
+        await draftModel.refresh("agents")
         let views: [(String, AnyView, NSSize)] = [
+            ("agents-actions", AnyView(NativeAgentPanelView(model: draftModel).padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(WispDesign.color("bg-sunken", .light))), NSSize(width: 300, height: 600)),
+            ("agents-retry", AnyView(NativeAgentRetryView(snapshot: model.agents[0], close: {}, submit: { _ in })), NSSize(width: 500, height: 400)),
             ("agents-panel", AnyView(NativeAgentPanelView(model: model).padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(WispDesign.color("bg-sunken", .light))), NSSize(width: 300, height: 600)),
             ("agents-result", AnyView(NativeAgentResultView(result: result, close: {})), NSSize(width: 800, height: 650)),
             ("agents-result-dark", AnyView(NativeAgentResultView(result: result, close: {})), NSSize(width: 600, height: 650))

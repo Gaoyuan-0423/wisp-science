@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_agent_action",
     "native_conversation_panel_agents",
     "native_conversation_panel_agent_result",
     "native_conversation_panel_runtime_start",
@@ -47,6 +48,10 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_model",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAction { Approve, Run, Cancel, Discard, Retry }
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PanelActivity {
     pub runtimes: Vec<crate::RuntimeInfo>,
@@ -64,6 +69,12 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub action: Option<AgentAction>,
+    #[serde(default)]
+    pub expected_version: Option<i64>,
+    #[serde(default)]
+    pub budget_overrides: Option<std::collections::HashMap<String, crate::AgentBudgetProposal>>,
     #[serde(default)]
     pub workflow_id: Option<String>,
     #[serde(default)]
@@ -328,6 +339,15 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn agent_actions_are_closed_and_approval_keeps_reviewed_version() {
+        let args: PanelRequest = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agent-action.json")).unwrap();
+        assert_eq!(args.action, Some(AgentAction::Approve));
+        assert_eq!(args.expected_version, Some(7));
+        assert!(serde_json::from_value::<PanelRequest>(serde_json::json!({"session_id":"s", "action":"delete_project"})).is_err());
+        let args: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s", "action":"retry", "budget_overrides":{"review":{"max_tokens":0}}})).unwrap();
+        assert_eq!(args.budget_overrides.unwrap()["review"].max_tokens, Some(0));
     }
     #[test]
     fn agent_panel_fixtures_preserve_workflow_and_step_identity() {

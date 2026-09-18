@@ -23,6 +23,10 @@ public struct NativeAgentTask: Codable, Identifiable, Sendable {
     public let executor: SettingsValue
     public let budget: SettingsValue
     public let tools: [String]
+    public let can_write: Bool
+    public let can_execute: Bool
+    public let can_access_network: Bool
+    public let skill_bindings: [SettingsValue]?
     public let approval_reasons: [String]
     public let result: SettingsValue?
 }
@@ -77,4 +81,14 @@ public struct NativeAgentResultPresentation: Sendable {
         if error != .null && error != .string("") { rows.append(("错误", error)) }
         sections = rows
     }
+}
+
+public enum NativeAgentAction: String, Codable, Sendable {
+    case approve, run, cancel, discard, retry
+}
+public struct NativeAgentBudgetOverride: Codable, Sendable {
+    public let max_tokens: UInt32?
+    public let max_tool_calls: UInt32?
+    public let max_cost_microunits: UInt64?
+    public init(tokens: UInt32) { max_tokens = tokens; max_tool_calls = nil; max_cost_microunits = nil }
 }

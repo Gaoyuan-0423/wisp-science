@@ -62,6 +62,13 @@ static class NativeConversationContractTests
         await agentClient.ResultAsync("project-a", "session-a", "workflow-a", "workflow-a:review");
         Require(agentFake.Args?["session_id"]?.GetValue<string>() == "session-a" && agentFake.Project == "project-a", "Agent request lost scope");
         try { await agentClient.ResultAsync("project-a", "session-a", "wrong", "workflow-a:review"); throw new Exception("Expected result mismatch"); } catch (InvalidDataException) { }
+        var approvalArgs = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-agent-action.json")))!;
+        agentFake.Fail = true;
+        try { await agentClient.ActAsync("project-a", "session-a", "workflow-a", NativeAgentAction.Approve, approvalArgs["expected_version"]!.GetValue<long>()); } catch (IOException) { }
+        Require(agentFake.Calls == 3 && agentFake.Args?["expected_version"]?.GetValue<long>() == 7, "Agent approval replayed or lost reviewed version");
+        agentFake.Fail = false;
+        await agentClient.ActAsync("project-a", "session-a", "workflow-a", NativeAgentAction.Retry, budgets: new Dictionary<string, NativeAgentBudgetOverride> { ["review"] = new(0) });
+        Require(agentFake.Args?["budget_overrides"]?["review"]?["max_tokens"]?.GetValue<uint>() == 0, "Unlimited retry budget lost");
         var runtimeFake = new Fake(); var runtimeClient = new NativeContextActivityClient(runtimeFake);
         await runtimeClient.StopRuntimeAsync("project-a", "session-a", "runtime-a", 2);
         Require(runtimeFake.Args?["runtime_generation"]?.GetValue<ulong>() == 2 && runtimeFake.Args?["session_id"]?.GetValue<string>() == "session-a", "Runtime stop lost generation/scope");

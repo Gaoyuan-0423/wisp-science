@@ -288,3 +288,34 @@ Agent creation, plan editing, delegation enablement, approve/run/cancel/discard,
 retry budgets, specialist controls and workflow-template operations remain to be
 connected. This is inspection parity only; it does not complete the Agents panel
 or the overall toolbar acceptance checklist.
+
+## Agent workflow controls
+
+Root workflows now expose draft approval/discard, approved-plan execution,
+running cancellation and failed/cancelled retry. The native approval carries the
+reviewed version; the backend keeps the existing atomic version/status check.
+Approval, execution and retry share extracted project-explicit handlers with
+WebView, so native requests do not depend on a hidden window's active frame.
+Retry supports per-task token overrides, including zero for unlimited, and uses
+the existing policy/budget validation. Automatic workflows retain automatic
+launch behavior. Legacy skill-bound workflows remain blocked by the existing
+conversion rule rather than bypassing it.
+
+Mutations validate conversation membership and root-workflow ownership. Archived
+or non-writable conversations cannot approve/run/discard/retry, while running
+workflows can still be cancelled. Full proposal details, task grants and budgets
+are available for review. Destructive actions and approval use native confirmation
+surfaces; retry has a budget editor. In-flight launch and control requests are
+tracked separately, so cancellation remains usable during execution. Polling does
+not invalidate a pending action's error, and uncertain actions are never replayed.
+
+Swift and C# share the closed action set and reviewed-version/budget contract.
+All 73 native tests passed before the final plan/retry-layout additions; the
+focused seven agent tests passed afterward. C# contracts and thirteen native DTO
+tests passed. Native panel Rust tests passed; the shared retry preservation tests
+are being rerun. Approval and retry layouts were rendered and inspected.
+
+Still pending: delegation enablement, create/edit plans, specialist/template
+entry points, immediate-Escape interaction tests, tab management and the other
+outstanding toolbar acceptance requirements. No real provider, agent execution,
+SSH or WSL service was contacted during these tests.

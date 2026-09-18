@@ -20,6 +20,34 @@ pub(crate) async fn dispatch(
         return Err("Project scope mismatch".into());
     }
     match request.command.as_str() {
+        "native_conversation_panel_agent_action" => {
+            use wisp_dto::native_conversations::AgentAction;
+            let workflow_id = args.workflow_id.ok_or("Workflow ID is required")?;
+            let action = args.action.ok_or("Workflow action is required")?;
+            let rows = crate::delegation_runtime::load_agent_workflow_snapshots(&state.store, project_id, Some(session)).await?;
+            let workflow = rows.iter().find(|row| row.workflow.id == workflow_id).ok_or("Workflow is outside this conversation scope")?;
+            if workflow.workflow.depth != 0 { return Err("Control nested workflows through their root workflow".into()); }
+            if action != AgentAction::Cancel {
+                crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
+                state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            }
+            let _activity = state.begin_project_activity(project_id)?;
+            match action {
+                AgentAction::Approve => {
+                    crate::delegation_runtime::approve_agent_workflow_for_project(&state, project, workflow_id, args.expected_version.ok_or("Workflow version is required")?).await?;
+                }
+                AgentAction::Run => { crate::delegation_runtime::run_agent_workflow_for_project(&state, project, workflow_id).await?; }
+                AgentAction::Retry => {
+                    let overrides = args.budget_overrides.map(|value| serde_json::from_value(serde_json::to_value(value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())).transpose()?;
+                    crate::delegation_runtime::retry_agent_workflow_for_project(&state, project, Some(session.into()), workflow_id, overrides).await?;
+                }
+                AgentAction::Cancel | AgentAction::Discard => {
+                    let command = if action == AgentAction::Cancel { "cancel_agent_workflow" } else { "discard_agent_workflow" };
+                    invoke_command(broker, Some(project_id.into()), command, serde_json::json!({"workflowId": workflow_id})).await?;
+                }
+            }
+            Ok(Value::Null)
+        }
         "native_conversation_panel_agents" | "native_conversation_panel_agent_result" => {
             let workflows = crate::delegation_runtime::load_agent_workflow_snapshots(
                 &state.store,

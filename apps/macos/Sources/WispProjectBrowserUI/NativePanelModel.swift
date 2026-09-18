@@ -11,6 +11,10 @@ final class NativePanelModel: ObservableObject {
     @Published private(set) var contexts: NativePanelContexts?
     @Published private(set) var contextBusy = false
     @Published private(set) var agents: [NativeAgentSnapshot] = []
+    @Published private(set) var agentLaunching: Set<String> = []
+    @Published private(set) var agentActions: Set<String> = []
+    private var agentEpoch = UUID()
+    private var selectedTab = "artifacts"
     @Published var agentResult: NativeAgentResult?
     @Published private(set) var agentResultLoading = false
     @Published var preview: NativePanelFileContent?
@@ -30,6 +34,7 @@ final class NativePanelModel: ObservableObject {
         try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
     }
     func refresh(_ tab: String, directory: String? = nil, quiet: Bool = false) async {
+        selectedTab = tab
         let current = UUID(); generation = current; loading = !quiet
         if !quiet { error = nil }
         let requestedPath = directory ?? path
@@ -70,6 +75,22 @@ final class NativePanelModel: ObservableObject {
             if generation == current, !Task.isCancelled { await refresh("hosts") }
         } catch { if generation == current { self.error = error.localizedDescription } }
     }
+    func performAgentAction(_ snapshot: NativeAgentSnapshot, action: NativeAgentAction, budgets: [String: NativeAgentBudgetOverride] = [:]) async {
+        let id = snapshot.id
+        guard snapshot.workflow.depth == 0 else { return }
+        if action == .run { guard !agentLaunching.contains(id) else { return }; agentLaunching.insert(id) }
+        else { guard !agentActions.contains(id) else { return }; agentActions.insert(id) }
+        let epoch = agentEpoch; error = nil
+        defer { if epoch == agentEpoch { if action == .run { agentLaunching.remove(id) } else { agentActions.remove(id) } } }
+        do {
+            var args: [String: SettingsValue] = ["workflow_id": .string(id), "action": .string(action.rawValue)]
+            if action == .approve { args["expected_version"] = .integer(snapshot.workflow.version) }
+            if !budgets.isEmpty { args["budget_overrides"] = try JSONDecoder().decode(SettingsValue.self, from: JSONEncoder().encode(budgets)) }
+            _ = try await call("agent_action", args)
+            guard epoch == agentEpoch, !Task.isCancelled else { return }
+            if selectedTab == "agents" { await refresh("agents", quiet: true) }
+        } catch { if epoch == agentEpoch { self.error = "操作结果未确认，未自动重试。" + error.localizedDescription } }
+    }
     func readAgentResult(workflow: String, step: String) async {
         let current = UUID(); previewGeneration = current; agentResultLoading = true; error = nil
         defer { if previewGeneration == current { agentResultLoading = false } }
@@ -96,5 +117,5 @@ final class NativePanelModel: ObservableObject {
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
     func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
-    func close() { generation = UUID(); dismissPreview() }
+    func close() { agentEpoch = UUID(); agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }
