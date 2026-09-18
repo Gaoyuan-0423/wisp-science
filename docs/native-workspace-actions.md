@@ -748,3 +748,48 @@ is still part of live QA. This supersedes the earlier root-symlink workaround.
 Review is available as draft PR #1288. It explicitly retains the remaining
 functional and verification checklist; draft creation does not mark parity
 complete.
+
+The full ordinary packaging script rerun completed successfully, including
+strict recursive signature verification. A separate `--qa` build mode is now
+being validated: it uses `target/native-macos-qa/Wisp Science QA.app`, a distinct
+SwiftUI bundle identifier and backend identifier
+`science.wisp-science.native-toolbar-qa`. Its backend data is isolated from the
+ordinary application. Launch it with `WISP_BROWSER_DATABASE` explicitly set to
+the synthetic database; the standard SwiftUI default path is unchanged.
+The QA app-data `wisp-science` directory may be a newly created symlink to the
+fixture root, provided no preexisting data is replaced. Building the QA app and
+verifying its descriptor/database identity must precede interactive tests.
+
+## Isolated packaged QA results (2026-09-18)
+
+The QA build completed and both bundle identifiers and strict recursive signatures
+were verified. Before opening any conversation, the authenticated host descriptor
+was checked against the synthetic database's canonical path. Backend startup also
+adds a default workspace; manual actions were limited to `toolbar-qa`.
+
+Live checks in the packaged SwiftUI app passed:
+
+- Open the 35-turn synthetic session and its question outline. Press Escape
+  immediately: only the outline closes.
+- Open trajectory, click the final Python tool lane: the list scrolls to turn 35
+  and the inspector shows the matching recorded tool output. Press Escape once:
+  the inspector closes and the trajectory sheet remains. Press again: the sheet
+  closes. Neither Escape check first moves focus into the inspector.
+- Open terminal: a local terminal is created in the synthetic project directory.
+  SwiftTerm renders its prompt and accepts `printf 'NATIVE_TERMINAL_OK\\n'; pwd`;
+  both the marker and the synthetic working directory appear. Hide and reopen:
+  the same terminal and its previous output remain visible.
+- Open Share: all 70 shareable messages load; immediate Escape closes it.
+  Open Archive with no configured provider: the existing missing-API-key error
+  appears and destructive confirmation stays disabled; Escape closes it. This
+  verifies the failure path only, not model-backed archive generation. Open the
+  empty Needs-you inbox: its empty state loads and immediate Escape closes it.
+- Open the side panel: both synthetic artifacts appear; Execution Contexts shows
+  the local context with probe/runtime/run-list actions. Those actions and terminal
+  resizing/high-volume output still need separate live checks.
+
+The full Rust workspace suite finished successfully, including all 917 Tauri
+tests. This supersedes earlier notes that the workspace run was still pending.
+The full Playwright run had 823 passes, two optional skips and one extension-page
+screenshot timeout; that exact test passed unchanged on isolated rerun. These
+results do not establish complete seven-action parity; PR #1288 remains draft.

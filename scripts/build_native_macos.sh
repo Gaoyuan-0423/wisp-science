@@ -7,8 +7,24 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+QA_MODE=0
+case "${1:-}" in
+  '') ;;
+  --qa) QA_MODE=1 ;;
+  *) echo 'Usage: build_native_macos.sh [--qa]' >&2; exit 2 ;;
+esac
+if [[ "$#" -gt 1 ]]; then
+  echo 'Usage: build_native_macos.sh [--qa]' >&2
+  exit 2
+fi
 BUILD="$ROOT/target/native-macos"
-APP="$BUILD/Wisp Science Preview.app"
+APP_NAME='Wisp Science Preview'
+if [[ "$QA_MODE" == 1 ]]; then
+  BUILD="$ROOT/target/native-macos-qa"
+  APP_NAME='Wisp Science QA'
+fi
+APP="$BUILD/$APP_NAME.app"
+HOST_IDENTIFIER="$(python3 -c 'import json,sys; print("science.wisp-science.native-toolbar-qa" if sys.argv[2] == "1" else json.load(open(sys.argv[1]))["identifier"])' "$ROOT/src-tauri/tauri.conf.json" "$QA_MODE")"
 export CLANG_MODULE_CACHE_PATH="$BUILD/clang-module-cache"
 
 python3 "$ROOT/scripts/sync_native_design.py" --check
@@ -19,7 +35,7 @@ HOST_ASSETS="$BUILD/host-assets"
 mkdir -p "$HOST_ASSETS"
 cp "$ROOT/ui/native-host.html" "$HOST_ASSETS/native-host.html"
 cp "$ROOT/ui/native-host.html" "$HOST_ASSETS/index.html"
-TAURI_CONFIG="$(python3 -c 'import json,sys; print(json.dumps({"build":{"frontendDist":sys.argv[1]}}))' "$HOST_ASSETS")" \
+TAURI_CONFIG="$(python3 -c 'import json,sys; print(json.dumps({"identifier":sys.argv[2],"build":{"frontendDist":sys.argv[1]}}))' "$HOST_ASSETS" "$HOST_IDENTIFIER")" \
   cargo build --manifest-path "$ROOT/Cargo.toml" --target-dir "$ROOT/target" --locked -p wisp-tauri --features custom-protocol
 swift build --package-path "$ROOT/apps/macos" --scratch-path "$BUILD/swift" --disable-sandbox
 SWIFT_BIN="$(swift build --package-path "$ROOT/apps/macos" --scratch-path "$BUILD/swift" --show-bin-path)"
@@ -44,17 +60,34 @@ for resource in skills python r browser-extension seed; do
   cp -R "$ROOT/$resource" "$HOST_APP/Contents/Resources/$resource"
 done
 cp "$ROOT/apps/macos/HostInfo.plist" "$HOST_APP/Contents/Info.plist"
-python3 - "$ROOT/src-tauri/tauri.conf.json" "$HOST_APP/Contents/Info.plist" <<'PY_VERSION'
+python3 - "$ROOT/src-tauri/tauri.conf.json" "$HOST_APP/Contents/Info.plist" "$HOST_IDENTIFIER" <<'PY_VERSION'
 import json, plistlib, sys
 with open(sys.argv[1]) as config:
     version = json.load(config)["version"]
 with open(sys.argv[2], "rb") as source:
     info = plistlib.load(source)
 info["CFBundleShortVersionString"] = version
+info["CFBundleIdentifier"] = sys.argv[3]
 with open(sys.argv[2], "wb") as target:
     plistlib.dump(info, target)
 PY_VERSION
 cp "$ROOT/apps/macos/Info.plist" "$APP/Contents/Info.plist"
+if [[ "$QA_MODE" == 1 ]]; then
+  python3 - "$APP/Contents/Info.plist" "$HOST_IDENTIFIER" <<'PY_QA'
+import plistlib, sys
+with open(sys.argv[1], "rb") as source:
+    info = plistlib.load(source)
+info["CFBundleIdentifier"] = sys.argv[2] + ".preview"
+info["CFBundleName"] = info["CFBundleDisplayName"] = "Wisp Science QA"
+with open(sys.argv[1], "wb") as target:
+    plistlib.dump(info, target)
+PY_QA
+fi
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
-printf 'Built: %s\nOpen with: open "%s"\n' "$APP" "$APP"
+printf 'Built: %s\n' "$APP"
+if [[ "$QA_MODE" == 1 ]]; then
+  printf 'QA host identifier: %s\nLaunch the executable with WISP_BROWSER_DATABASE pointing to the isolated host database; do not use open without that configuration.\n' "$HOST_IDENTIFIER"
+else
+  printf 'Open with: open "%s"\n' "$APP"
+fi
