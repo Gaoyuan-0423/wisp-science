@@ -178,10 +178,16 @@ mod tests {
     use super::*;
     #[test]
     fn panel_fixtures_use_existing_file_contracts() {
-        let files: Vec<crate::DirEntry> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-files.json")).unwrap();
+        let files: Vec<crate::DirEntry> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-files.json"
+        ))
+        .unwrap();
         assert!(files[0].is_dir);
         assert_eq!(files[1].name, "README.md");
-        let preview: crate::FileContent = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-preview.json")).unwrap();
+        let preview: crate::FileContent = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-preview.json"
+        ))
+        .unwrap();
         assert!(preview.truncated);
         assert_eq!(preview.total_bytes, Some(8_000_000));
     }

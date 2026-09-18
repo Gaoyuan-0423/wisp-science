@@ -5,20 +5,39 @@ use serde_json::Value;
 use tauri::Manager;
 use wisp_dto::{native_conversations::PanelRequest, native_settings::Request};
 
-pub(crate) async fn dispatch(broker: &Broker, request: &Request, project_id: &str, session: &str) -> Result<Value, String> {
-    let args: PanelRequest = serde_json::from_value(request.args.clone()).map_err(|e| e.to_string())?;
+pub(crate) async fn dispatch(
+    broker: &Broker,
+    request: &Request,
+    project_id: &str,
+    session: &str,
+) -> Result<Value, String> {
+    let args: PanelRequest =
+        serde_json::from_value(request.args.clone()).map_err(|e| e.to_string())?;
     let state = broker.app.state::<crate::AppState>();
-    let (project, scope) = crate::exploration_commands::working_project_for_frame(&state, session).await?;
-    if project.id != project_id { return Err("Project scope mismatch".into()); }
+    let (project, scope) =
+        crate::exploration_commands::working_project_for_frame(&state, session).await?;
+    if project.id != project_id {
+        return Err("Project scope mismatch".into());
+    }
     match request.command.as_str() {
-        "native_conversation_panel_artifacts" => invoke_command(broker, Some(project_id.into()), "list_artifacts", serde_json::json!({"sessionId": session})).await,
+        "native_conversation_panel_artifacts" => {
+            invoke_command(
+                broker,
+                Some(project_id.into()),
+                "list_artifacts",
+                serde_json::json!({"sessionId": session}),
+            )
+            .await
+        }
         "native_conversation_panel_files" => {
             let path = args.path.unwrap_or_else(|| ".".into());
             let directory = wisp_tools::safety::resolve_under_root(&project.root, &path)?;
             tokio::task::spawn_blocking(move || {
                 let entries = crate::file_browser::list_dir_entries(&directory)?;
                 serde_json::to_value(entries).map_err(|e| e.to_string())
-            }).await.map_err(|e| e.to_string())?
+            })
+            .await
+            .map_err(|e| e.to_string())?
         }
         "native_conversation_panel_readfile" => {
             let path = args.path.ok_or("File path is required")?;
@@ -26,10 +45,20 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request, project_id: &st
         }
         "native_conversation_panel_readartifact" => {
             let id = args.artifact_id.ok_or("Artifact ID is required")?;
-            if !state.store.artifact_visible_in_scope(&id, &scope).await.map_err(|e| e.to_string())? {
+            if !state
+                .store
+                .artifact_visible_in_scope(&id, &scope)
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 return Err("Artifact is not visible in this conversation scope".into());
             }
-            let path = state.store.artifact_path_in_scope(&id, &scope).await.map_err(|e| e.to_string())?.ok_or("Artifact not found")?;
+            let path = state
+                .store
+                .artifact_path_in_scope(&id, &scope)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or("Artifact not found")?;
             read(project.root, path).await
         }
         _ => Err("Unknown native panel command".into()),
@@ -39,7 +68,9 @@ async fn read(root: std::path::PathBuf, path: String) -> Result<Value, String> {
     tokio::task::spawn_blocking(move || {
         let content = crate::file_browser::read_file_at(&root, path, None)?;
         serde_json::to_value(content).map_err(|e| e.to_string())
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
