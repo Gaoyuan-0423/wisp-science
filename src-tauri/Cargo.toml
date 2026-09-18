@@ -104,4 +104,5 @@ objc2 = "0.6"
 tao = "0.37.0"
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }

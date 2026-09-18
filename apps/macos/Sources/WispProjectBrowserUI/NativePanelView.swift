@@ -13,7 +13,7 @@ struct NativePanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Picker("面板", selection: $tab) { Text("产物").tag("artifacts"); Text("文件").tag("files") }.labelsHidden()
+                Picker("面板", selection: $tab) { Text("产物").tag("artifacts"); Text("文件").tag("files"); Text("执行环境").tag("hosts") }.labelsHidden()
                 Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新")
                 Button("关闭", action: close)
             }
@@ -35,6 +35,8 @@ struct NativePanelView: View {
                             }.buttonStyle(.plain)
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
+                    } else if tab == "hosts" {
+                        NativePanelContextsView(model: model, query: query)
                     } else {
                         ForEach(model.files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
                             Button {
@@ -47,7 +49,7 @@ struct NativePanelView: View {
                 }
             }
         }.padding(12).frame(maxHeight: .infinity).background(WispDesign.color("bg-sunken", scheme))
-            .task(id: tab) { if !["artifacts", "files"].contains(tab) { tab = "artifacts" }; await model.refresh(tab) }
+            .task(id: tab) { if !["artifacts", "files", "hosts"].contains(tab) { tab = "artifacts" }; await model.refresh(tab) }
             .sheet(isPresented: Binding(get: { model.preview != nil }, set: { if !$0 { model.dismissPreview() } })) {
                 if let content = model.preview { NativePanelFilePreview(content: content, close: model.dismissPreview) }
             }
@@ -77,5 +79,38 @@ struct NativePanelFilePreview: View {
             } else { NativeQuickLookPreview(url: URL(fileURLWithPath: content.path)) }
         }.padding(16).frame(minWidth: 560, idealWidth: 850, minHeight: 420, idealHeight: 650)
             .background(NativeSettingsEscape(close: close))
+    }
+}
+
+struct NativePanelContextsView: View {
+    @ObservedObject var model: NativePanelModel
+    var query = ""
+    @Environment(\.colorScheme) private var scheme
+    @ViewBuilder var body: some View {
+        if let snapshot = model.contexts {
+            ForEach(snapshot.attached.filter { query.isEmpty || $0.label.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query) }) { context in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(context.label.isEmpty ? context.id : context.label).font(.headline)
+                    Text(context.kind + " · " + (context.last_probe_status ?? "尚未探测")).font(.caption).foregroundStyle(.secondary)
+                    if let error = context.last_probe_error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                    HStack {
+                        Button("探测") { Task { await model.probeContext(context.id) } }
+                        if context.kind != "local" { Button("从会话移除") { Task { await model.setContext(context.id, enabled: false) } }.disabled(snapshot.read_only) }
+                    }.disabled(model.contextBusy)
+                    DisclosureGroup("机器信息") {
+                        NativeSettingsSummary(value: SettingsValue.string(context.capabilities_json).decodedJSON)
+                    }
+                }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(WispDesign.color("bg-elev", scheme), in: RoundedRectangle(cornerRadius: 8))
+            }
+            if !snapshot.available.isEmpty {
+                Menu("关联执行环境") {
+                    ForEach(snapshot.available) { context in
+                        Button(context.label.isEmpty ? context.id : context.label) { Task { await model.setContext(context.id, enabled: true) } }
+                    }
+                }.disabled(snapshot.read_only || model.contextBusy)
+            }
+            if snapshot.read_only { Text("归档或只读会话不能修改关联环境").font(.caption).foregroundStyle(.secondary) }
+        }
     }
 }

@@ -8,6 +8,8 @@ final class NativePanelModel: ObservableObject {
     @Published private(set) var path = "."
     @Published private(set) var loading = false
     @Published private(set) var error: String?
+    @Published private(set) var contexts: NativePanelContexts?
+    @Published private(set) var contextBusy = false
     @Published var preview: NativePanelFileContent?
     let client: any NativeConversationQuerying
     let projectID: String
@@ -32,11 +34,34 @@ final class NativePanelModel: ObservableObject {
             if tab == "artifacts" {
                 let rows = try decode(await call("artifacts"), as: [NativePanelArtifact].self)
                 guard generation == current, !Task.isCancelled else { return }; artifacts = rows
+            } else if tab == "hosts" {
+                let result = try decode(await call("contexts"), as: NativePanelContexts.self)
+                guard generation == current, !Task.isCancelled else { return }; contexts = result
             } else {
                 let rows = try decode(await call("files", ["path": .string(requestedPath)]), as: [NativePanelFile].self)
                 guard generation == current, !Task.isCancelled else { return }; files = rows; path = requestedPath
             }
         } catch { if generation == current, !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+    func setContext(_ id: String, enabled: Bool) async {
+        guard !contextBusy, contexts?.read_only == false else { return }
+        let current = generation
+        contextBusy = true
+        defer { contextBusy = false }
+        do {
+            _ = try await call("context_enabled", ["context_id": .string(id), "enabled": .bool(enabled)])
+            if generation == current, !Task.isCancelled { await refresh("hosts") }
+        } catch { if generation == current { self.error = error.localizedDescription } }
+    }
+    func probeContext(_ id: String) async {
+        guard !contextBusy else { return }
+        let current = generation
+        contextBusy = true
+        defer { contextBusy = false }
+        do {
+            _ = try await client.invoke("probe_execution_context", args: ["contextId": .string(id)], projectID: projectID)
+            if generation == current, !Task.isCancelled { await refresh("hosts") }
+        } catch { if generation == current { self.error = error.localizedDescription } }
     }
     func child(_ file: NativePanelFile) -> String { path == "." ? file.name : path + "/" + file.name }
     var parent: String {

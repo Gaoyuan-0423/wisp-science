@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_contexts",
+    "native_conversation_panel_context_enabled",
     "native_conversation_panel_artifacts",
     "native_conversation_panel_files",
     "native_conversation_panel_readfile",
@@ -34,8 +36,19 @@ pub const COMMANDS: &[&str] = &[
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PanelContexts {
+    pub contexts: Vec<crate::ExecutionContext>,
+    pub enabled_ids: Vec<String>,
+    pub read_only: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub context_id: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
     pub session_id: String,
     #[serde(default)]
     pub path: Option<String>,
@@ -282,6 +295,15 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn panel_context_fixture_preserves_session_membership() {
+        let snapshot: PanelContexts = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-contexts.json")).unwrap();
+        assert_eq!(snapshot.contexts.len(), 3);
+        assert_eq!(snapshot.enabled_ids, vec!["ssh:gpu"]);
+        assert!(!snapshot.read_only);
+        let encoded = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(encoded["contexts"][0]["kind"], "local");
     }
     #[test]
     fn mutation_arguments_reject_unscoped_and_unexpected_fields() {

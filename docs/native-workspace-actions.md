@@ -173,3 +173,31 @@ This is not side-panel parity yet: agent workflows, execution contexts, optional
 notebook/highlights/provenance/side-chat tabs, tab add/close/reorder state, remote
 file operations, editing/download/actions and full visual/Escape QA remain to be
 implemented/verified. Their absence must not be treated as task completion.
+
+
+## Session execution contexts
+
+The native right panel now includes Execution Environments. It shows the local
+context plus contexts attached to the current conversation, with status, probe
+errors and expandable machine capabilities. Available contexts can be attached;
+nonlocal contexts can be detached. Probe uses the existing settings command and
+runs only on explicit user action. No test contacts a remote machine.
+
+The shared `PanelContexts` response uses the existing ExecutionContext fields,
+conversation membership and a read-only flag. Membership mutations validate
+project/session ownership, existing context identity, archive state and writable
+scope. Swift and C# clients share `panel-contexts.json`; uncertain writes are not
+replayed. Read-only views disable attachment changes. A reply arriving after
+navigation cannot trigger a stale context refresh.
+
+Swift behavior tests cover session filtering, read-only controls and mutation
+failure without replay. C# contract tests passed. The 280-point light/dark cards
+were rendered and inspected. Full native tests passed before the render-only
+view extraction, and the five panel tests passed afterward. The missing tempfile
+test dependency from the previous file-preview test has been added; the Rust
+integration check is being rerun.
+
+Runtime management, run lists, interpreter/storage editors and context terminal
+shortcuts still need to be integrated in this panel. Existing native settings
+remain available for configuration. Agents, optional tabs and tab management
+remain pending; this addition does not complete the side-panel acceptance item.

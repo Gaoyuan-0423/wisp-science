@@ -25,3 +25,20 @@ public struct NativePanelFileContent: Codable, Sendable {
     public let truncated: Bool
     public let total_bytes: UInt64?
 }
+
+public struct NativePanelContext: Codable, Identifiable, Sendable {
+    public let id: String
+    public let kind: String
+    public let label: String
+    public let config_json: String
+    public let capabilities_json: String
+    public let last_probe_status: String?
+    public let last_probe_error: String?
+}
+public struct NativePanelContexts: Codable, Sendable {
+    public let contexts: [NativePanelContext]
+    public let enabled_ids: [String]
+    public let read_only: Bool
+    public var attached: [NativePanelContext] { contexts.filter { $0.kind == "local" || enabled_ids.contains($0.id) } }
+    public var available: [NativePanelContext] { contexts.filter { $0.kind != "local" && !enabled_ids.contains($0.id) } }
+}

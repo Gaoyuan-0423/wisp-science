@@ -20,6 +20,24 @@ pub(crate) async fn dispatch(
         return Err("Project scope mismatch".into());
     }
     match request.command.as_str() {
+        "native_conversation_panel_contexts" => {
+            let contexts = state.store.list_execution_contexts().await.map_err(|e| e.to_string())?;
+            let enabled_ids = state.store.list_session_execution_context_ids(session).await.map_err(|e| e.to_string())?;
+            let read_only = crate::exploration_commands::require_writable_scope(&state.store, &scope).await.is_err()
+                || state.store.require_unarchived_session(session).await.is_err();
+            // Validate the existing store shape against the shared UI contract.
+            let contexts = serde_json::from_value(serde_json::to_value(contexts).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            serde_json::to_value(wisp_dto::native_conversations::PanelContexts { contexts, enabled_ids, read_only }).map_err(|e| e.to_string())
+        }
+        "native_conversation_panel_context_enabled" => {
+            let context_id = args.context_id.ok_or("Execution context is required")?;
+            let enabled = args.enabled.ok_or("Enabled state is required")?;
+            let context = state.store.get_execution_context(&context_id).await.map_err(|e| e.to_string())?.ok_or("Execution context not found")?;
+            if context.kind == wisp_store::ExecutionContextKind::Local { return Err("The local context is always available".into()); }
+            state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            let ids = crate::ssh_hosts::set_session_execution_context_enabled(state, session.into(), context_id, enabled).await?;
+            serde_json::to_value(ids).map_err(|e| e.to_string())
+        }
         "native_conversation_panel_artifacts" => {
             invoke_command(
                 broker,

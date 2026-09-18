@@ -4368,7 +4368,7 @@ pub struct AgentWorkflow {
     pub updated_at: i64,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ExecutionContext {
     pub id: String,
     pub kind: String,

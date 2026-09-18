@@ -1,14 +1,19 @@
 import Foundation
+import SwiftUI
+import AppKit
 import XCTest
 import WispProjectBrowser
 @testable import WispProjectBrowserUI
 
 private actor PanelClient: NativeConversationQuerying {
     let rows: SettingsValue
+    var mutations = 0
+    func mutationCount() -> Int { mutations }
     var held: CheckedContinuation<SettingsValue, Error>?
     init(_ rows: SettingsValue) { self.rows = rows }
     func snapshot(projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> ConversationSnapshot { throw ProjectBrowserError.invalidResponse }
     func invoke(_ command: String, args: [String: SettingsValue], projectID: String) async throws -> SettingsValue {
+        if command.hasSuffix("context_enabled") { mutations += 1; throw ProjectBrowserError.invalidResponse }
         if args["path"]?.string == "slow" { return try await withCheckedThrowingContinuation { held = $0 } }
         return rows
     }
@@ -20,6 +25,23 @@ final class NativePanelTests: XCTestCase {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
         return try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/\(name).json")))
+    }
+    @MainActor func testRenderContextsAtNarrowPanelWidth() async throws {
+        guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in native rendering") }
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let model = NativePanelModel(client: PanelClient(try fixture("panel-contexts")), projectID: "p", sessionID: "s")
+        await model.refresh("hosts")
+        for (name, scheme) in [("contexts-light", ColorScheme.light), ("contexts-dark", ColorScheme.dark)] {
+            let view = NSHostingView(rootView: VStack(alignment: .leading, spacing: 10) {
+                NativePanelContextsView(model: model)
+                Spacer()
+            }.padding(12).frame(width: 280, height: 500).background(WispDesign.color("bg-sunken", scheme)).environment(\.colorScheme, scheme))
+            view.frame = NSRect(x: 0, y: 0, width: 280, height: 500)
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
+        }
     }
     @MainActor func testLateDirectoryReadCannotReplaceNewerNavigation() async throws {
         let client = PanelClient(try fixture("panel-files"))
@@ -33,6 +55,26 @@ final class NativePanelTests: XCTestCase {
         XCTAssertEqual(model.parent, ".")
         XCTAssertEqual(model.child(model.files[1]), "results/README.md")
         model.close()
+    }
+    @MainActor func testContextsAreSessionScopedAndFailedMutationIsNotReplayed() async throws {
+        let client = PanelClient(try fixture("panel-contexts"))
+        let model = NativePanelModel(client: client, projectID: "p", sessionID: "s")
+        await model.refresh("hosts")
+        XCTAssertEqual(model.contexts?.attached.map(\.id), ["local", "ssh:gpu"])
+        XCTAssertEqual(model.contexts?.available.map(\.id), ["wsl:ubuntu"])
+        await model.setContext("wsl:ubuntu", enabled: true)
+        let count = await client.mutationCount()
+        XCTAssertEqual(count, 1)
+        XCTAssertNotNil(model.error)
+        XCTAssertEqual(model.contexts?.enabled_ids, ["ssh:gpu"])
+    }
+    @MainActor func testReadOnlyContextCannotBeChanged() async throws {
+        var rows = try fixture("panel-contexts"); rows["read_only"] = .bool(true)
+        let client = PanelClient(rows)
+        let model = NativePanelModel(client: client, projectID: "p", sessionID: "s")
+        await model.refresh("hosts")
+        await model.setContext("ssh:gpu", enabled: false)
+        let count = await client.mutationCount(); XCTAssertEqual(count, 0)
     }
     func testTruncatedPreviewRetainsFullSize() throws {
         let preview = try JSONDecoder().decode(NativePanelFileContent.self, from: JSONEncoder().encode(fixture("panel-preview")))

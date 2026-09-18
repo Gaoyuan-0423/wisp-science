@@ -1,0 +1,35 @@
+{
+  "contexts": [
+    {
+      "id": "local",
+      "label": "本机",
+      "kind": "local",
+      "config_json": "{}",
+      "capabilities_json": "{}",
+      "last_probe_status": null,
+      "last_probe_error": null
+    },
+    {
+      "id": "ssh:gpu",
+      "label": "GPU",
+      "kind": "ssh",
+      "config_json": "{}",
+      "capabilities_json": "{}",
+      "last_probe_status": null,
+      "last_probe_error": null
+    },
+    {
+      "id": "wsl:ubuntu",
+      "label": "Ubuntu",
+      "kind": "wsl",
+      "config_json": "{}",
+      "capabilities_json": "{}",
+      "last_probe_status": null,
+      "last_probe_error": null
+    }
+  ],
+  "enabled_ids": [
+    "ssh:gpu"
+  ],
+  "read_only": false
+}
