@@ -6,10 +6,10 @@ import WispProjectBrowser
 @testable import WispProjectBrowserUI
 
 final class NativeShareTests: XCTestCase {
-    func fixture() throws -> [NativeShareRow] {
+    func fixture(_ name: String = "share") throws -> [NativeShareRow] {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
-        return try JSONDecoder().decode([NativeShareRow].self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/share.json")))
+        return try JSONDecoder().decode([NativeShareRow].self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/\(name).json")))
     }
     func testSelectionAndRedactionExcludeThinkingByDefault() throws {
         let draft = NativeShare.draft(try fixture())
@@ -25,6 +25,35 @@ final class NativeShareTests: XCTestCase {
         let blocks = NativeShareMarkdown.blocks("# Results\n\n- first\n- second\n\n```python\n# literal\nprint(1)\n```")
         XCTAssertEqual(blocks.map(\.kind), ["heading", "bullet", "bullet", "code"])
         XCTAssertEqual(blocks.last?.text, "# literal\nprint(1)")
+    }
+    func testTablesPreserveEscapedAndCodePipesAndPadShortRows() {
+        let blocks = NativeShareMarkdown.blocks("| Sample | Value |\n| --- | :---: |\n| A | `x|y` |\n| B | one\\|two |\n| C |")
+        XCTAssertEqual(blocks.count, 1)
+        XCTAssertEqual(blocks[0].kind, "table")
+        XCTAssertEqual(blocks[0].alignments, ["left", "center"])
+        XCTAssertEqual(blocks[0].rows, [["Sample", "Value"], ["A", "`x|y`"], ["B", "one\\|two"], ["C", ""]])
+        XCTAssertEqual(NativeShareMarkdown.blocks("a | b\nnot | divider").first?.kind, "paragraph")
+    }
+    func testNestedListsAndLongFencesKeepTheirStructure() {
+        let blocks = NativeShareMarkdown.blocks("1. first\n   - nested\n2) second\n\n````markdown\n```python\nprint(1)\n```\n````\n## Results")
+        XCTAssertEqual(blocks.map(\.kind), ["ordered", "bullet", "ordered", "code", "heading"])
+        XCTAssertEqual(blocks[0].marker, "1.")
+        XCTAssertEqual(blocks[1].level, 1)
+        XCTAssertEqual(blocks[2].marker, "2.")
+        XCTAssertEqual(blocks[3].text, "```python\nprint(1)\n```")
+        XCTAssertEqual(blocks[4].level, 2)
+    }
+    @MainActor func testComplexMarkdownPNGAtNarrowAndWideWidths() throws {
+        let rows = try fixture("share-complex")
+        for width in [320, 840] {
+            let data = try NativeSharePage.png(rows: rows, width: width, scheme: .light)
+            let image = try XCTUnwrap(NSBitmapImageRep(data: data))
+            XCTAssertEqual(image.pixelsWide, width)
+            XCTAssertGreaterThan(image.pixelsHigh, 300)
+            if let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] {
+                try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("share-complex-\(width).png"))
+            }
+        }
     }
     func testWidthMatchesWebViewBounds() {
         XCTAssertEqual(NativeShare.width(""), 840)

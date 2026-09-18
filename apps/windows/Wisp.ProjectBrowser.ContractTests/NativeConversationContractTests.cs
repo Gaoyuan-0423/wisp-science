@@ -88,6 +88,8 @@ static class NativeConversationContractTests
         try { (terminal with { Reset = false }).Bytes("terminal-a", 5); throw new Exception("Expected terminal replay rejection"); } catch (InvalidDataException) { }
         var share = JsonSerializer.Deserialize<NativeShareRow[]>(File.ReadAllText(Path.Combine(directory, "share.json")), ConversationSnapshot.JsonOptions)!;
         Require(share.Length == 3 && share[1].Role == "reasoning", "Share fixture drift");
+        var complexShare = JsonSerializer.Deserialize<NativeShareRow[]>(File.ReadAllText(Path.Combine(directory, "share-complex.json")), ConversationSnapshot.JsonOptions)!;
+        Require(complexShare.Length == 1 && complexShare[0].Text.Contains("| 样本 A | **Passed** |") && complexShare[0].Text.Contains("   - Check **read depth**"), "Complex share Markdown must survive the native contract");
         var contexts = JsonSerializer.Deserialize<NativePanelContexts>(File.ReadAllText(Path.Combine(directory, "panel-contexts.json")), ConversationSnapshot.JsonOptions)!;
         Require(contexts.Attached.Select(c => c.Id).SequenceEqual(new[] { "local", "ssh:gpu" }) && contexts.Available.Single().Id == "wsl:ubuntu", "Context session scope drift");
         var activity = JsonSerializer.Deserialize<NativeContextActivity>(File.ReadAllText(Path.Combine(directory, "panel-activity.json")), ConversationSnapshot.JsonOptions)!;

@@ -847,3 +847,25 @@ expanded Python input exposed both contextual actions. Saving it added the
 underline after the backend confirmed the saved highlight; quoting it opened
 SideChat and displayed the exact code as a conversation excerpt without sending a
 question. No provider request was made for that quotation check.
+
+## Share Markdown structure
+
+The native share preview and PNG renderer now preserve pipe tables (including
+column alignment, escaped pipes and inline-code pipes), ordered-list numbering,
+indented list items and heading levels. Fenced code keeps the opening fence's
+actual length and requires a matching closing line; a three-backtick example no
+longer terminates a four-backtick outer block. Table rows with omitted trailing
+cells are padded, while a non-divider pipe line remains a paragraph.
+
+Regression tests cover these parsing cases and render the shared
+`share-complex.json` fixture at 320 and 840 pixels through the actual PNG exporter.
+Both PNGs were inspected: the table is legible, list nesting is visible, and code
+is rendered literally without cropping in this fixture. The full Swift suite
+passed (121 UI + 14 core = 135); after moving the sample into the shared fixture,
+the seven share tests and full C# contract executable passed again. WinUI's
+contract test verifies that table and list Markdown survive decoding unchanged;
+it does not claim a WinUI renderer exists.
+
+This closes specific structural gaps, not the full Markdown parity item.
+Multi-paragraph list items, nested block quotes and broader WebView comparison
+remain to be handled alongside the other original acceptance requirements.
