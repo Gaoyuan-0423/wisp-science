@@ -628,3 +628,34 @@ During full gates, a sample of the Rust `project_queries` test process showed it
 at `_dyld_start` with a 96 KB footprint before it later ran and passed all seven
 tests. This establishes a process-start delay in that run; it does not establish
 the cause of the Swift transport timeout. No production timeout was changed.
+
+## Trajectory timeline and inspector alignment
+
+The native trajectory now uses the same three input/model/tool lanes as WebView,
+with session-level duration, turn and call packing. Usage rows remain in the
+step list but are excluded from the lanes. Missing or nonpositive durations use
+the same fallback display weight as WebView; they are not reported as measured
+elapsed time. Turn groups show the recorded input/model/tool timing split.
+Selecting a lane segment opens the inspector and scrolls to the matching row.
+Selections use stable turn/cell keys and resolve their content from the newest
+snapshot, rather than retaining an old copy of the cell. Filtering reconciles
+selection to the first remaining row. The inspector exposes summary, preview,
+raw JSON and source views; errors include explicit `ok: false`, and the current
+conversation running state distinguishes pending from running cells.
+
+Shared fixture `trajectory-layout.json` covers all three axes, usage exclusion,
+missing/negative durations, nonconsecutive turn identities, case-insensitive
+trimmed filtering, empty matches and per-turn timing. The actual WebView layout
+functions and the Swift/C# projections consume it independently. Nine WebView
+trajectory tests, the C# executable, four focused Swift tests and a full 123-test
+Swift run passed. The existing transport timeout did not recur in that full run.
+Full trajectory and lane-only light/narrow and dark/desktop renders were
+inspected. The final tool-preview adjustment is covered by a focused rerun.
+
+Trajectory colors and four shared icons now export from the existing WebView
+CSS and `compose_icon` sources through `sync_native_design.py`, including custom
+native palette variants. Export consistency passes. Live in-flight event
+projection beyond the persisted snapshot polling, real chart click/scroll
+interaction and immediate topmost Escape still require final app verification.
+The workspace Rust gate is still running; this section does not claim the full
+seven-action objective is complete.

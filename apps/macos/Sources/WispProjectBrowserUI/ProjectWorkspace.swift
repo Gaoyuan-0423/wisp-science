@@ -137,7 +137,7 @@ struct ProjectWorkspace: View {
         }
         .sheet(isPresented: $trajectoryPresented) {
             if let session = model.activeSessionID {
-                NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session) { trajectoryPresented = false }
+                NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session, running: conversation.snapshot?.running == true) { trajectoryPresented = false }
                     .id(project.id + ":" + session)
             }
         }

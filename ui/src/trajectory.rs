@@ -999,6 +999,32 @@ mod tests {
     }
 
     #[test]
+    fn native_timeline_fixture_matches_webview_layout() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../contracts/native-conversations/v1/trajectory-layout.json")).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let turns: Vec<crate::dto::TrajectoryTurnDto> = serde_json::from_value(case["turns"].clone()).unwrap();
+            let snapshot = Some(TrajectorySnapshotDto { turns, ..Default::default() });
+            let query = case["query"].as_str().unwrap().trim().to_lowercase();
+            let rows = visible_rows(&snapshot, &[], &query);
+            let axis = match case["axis"].as_str().unwrap() { "duration" => TimelineAxis::Duration, "turns" => TimelineAxis::Turns, _ => TimelineAxis::Calls };
+            let actual = gantt_segments(axis, &rows);
+            let expected = case["segments"].as_array().unwrap();
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert_eq!(actual.key, expected["key"].as_str().unwrap());
+                assert_eq!(actual.lane, expected["lane"].as_str().unwrap());
+                assert!((actual.left_pct - expected["left_pct"].as_f64().unwrap()).abs() < 0.000001);
+                assert!((actual.width_pct - expected["width_pct"].as_f64().unwrap()).abs() < 0.000001);
+            }
+        }
+        let turns: Vec<crate::dto::TrajectoryTurnDto> = serde_json::from_value(fixture["cases"][0]["turns"].clone()).unwrap();
+        for expected in fixture["timing"].as_array().unwrap() {
+            let turn = turns.iter().find(|turn| turn.index == expected["turn"].as_i64().unwrap()).unwrap();
+            assert_eq!(turn_timing(&turn.cells), Some((expected["input"].as_u64().unwrap(), expected["model"].as_u64().unwrap(), expected["tools"].as_u64().unwrap())));
+        }
+    }
+
+    #[test]
     fn turn_timing_splits_input_model_and_tools() {
         let cells = vec![
             cell("user", "q", 1000, None),

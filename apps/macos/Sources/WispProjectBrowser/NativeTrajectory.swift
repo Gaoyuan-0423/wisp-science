@@ -51,3 +51,28 @@ public struct NativeTrajectoryStats: Codable, Sendable {
     public let cache_hit_pct: Double?
     public let tokens_per_sec: Double?
 }
+
+extension NativeTrajectoryCell {
+    public func status(running: Bool) -> String {
+        if is_error || ok == false { return "error" }
+        if kind == "tool" && ok == nil { return running ? "running" : "pending" }
+        if running && kind == "assistant" && ok == nil && duration_ms == nil { return "running" }
+        return "completed"
+    }
+    public var rawJSON: String { Self.json(self) }
+    public var preview: String {
+        if kind == "usage", let usage { return "第 \(usage.round) 轮 · 输入 \(usage.input_tokens) · 输出 \(usage.output_tokens) · 缓存 \(usage.cached_input_tokens)" }
+        if let output = detail_output, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return output }
+        return detail_input ?? summary
+    }
+    public var source: String {
+        if kind == "tool" { return detail_input ?? summary }
+        if kind == "usage", let usage { return Self.json(usage) }
+        if let output = detail_output, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return output }
+        return summary
+    }
+    private static func json<T: Encodable>(_ value: T) -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return (try? String(data: encoder.encode(value), encoding: .utf8)) ?? "—"
+    }
+}

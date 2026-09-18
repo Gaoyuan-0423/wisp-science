@@ -7,6 +7,27 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var timeline = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "trajectory-layout.json")))!;
+        foreach (var item in timeline["cases"]!.AsArray())
+        {
+            var turns = item!["turns"]!.Deserialize<NativeTrajectoryTurn[]>(ConversationSnapshot.JsonOptions)!;
+            var rows = NativeTrajectoryRow.Collect(turns, item["query"]!.GetValue<string>());
+            var actual = NativeTrajectorySegment.Collect(rows, Enum.Parse<NativeTrajectoryAxis>(item["axis"]!.GetValue<string>(), true));
+            var expected = item["segments"]!.Deserialize<NativeTrajectorySegment[]>(ConversationSnapshot.JsonOptions)!;
+            Require(actual.Length == expected.Length, "Timeline segment count drift");
+            foreach (var (a, e) in actual.Zip(expected))
+                Require(a.Key == e.Key && a.Lane == e.Lane && Math.Abs(a.LeftPct - e.LeftPct) < 0.000001 && Math.Abs(a.WidthPct - e.WidthPct) < 0.000001, "Timeline position drift");
+        }
+        var timedTurns = timeline["cases"]![0]!["turns"]!.Deserialize<NativeTrajectoryTurn[]>(ConversationSnapshot.JsonOptions)!;
+        foreach (var expected in timeline["timing"]!.AsArray())
+        {
+            var timing = NativeTrajectoryTiming.Collect(timedTurns.Single(turn => turn.Index == expected!["turn"]!.GetValue<long>()).Cells);
+            Require(timing == new NativeTrajectoryTiming(expected!["input"]!.GetValue<double>(), expected["model"]!.GetValue<double>(), expected["tools"]!.GetValue<double>()), "Per-turn timing drift");
+        }
+        var recorded = timedTurns[0].Cells;
+        Require(recorded[2].Status(true) == "running" && recorded[2].Status(false) == "pending" && recorded[1].Status(true) == "completed", "Trajectory status drift");
+        Require((recorded[2] with { Ok = false }).Status(true) == "error", "Trajectory failure masked");
+        Require(recorded[0].Preview == "Question" && recorded[0].Source == "Question" && JsonNode.Parse(recorded[0].RawJson)?["kind"]?.GetValue<string>() == "user", "Trajectory inspector text drift");
         var provenanceItems = JsonSerializer.Deserialize<ConversationItem[]>(File.ReadAllText(Path.Combine(directory, "panel-provenance.json")), ConversationSnapshot.JsonOptions)!;
         var provenance = NativeProvenanceRow.Collect(provenanceItems);
         Require(provenance.Select(row => row.Index).SequenceEqual(new[] { 1, 3, 4, 5 }), "Tool source order drift");
