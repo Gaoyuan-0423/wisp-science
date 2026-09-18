@@ -793,3 +793,33 @@ tests. This supersedes earlier notes that the workspace run was still pending.
 The full Playwright run had 823 passes, two optional skips and one extension-page
 screenshot timeout; that exact test passed unchanged on isolated rerun. These
 results do not establish complete seven-action parity; PR #1288 remains draft.
+
+## File and artifact display modes
+
+File and artifact panels now share a persisted client-local list/grid preference,
+matching the WebView's shared view-mode control. Grid columns adapt to sidebar
+width, while long names and paths remain bounded with the full text available in
+help. Both presentations retain the same scoped data and preview action. The
+artifact context menu also opens preview or the existing Provenance tab, reopening
+that tab if it was previously closed, as the WebView menu does.
+
+An offline render test exercises both modes at 320 px sidebar width in light and
+dark appearances. All four resulting screenshots were inspected. The complete
+Swift suite passed with rendering enabled: 117 UI tests and 14 core tests (131
+total), including the previously intermittent process-transport tests. Resource
+consistency and diff whitespace checks passed. Native menu and preference
+interaction are checked separately in the packaged QA app.
+
+WinUI 3 continues to consume the unchanged typed artifact/file records. Its view
+should implement the same shared, client-local list/grid preference and route the
+artifact Provenance action to the existing provenance panel; neither operation
+requires a new backend command. File editing, remote operations and downloads
+remain on the full parity checklist.
+
+Packaged QA interaction passed: switching Artifacts from list to grid updates the
+selected accessibility value; Files inherits grid mode; opening README.md still
+loads its real synthetic contents and immediate Escape closes the preview.
+Closing and reopening the side panel preserves grid mode. The artifact context
+menu's immediate Escape closes only the menu, leaving the panel visible. Selecting
+Provenance from that menu opens its previously absent tab and displays the recorded
+Python step. The rebuilt QA bundle passed strict signing verification.

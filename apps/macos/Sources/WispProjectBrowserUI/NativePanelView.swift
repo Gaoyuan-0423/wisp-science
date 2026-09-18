@@ -5,6 +5,7 @@ struct NativePanelView: View {
     @StateObject private var model: NativePanelModel
     @AppStorage("native.workspace.panel.tab") private var tab = "artifacts"
     @AppStorage("native.workspace.panel.tabs") private var savedTabs = ""
+    @AppStorage("native.workspace.panel.grid") private var grid = false
     @State private var draggedTab: String?
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -29,6 +30,7 @@ struct NativePanelView: View {
                 if !["provenance", "sidechat"].contains(tab) { Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新") }
                 Button(action: close) { WispIcon(name: "close", size: 16) }.buttonStyle(.plain).help("关闭面板").accessibilityLabel("关闭面板")
             }
+            if ["artifacts", "files"].contains(tab) { NativePanelDisplayControls(grid: $grid) }
             if tab != "sidechat" {
             TextField(tab == "provenance" ? "搜索工具、输入或输出" : tab == "notebook" ? "搜索代码或输出" : "筛选名称", text: $query)
             if model.loading { ProgressView().controlSize(.small) }
@@ -44,12 +46,16 @@ struct NativePanelView: View {
                 NativeSideChatView(model: sideChat)
             } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: grid && ["artifacts", "files"].contains(tab) ? [GridItem(.adaptive(minimum: 130), alignment: .top)] : [GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
                     if tab == "artifacts" {
                         ForEach(model.artifacts.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { artifact in
                             Button { Task { await model.readArtifact(artifact.id) } } label: {
                                 row(title: artifact.name, subtitle: artifact.kind + " · " + (artifact.logical_path ?? artifact.path), icon: "doc")
                             }.buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("打开预览") { Task { await model.readArtifact(artifact.id) } }
+                                    Button("查看溯源") { var value = layout; value.show("provenance"); store(value) }
+                                }
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
                     } else if tab == "notebook" {
@@ -162,17 +168,51 @@ struct NativePanelView: View {
         }
     }
     private func row(title: String, subtitle: String, icon: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            WispIcon(name: icon, size: 16)
+        NativePanelTile(title: title, subtitle: subtitle, icon: icon, grid: grid)
+    }
+}
+
+/// Shared presentation controls for the file and artifact collections. The view
+/// preference is client-local; both modes use the same scoped backend records.
+struct NativePanelDisplayControls: View {
+    @Binding var grid: Bool
+    var body: some View {
+        HStack(spacing: 4) {
+            mode("列表", icon: "list", value: false)
+            mode("网格", icon: "grid", value: true)
+            Spacer()
+        }
+    }
+    private func mode(_ label: String, icon: String, value: Bool) -> some View {
+        Button { grid = value } label: {
+            WispIcon(name: icon, size: 16).padding(5)
+                .background(grid == value ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 5))
+        }.buttonStyle(.plain).help(label).accessibilityLabel(label)
+            .accessibilityValue(grid == value ? "已选择" : "未选择")
+    }
+}
+
+struct NativePanelTile: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let grid: Bool
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        let layout = grid ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+        layout {
+            WispIcon(name: icon, size: grid ? 26 : 16)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(WispDesign.font(size: 13, weight: .semibold)).lineLimit(2)
                 Text(subtitle).font(WispDesign.font(size: 10)).foregroundStyle(.secondary).lineLimit(2)
             }
-            Spacer(minLength: 0)
-        }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            if !grid { Spacer(minLength: 0) }
+        }.padding(8).frame(maxWidth: .infinity, minHeight: grid ? 100 : nil, alignment: .topLeading)
             .background(WispDesign.color("bg-elev", scheme), in: RoundedRectangle(cornerRadius: 8))
+            .help(title + "\n" + subtitle)
     }
 }
+
 struct NativePanelFilePreview: View {
     let content: NativePanelFileContent
     let close: () -> Void
