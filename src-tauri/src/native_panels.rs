@@ -21,28 +21,65 @@ pub(crate) async fn dispatch(
     }
     match request.command.as_str() {
         "native_conversation_panel_activity" => {
-            let runtimes = state.runtime_manager.list().into_iter()
-                .filter(|runtime| crate::runtime_commands::runtime_visible(&runtime.key, &scope, session))
+            let runtimes = state
+                .runtime_manager
+                .list()
+                .into_iter()
+                .filter(|runtime| {
+                    crate::runtime_commands::runtime_visible(&runtime.key, &scope, session)
+                })
                 .collect::<Vec<_>>();
-            let runs = state.store.list_run_summaries_in_scope(&scope).await.map_err(|e| e.to_string())?;
-            let read_only = crate::exploration_commands::require_writable_scope(&state.store, &scope).await.is_err()
-                || state.store.require_unarchived_session(session).await.is_err();
-            contract::<wisp_dto::native_conversations::PanelActivity>(serde_json::json!({"runtimes": runtimes, "runs": runs, "read_only": read_only}))
+            let runs = state
+                .store
+                .list_run_summaries_in_scope(&scope)
+                .await
+                .map_err(|e| e.to_string())?;
+            let read_only =
+                crate::exploration_commands::require_writable_scope(&state.store, &scope)
+                    .await
+                    .is_err()
+                    || state
+                        .store
+                        .require_unarchived_session(session)
+                        .await
+                        .is_err();
+            contract::<wisp_dto::native_conversations::PanelActivity>(
+                serde_json::json!({"runtimes": runtimes, "runs": runs, "read_only": read_only}),
+            )
         }
         "native_conversation_panel_runtime_inspect" => {
             let id = args.runtime_id.ok_or("Runtime ID is required")?;
-            let runtime = state.runtime_manager.list().into_iter().find(|runtime| runtime.runtime_id == id
-                && crate::runtime_commands::runtime_visible(&runtime.key, &scope, session)).ok_or("Runtime is not visible in this conversation scope")?;
-            let objects = state.runtime_manager.inspect(&runtime.key).await.map_err(|e| e.to_string())?;
-            contract::<wisp_dto::RuntimeObjectList>(serde_json::to_value(objects).map_err(|e| e.to_string())?)
+            let runtime = state
+                .runtime_manager
+                .list()
+                .into_iter()
+                .find(|runtime| {
+                    runtime.runtime_id == id
+                        && crate::runtime_commands::runtime_visible(&runtime.key, &scope, session)
+                })
+                .ok_or("Runtime is not visible in this conversation scope")?;
+            let objects = state
+                .runtime_manager
+                .inspect(&runtime.key)
+                .await
+                .map_err(|e| e.to_string())?;
+            contract::<wisp_dto::RuntimeObjectList>(
+                serde_json::to_value(objects).map_err(|e| e.to_string())?,
+            )
         }
-        "native_conversation_panel_run_detail" | "native_conversation_panel_run_cancel" | "native_conversation_panel_run_harvest" => {
+        "native_conversation_panel_run_detail"
+        | "native_conversation_panel_run_cancel"
+        | "native_conversation_panel_run_harvest" => {
             let id = args.run_id.ok_or("Run ID is required")?;
             let mutation = request.command != "native_conversation_panel_run_detail";
             require_run_scope(&state.store, &scope, &id, mutation).await?;
             if request.command != "native_conversation_panel_run_detail" {
                 crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
-                state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+                state
+                    .store
+                    .require_unarchived_session(session)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let _activity = state.begin_project_activity(project_id)?;
                 if request.command == "native_conversation_panel_run_cancel" {
                     state.run_manager.cancel(&state.store, &id).await?;
@@ -50,7 +87,12 @@ pub(crate) async fn dispatch(
                     state.run_manager.harvest_run(&state.store, &id).await?;
                 }
             }
-            let run = state.store.get_run(&id).await.map_err(|e| e.to_string())?.ok_or("Run not found")?;
+            let run = state
+                .store
+                .get_run(&id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or("Run not found")?;
             contract::<wisp_dto::RunRecord>(serde_json::to_value(run).map_err(|e| e.to_string())?)
         }
         "native_conversation_panel_contexts" => {
@@ -154,16 +196,34 @@ pub(crate) async fn dispatch(
         _ => Err("Unknown native panel command".into()),
     }
 }
-async fn require_run_scope(store: &wisp_store::Store, scope: &wisp_store::StateScope, id: &str, mutation: bool) -> Result<(), String> {
-    if !store.run_visible_in_scope(id, scope).await.map_err(|e| e.to_string())? {
+async fn require_run_scope(
+    store: &wisp_store::Store,
+    scope: &wisp_store::StateScope,
+    id: &str,
+    mutation: bool,
+) -> Result<(), String> {
+    if !store
+        .run_visible_in_scope(id, scope)
+        .await
+        .map_err(|e| e.to_string())?
+    {
         return Err("Run is not visible in this conversation scope".into());
     }
-    if mutation && store.run_state_scope(id).await.map_err(|e| e.to_string())?.as_ref() != Some(scope) {
+    if mutation
+        && store
+            .run_state_scope(id)
+            .await
+            .map_err(|e| e.to_string())?
+            .as_ref()
+            != Some(scope)
+    {
         return Err("An inherited run cannot be modified from this scope".into());
     }
     Ok(())
 }
-fn contract<T: serde::de::DeserializeOwned + serde::Serialize>(value: Value) -> Result<Value, String> {
+fn contract<T: serde::de::DeserializeOwned + serde::Serialize>(
+    value: Value,
+) -> Result<Value, String> {
     let parsed: T = serde_json::from_value(value).map_err(|e| e.to_string())?;
     serde_json::to_value(parsed).map_err(|e| e.to_string())
 }
@@ -182,16 +242,27 @@ mod tests {
     #[tokio::test]
     async fn native_run_reads_and_mutations_reject_foreign_and_missing_runs() {
         let temp = tempfile::tempdir().unwrap();
-        let store = wisp_store::Store::open(&temp.path().join("store.sqlite")).await.unwrap();
+        let store = wisp_store::Store::open(&temp.path().join("store.sqlite"))
+            .await
+            .unwrap();
         store.create_project("p", "Project", "").await.unwrap();
         store.create_project("other", "Other", "").await.unwrap();
-        store.create_run(&wisp_store::RunRecord::new("r", "p", "local", "Run", "command")).await.unwrap();
+        store
+            .create_run(&wisp_store::RunRecord::new(
+                "r", "p", "local", "Run", "command",
+            ))
+            .await
+            .unwrap();
         let own = wisp_store::StateScope::mainline("p");
         let other = wisp_store::StateScope::mainline("other");
         for mutation in [false, true] {
             assert!(require_run_scope(&store, &own, "r", mutation).await.is_ok());
-            assert!(require_run_scope(&store, &other, "r", mutation).await.is_err());
-            assert!(require_run_scope(&store, &own, "missing", mutation).await.is_err());
+            assert!(require_run_scope(&store, &other, "r", mutation)
+                .await
+                .is_err());
+            assert!(require_run_scope(&store, &own, "missing", mutation)
+                .await
+                .is_err());
         }
         drop(store);
     }

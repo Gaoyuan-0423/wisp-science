@@ -314,13 +314,22 @@ mod tests {
     }
     #[test]
     fn panel_activity_fixtures_use_existing_runtime_and_run_shapes() {
-        let activity: PanelActivity = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-activity.json")).unwrap();
+        let activity: PanelActivity = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-activity.json"
+        ))
+        .unwrap();
         assert_eq!(activity.runtimes[0].key.session_id, "session-a");
         assert_eq!(activity.runtimes[0].generation, 2);
         assert_eq!(activity.runs[0].status, "running");
-        let run: crate::RunRecord = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-run.json")).unwrap();
+        let run: crate::RunRecord = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-run.json"
+        ))
+        .unwrap();
         assert_eq!(run.stdout_tail.as_deref(), Some("Processed 10 samples"));
-        let objects: crate::RuntimeObjectList = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-runtime-objects.json")).unwrap();
+        let objects: crate::RuntimeObjectList = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-runtime-objects.json"
+        ))
+        .unwrap();
         assert_eq!(objects.objects[0].name, "samples");
         assert_eq!(objects.total_count, 1);
     }
