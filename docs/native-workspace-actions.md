@@ -315,7 +315,43 @@ focused seven agent tests passed afterward. C# contracts and thirteen native DTO
 tests passed. Native panel Rust tests and both shared retry preservation tests passed.
 Formatting checks passed. Approval and retry layouts were rendered and inspected.
 
-Still pending: delegation enablement, create/edit plans, specialist/template
-entry points, immediate-Escape interaction tests, tab management and the other
-outstanding toolbar acceptance requirements. No real provider, agent execution,
-SSH or WSL service was contacted during these tests.
+Subsequent delegation and workflow-settings navigation work is recorded below.
+Immediate-Escape interaction tests, tab management and other outstanding toolbar
+acceptance requirements remain open. No real provider, agent execution, SSH or
+WSL service was contacted during these tests.
+
+
+## Delegation and workflow management entry
+
+The Agents panel now reads and saves the current session's delegation setting.
+The switch changes only after the backend confirms the saved Boolean; failures
+retain the previous value and are never automatically replayed. Reads omit
+`enabled`, while writes preserve explicit `false`. The backend validates session
+ownership, rejects writes to archived/read-only sessions and reuses the existing
+session-specific delegation setter. Swift and C# expose the same operation.
+
+Manage Workflows opens native Settings directly at the `workflows` section,
+retaining the current project. It clears any prior project-editor route; opening
+project settings in turn clears this section route. The existing native workflow
+settings provide template add/edit/copy/delete and conversion entry points.
+
+Scope correction: `ui/src/agent_workflows.rs::agent_workflows_panel` routes its
+Manage Workflows action to settings. Its editor saves workflow templates via
+`save_workflow_template`; it does not expose direct creation/editing of session
+plans. Earlier pending references to a separate session-plan editor were an
+incorrect inference, not a WebView parity requirement. Template-editor visual and
+interaction fidelity still needs review alongside the other settings surfaces.
+
+Verification: all 75 Swift tests passed with render tests enabled, including
+confirmed switch state, failed-save no-replay and settings-route isolation.
+C# contracts, fourteen shared DTO tests and three native-panel backend tests
+passed. The narrow Agents panel render was inspected. Full repository gates and
+live UI/Escape verification remain outstanding.
+
+Manual smoke for this increment:
+1. Open Agents in a writable conversation, toggle delegation, and reopen the
+   panel to confirm persistence. Confirm a read-only conversation disables it.
+2. Select Manage Workflows and confirm Settings opens at Workflows for the same
+   project; close it and open project settings to verify the project editor.
+3. Simulate a save failure and confirm the displayed value stays unchanged and
+   no second save request is issued automatically.

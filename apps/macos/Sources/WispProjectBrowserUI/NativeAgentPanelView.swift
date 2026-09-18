@@ -5,12 +5,18 @@ struct NativeAgentPanelView: View {
     @ObservedObject var model: NativePanelModel
     var query = ""
     var readOnly = false
+    var manageWorkflows: () -> Void = {}
     @State private var pending: NativeAgentSnapshot?
     @State private var action = NativeAgentAction.approve
     @State private var retry: NativeAgentSnapshot?
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("代理任务会在当前对话中返回结果；这里可查看工作流状态与详情。").font(.caption).foregroundStyle(.secondary)
+            Button("管理工作流", action: manageWorkflows)
+            Toggle("允许当前会话委派代理任务", isOn: Binding(get: { model.agentDelegationEnabled ?? false }, set: { enabled in Task { await model.setAgentDelegation(enabled) } }))
+                .disabled(readOnly || model.agentDelegationBusy || model.agentDelegationEnabled == nil)
+            if model.agentDelegationBusy { ProgressView().controlSize(.small) }
             if model.agentResultLoading { ProgressView().controlSize(.small) }
             ForEach(model.agents.filter { query.isEmpty || $0.workflow.name.localizedCaseInsensitiveContains(query) || $0.workflow.goal.localizedCaseInsensitiveContains(query) }) { snapshot in
                 VStack(alignment: .leading, spacing: 10) {

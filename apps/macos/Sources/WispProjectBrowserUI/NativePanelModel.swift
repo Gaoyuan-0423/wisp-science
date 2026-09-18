@@ -10,6 +10,8 @@ final class NativePanelModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var contexts: NativePanelContexts?
     @Published private(set) var contextBusy = false
+    @Published private(set) var agentDelegationEnabled: Bool?
+    @Published private(set) var agentDelegationBusy = false
     @Published private(set) var agents: [NativeAgentSnapshot] = []
     @Published private(set) var agentLaunching: Set<String> = []
     @Published private(set) var agentActions: Set<String> = []
@@ -45,7 +47,9 @@ final class NativePanelModel: ObservableObject {
                 guard generation == current, !Task.isCancelled else { return }; artifacts = rows
             } else if tab == "agents" {
                 let result = try decode(await call("agents"), as: [NativeAgentSnapshot].self)
+                let enabled = try decode(await call("agent_delegation"), as: Bool.self)
                 guard generation == current, !Task.isCancelled else { return }; agents = result
+                if !agentDelegationBusy { agentDelegationEnabled = enabled }
             } else if tab == "hosts" {
                 let result = try decode(await call("contexts"), as: NativePanelContexts.self)
                 guard generation == current, !Task.isCancelled else { return }; contexts = result
@@ -74,6 +78,17 @@ final class NativePanelModel: ObservableObject {
             _ = try await client.invoke("probe_execution_context", args: ["contextId": .string(id)], projectID: projectID)
             if generation == current, !Task.isCancelled { await refresh("hosts") }
         } catch { if generation == current { self.error = error.localizedDescription } }
+    }
+    func setAgentDelegation(_ enabled: Bool) async {
+        guard !agentDelegationBusy, agentDelegationEnabled != nil else { return }
+        let epoch = agentEpoch; agentDelegationBusy = true; error = nil
+        defer { if epoch == agentEpoch { agentDelegationBusy = false } }
+        do {
+            let confirmed = try decode(await call("agent_delegation", ["enabled": .bool(enabled)]), as: Bool.self)
+            guard epoch == agentEpoch, !Task.isCancelled else { return }
+            agentDelegationEnabled = confirmed
+            if selectedTab == "agents" { await refresh("agents", quiet: true) }
+        } catch { if epoch == agentEpoch { self.error = error.localizedDescription } }
     }
     func performAgentAction(_ snapshot: NativeAgentSnapshot, action: NativeAgentAction, budgets: [String: NativeAgentBudgetOverride] = [:]) async {
         let id = snapshot.id
@@ -117,5 +132,5 @@ final class NativePanelModel: ObservableObject {
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
     func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
-    func close() { agentEpoch = UUID(); agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
+    func close() { agentEpoch = UUID(); agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }

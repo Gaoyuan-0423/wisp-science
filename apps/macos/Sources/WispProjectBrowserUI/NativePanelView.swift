@@ -7,10 +7,11 @@ struct NativePanelView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
+    let manageWorkflows: () -> Void
     let readOnly: Bool
     let close: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, readOnly: Bool = false, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.readOnly = readOnly; self.close = close
+    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -38,7 +39,7 @@ struct NativePanelView: View {
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
                     } else if tab == "agents" {
-                        NativeAgentPanelView(model: model, query: query, readOnly: readOnly)
+                        NativeAgentPanelView(model: model, query: query, readOnly: readOnly, manageWorkflows: manageWorkflows)
                     } else if tab == "hosts" {
                         NativePanelContextsView(model: model, query: query) { context, runtimes in activity = .init(context: context, runtimes: runtimes) }
                     } else {

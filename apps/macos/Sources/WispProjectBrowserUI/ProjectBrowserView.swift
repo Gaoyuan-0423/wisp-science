@@ -10,7 +10,7 @@ public struct ProjectBrowserView: View {
     public var body: some View {
         Group {
             if model.settingsPresented {
-                NativeSettingsView(databaseURL: model.databaseURL, projects: model.projects, projectID: model.projectSettingsID ?? model.activeProjectID, editProject: model.projectSettingsID != nil) { model.settingsPresented = false; model.projectSettingsID = nil; Task { await model.refresh() } }
+                NativeSettingsView(databaseURL: model.databaseURL, projects: model.projects, projectID: model.projectSettingsID ?? model.activeProjectID, editProject: model.projectSettingsID != nil, initialSection: NativeSettingsSection(rawValue: model.settingsSectionID ?? "") ?? .general) { model.settingsPresented = false; model.projectSettingsID = nil; model.settingsSectionID = nil; Task { await model.refresh() } }
             } else if let project = model.projects.first(where: { $0.id == model.activeProjectID }) {
                 ProjectWorkspace(model: model, project: project)
             } else {

@@ -20,6 +20,15 @@ pub(crate) async fn dispatch(
         return Err("Project scope mismatch".into());
     }
     match request.command.as_str() {
+        "native_conversation_panel_agent_delegation" => {
+            if let enabled = args.enabled {
+                crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
+                state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+                invoke_command(broker, Some(project_id.into()), "set_session_delegation_enabled", serde_json::json!({"sessionId": session, "enabled": enabled})).await
+            } else {
+                Ok(Value::Bool(crate::delegation_runtime::session_delegation_enabled(&state.store, session).await))
+            }
+        }
         "native_conversation_panel_agent_action" => {
             use wisp_dto::native_conversations::AgentAction;
             let workflow_id = args.workflow_id.ok_or("Workflow ID is required")?;

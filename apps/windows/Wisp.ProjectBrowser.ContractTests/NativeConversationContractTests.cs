@@ -69,6 +69,12 @@ static class NativeConversationContractTests
         agentFake.Fail = false;
         await agentClient.ActAsync("project-a", "session-a", "workflow-a", NativeAgentAction.Retry, budgets: new Dictionary<string, NativeAgentBudgetOverride> { ["review"] = new(0) });
         Require(agentFake.Args?["budget_overrides"]?["review"]?["max_tokens"]?.GetValue<uint>() == 0, "Unlimited retry budget lost");
+        agentFake.Reply = JsonValue.Create(true);
+        Require(await agentClient.GetDelegationAsync("project-a", "session-a"), "Missing confirmed delegation state");
+        Require(!agentFake.Args!.ContainsKey("enabled"), "Read delegation unexpectedly writes a value");
+        agentFake.Fail = true; var callsBeforeToggle = agentFake.Calls;
+        try { await agentClient.SetDelegationAsync("project-a", "session-a", false); } catch (IOException) { }
+        Require(agentFake.Calls == callsBeforeToggle + 1 && agentFake.Args?["enabled"]?.GetValue<bool>() == false, "Delegation save lost false or was replayed");
         var runtimeFake = new Fake(); var runtimeClient = new NativeContextActivityClient(runtimeFake);
         await runtimeClient.StopRuntimeAsync("project-a", "session-a", "runtime-a", 2);
         Require(runtimeFake.Args?["runtime_generation"]?.GetValue<ulong>() == 2 && runtimeFake.Args?["session_id"]?.GetValue<string>() == "session-a", "Runtime stop lost generation/scope");

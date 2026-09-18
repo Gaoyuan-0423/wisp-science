@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_agent_delegation",
     "native_conversation_panel_agent_action",
     "native_conversation_panel_agents",
     "native_conversation_panel_agent_result",
@@ -345,6 +346,13 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn delegation_read_and_disabled_write_remain_distinct() {
+        let read: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s"})).unwrap();
+        let write: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s", "enabled":false})).unwrap();
+        assert_eq!(read.enabled, None);
+        assert_eq!(write.enabled, Some(false));
     }
     #[test]
     fn agent_actions_are_closed_and_approval_keeps_reviewed_version() {

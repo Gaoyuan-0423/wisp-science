@@ -29,6 +29,17 @@ private actor NavigationClient: ProjectBrowserQuerying {
 }
 
 final class ProjectNavigationTests: XCTestCase {
+    @MainActor func testWorkflowSettingsRouteDoesNotOpenProjectEditor() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/unused.sqlite"))
+        model.openProjectSettings("p")
+        model.openWorkflowSettings()
+        XCTAssertTrue(model.settingsPresented)
+        XCTAssertEqual(model.settingsSectionID, "workflows")
+        XCTAssertNil(model.projectSettingsID)
+        model.openProjectSettings("p")
+        XCTAssertNil(model.settingsSectionID)
+        XCTAssertEqual(model.projectSettingsID, "p")
+    }
     @MainActor
     func testRecentSessionOpensExactConversationAndBackClearsWorkspace() async {
         let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/unused"))

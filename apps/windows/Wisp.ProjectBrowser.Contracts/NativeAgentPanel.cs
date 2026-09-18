@@ -10,12 +10,23 @@ public enum NativeAgentAction { Approve, Run, Cancel, Discard, Retry }
 public sealed record NativeAgentBudgetOverride(uint? MaxTokens = null, uint? MaxToolCalls = null, ulong? MaxCostMicrounits = null);
 public interface INativeAgentPanelClient
 {
+    Task<bool> GetDelegationAsync(string project, string session, CancellationToken token = default);
+    Task<bool> SetDelegationAsync(string project, string session, bool enabled, CancellationToken token = default);
     Task ActAsync(string project, string session, string workflowId, NativeAgentAction action, long? expectedVersion = null, IReadOnlyDictionary<string, NativeAgentBudgetOverride>? budgets = null, CancellationToken token = default);
     Task<NativeAgentSnapshot[]> ListAsync(string project, string session, CancellationToken token = default);
     Task<NativeAgentResult> ResultAsync(string project, string session, string workflowId, string stepId, CancellationToken token = default);
 }
 public sealed class NativeAgentPanelClient(INativeSettingsClient transport) : INativeAgentPanelClient
 {
+    public Task<bool> GetDelegationAsync(string project, string session, CancellationToken token = default) => Delegation(project, session, null, token);
+    public Task<bool> SetDelegationAsync(string project, string session, bool enabled, CancellationToken token = default) => Delegation(project, session, enabled, token);
+    private async Task<bool> Delegation(string project, string session, bool? enabled, CancellationToken token)
+    {
+        var args = new JsonObject { ["session_id"] = session };
+        if (enabled is not null) args["enabled"] = enabled;
+        return (await transport.InvokeAsync("native_conversation_panel_agent_delegation", args, project, token).ConfigureAwait(false))?.GetValue<bool>()
+            ?? throw new InvalidDataException("Missing delegation state");
+    }
     public async Task ActAsync(string project, string session, string workflowId, NativeAgentAction action, long? expectedVersion = null, IReadOnlyDictionary<string, NativeAgentBudgetOverride>? budgets = null, CancellationToken token = default)
     {
         if (action == NativeAgentAction.Approve && expectedVersion is null) throw new ArgumentException("Approval requires the reviewed version", nameof(expectedVersion));
