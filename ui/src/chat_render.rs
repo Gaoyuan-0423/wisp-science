@@ -169,6 +169,7 @@ pub(crate) fn renders_nothing(item: &ChatItem) -> bool {
         || matches!(item, ChatItem::Tool { name, .. } if name == "attempt_completion")
         || matches!(item, ChatItem::FileChanged(_))
         || matches!(item, ChatItem::QueuedUser { .. })
+        || matches!(item, ChatItem::AppContextNotice(_))
 }
 
 pub(crate) fn class_for(item: &ChatItem) -> &'static str {
@@ -391,12 +392,21 @@ mod token_format_tests {
 
     #[test]
     fn queued_turns_do_not_occupy_a_transcript_row() {
-        use crate::dto::ChatItem;
+        use crate::dto::{AppContextNotice, ChatItem};
         assert!(renders_nothing(&ChatItem::QueuedUser {
             id: 1,
             text: "later".into(),
         }));
         assert!(!renders_nothing(&ChatItem::User("sent".into())));
+        assert!(renders_nothing(&ChatItem::AppContextNotice(
+            AppContextNotice {
+                context_id: "app".into(),
+                app_name: "plot".into(),
+                state: "ready".into(),
+                summary: String::new(),
+                structured_preview: None,
+            }
+        )));
     }
 
     #[test]
