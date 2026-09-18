@@ -348,6 +348,19 @@ mod tests {
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
     }
     #[test]
+    fn provenance_fixture_reuses_recorded_transcript_items() {
+        let rows: Vec<Item> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-provenance.json"
+        )).unwrap();
+        let tools: Vec<_> = rows.iter().filter(|row| row.role == "tool").collect();
+        assert_eq!(tools.len(), 4);
+        assert_eq!(tools[0].ok, Some(true));
+        assert_eq!(tools[1].ok, Some(false));
+        assert_eq!(tools[2].ok, None);
+        assert_eq!(tools[0].text, "42\n");
+        assert_eq!(tools[1].input.as_deref(), Some("样本.csv"));
+    }
+    #[test]
     fn delegation_read_and_disabled_write_remain_distinct() {
         let read: PanelRequest =
             serde_json::from_value(serde_json::json!({"session_id":"s"})).unwrap();

@@ -42,7 +42,10 @@ final class NativePanelModel: ObservableObject {
         let requestedPath = directory ?? path
         defer { if generation == current { loading = false } }
         do {
-            if tab == "artifacts" {
+            if tab == "provenance" {
+                // Uses the displayed transcript; never dispatch a file read for this tab.
+                return
+            } else if tab == "artifacts" {
                 let rows = try decode(await call("artifacts"), as: [NativePanelArtifact].self)
                 guard generation == current, !Task.isCancelled else { return }; artifacts = rows
             } else if tab == "agents" {

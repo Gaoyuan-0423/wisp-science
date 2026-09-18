@@ -7,6 +7,13 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var provenanceItems = JsonSerializer.Deserialize<ConversationItem[]>(File.ReadAllText(Path.Combine(directory, "panel-provenance.json")), ConversationSnapshot.JsonOptions)!;
+        var provenance = NativeProvenanceRow.Collect(provenanceItems);
+        Require(provenance.Select(row => row.Index).SequenceEqual(new[] { 1, 3, 4, 5 }), "Tool source order drift");
+        Require(provenance.Select(row => row.InitiallyExpanded).SequenceEqual(new[] { false, true, true, false }), "Provenance disclosure defaults drift");
+        Require(provenance[0].Output == "42\n" && provenance[1].Input == "样本.csv" && provenance[3].Input == "", "Provenance recorded text drift");
+        Require(provenance[1].Matches("not FOUND") && !provenance[1].Matches("python") && provenance[2].Matches("LS"), "Provenance search drift");
+        Require(NativeProvenanceRow.Collect(new[] { provenanceItems[4] }).Single().Index == 0 && NativeProvenanceRow.Collect(new[] { provenanceItems[0] }).Length == 0, "Transcript page isolation drift");
         var panel = JsonSerializer.Deserialize<NativePanelFile[]>(File.ReadAllText(Path.Combine(directory, "panel-files.json")), ConversationSnapshot.JsonOptions)!;
         Require(panel[0].IsDir && panel[1].Name == "README.md", "Panel file fixture drift");
         var preview = JsonSerializer.Deserialize<NativePanelFileContent>(File.ReadAllText(Path.Combine(directory, "panel-preview.json")), ConversationSnapshot.JsonOptions)!;

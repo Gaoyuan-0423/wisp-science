@@ -388,3 +388,29 @@ Manual verification still required: drag tabs in a real window, close/reopen the
 last tab through the toolbar, restart to verify the saved order, and press Escape
 immediately after opening Add Panel or a tab context menu. Full repository gates
 remain pending until the remaining toolbar implementation is ready for review.
+
+## Provenance panel
+
+Add Panel now includes Provenance with a live tool-call count. It projects only
+`role: tool` entries from the displayed conversation page, matching WebView's
+`ProvenancePane`: successful calls start collapsed; failed/incomplete calls start
+expanded. Each row displays recorded tool name, input, output and tri-state
+result without inventing an execution status. Empty input/output sections are
+omitted. Text remains selectable, and search covers tool names and both bodies.
+
+The panel follows the same latest/history page as the conversation. It consumes
+the existing scoped conversation snapshot rather than fetching another snapshot
+or adding a separate store. A page change resets disclosure state; live updates
+on the same page preserve manual disclosure choices. Swift and C# expose matching
+`NativeProvenanceRow` projections over the existing shared transcript Item DTO.
+The shared fixture covers success, failure, incomplete execution, absent input
+and non-tool messages. Rust verifies that fixture against the actual DTO.
+
+All 83 Swift tests (rendering enabled), C# contracts and fifteen shared native
+DTO tests passed. Narrow light/dark
+provenance renders were inspected. Projection tests verify exact text, source
+order, default disclosure, search and replacement of another transcript page.
+The native model test confirms this tab never dispatches a file read or duplicate
+snapshot request. Live scrolling/history/disclosure interactions remain part of
+final native smoke verification. Notebook, Highlights and SideChat remain open
+implementation items, alongside the other toolbar acceptance work above.
