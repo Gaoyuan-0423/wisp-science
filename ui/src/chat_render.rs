@@ -169,6 +169,7 @@ pub(crate) fn renders_nothing(item: &ChatItem) -> bool {
         || matches!(item, ChatItem::Tool { name, .. } if name == "attempt_completion")
         || matches!(item, ChatItem::FileChanged(_))
         || matches!(item, ChatItem::QueuedUser { .. })
+        || matches!(item, ChatItem::AppContextNotice(_))
 }
 
 pub(crate) fn class_for(item: &ChatItem) -> &'static str {
@@ -391,12 +392,21 @@ mod token_format_tests {
 
     #[test]
     fn queued_turns_do_not_occupy_a_transcript_row() {
-        use crate::dto::ChatItem;
+        use crate::dto::{AppContextNotice, ChatItem};
         assert!(renders_nothing(&ChatItem::QueuedUser {
             id: 1,
             text: "later".into(),
         }));
         assert!(!renders_nothing(&ChatItem::User("sent".into())));
+        assert!(renders_nothing(&ChatItem::AppContextNotice(
+            AppContextNotice {
+                context_id: "app".into(),
+                app_name: "plot".into(),
+                state: "ready".into(),
+                summary: String::new(),
+                structured_preview: None,
+            }
+        )));
     }
 
     #[test]
@@ -1160,8 +1170,40 @@ fn render_step_row(
         Some(item @ (ChatItem::Usage { .. } | ChatItem::Compaction { .. })) => {
             view! { <div class=class_for(item)>{render_process_metadata(item, locale)}</div> }.into_view()
         }
+        Some(ChatItem::Plan(plan)) => render_folded_plan_card(plan, locale),
         _ => view! {}.into_view(),
     })
+}
+
+fn render_folded_plan_card(plan: &PlanCard, locale: ReadSignal<Locale>) -> View {
+    let entries = plan.entries.clone();
+    view! {
+        <article class="plan-card" data-testid="plan-card">
+            <header class="plan-card-head">
+                <span class="plan-card-icon">{compose_icon("plan")}</span>
+                <div>
+                    <strong>{move || t(locale.get(), "plan.card.title")}</strong>
+                </div>
+            </header>
+            <ul class="plan-card-body" data-testid="plan-entries">
+                {entries.into_iter().map(|entry| {
+                    let (status, mark, label) = match entry.status {
+                        PlanStatus::Completed => ("completed", "✓", "plan.status.completed"),
+                        PlanStatus::InProgress => ("in_progress", "▸", "plan.status.in_progress"),
+                        PlanStatus::Pending => ("pending", "", "plan.status.pending"),
+                    };
+                    view! {
+                        <li data-status=status>
+                            <span class="plan-entry-mark" role="img"
+                                aria-label=move || t(locale.get(), label)>{mark}</span>
+                            <div class="plan-entry-text">{entry.content}</div>
+                        </li>
+                    }
+                }).collect_view()}
+            </ul>
+        </article>
+    }
+    .into_view()
 }
 
 // Shared by standalone metadata rows and metadata between folded phases.
