@@ -227,7 +227,7 @@ clients share activity, run-detail and variable fixtures. All 63 native tests
 passed with opt-in rendering enabled; C# contract checks and 11 native DTO tests
 passed. Runtime/list/detail screenshots were inspected. Both Rust panel tests
 passed, including rejection of foreign-project and missing run IDs for reads and
-mutations. A separate run of the reused runtime-visibility tests is in progress.
+mutations. The three reused runtime-visibility tests also passed.
 
 Remaining within this area: runtime start/stop/restart, console execution,
 interpreter/storage controls, full run workspace/file review and cleanup, and
@@ -254,10 +254,8 @@ requests and execution results have matching Swift/C# APIs; the execution fixtur
 uses the existing shared RuntimeExecutionSummary DTO. No new execution engine,
 WebView dependency or real remote-host test was introduced.
 
-All 66 native tests passed with render tests enabled before the final console
-render harness addition; the focused suite is being rerun with the console
-included. C# contracts passed. The previous three runtime visibility tests passed;
-three native panel tests passed before the shared execution-result validation
-addition. The latest Rust rerun is pending. Live keyboard/Escape checks,
+All 66 native tests passed with render tests enabled, including the console
+render. C# contracts, 11 shared DTO tests, three runtime visibility tests and
+three native panel tests passed. Formatting checks passed. Live keyboard/Escape checks,
 interpreter/storage controls, script binding, task file review/cleanup and the
 remaining right-panel tabs still need completion and end-to-end verification.
