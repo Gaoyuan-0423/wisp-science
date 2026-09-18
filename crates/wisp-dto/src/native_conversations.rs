@@ -164,7 +164,10 @@ mod tests {
     use super::*;
     #[test]
     fn terminal_fixture_has_explicit_raw_byte_cursor() {
-        let output: TerminalOutput = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/terminal-output.json")).unwrap();
+        let output: TerminalOutput = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/terminal-output.json"
+        ))
+        .unwrap();
         assert_eq!(output.start, 0);
         assert_eq!(output.end, 5);
         assert!(output.reset);

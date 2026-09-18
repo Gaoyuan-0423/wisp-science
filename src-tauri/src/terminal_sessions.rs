@@ -287,20 +287,40 @@ impl TerminalManager {
         })
     }
 
-    fn native_owned(&self, id: &str, project: &str, scope: &str) -> Result<Arc<TerminalSession>, String> {
+    fn native_owned(
+        &self,
+        id: &str,
+        project: &str,
+        scope: &str,
+    ) -> Result<Arc<TerminalSession>, String> {
         let session = self.get(id)?;
-        if session.project_id != project || session.scope_key != scope || session.kind == "acp-auth" {
+        if session.project_id != project || session.scope_key != scope || session.kind == "acp-auth"
+        {
             return Err("Terminal does not belong to this project and conversation scope".into());
         }
         Ok(session)
     }
-    pub(crate) fn native_list(&self, project: &str, scope: &str) -> Vec<wisp_dto::native_conversations::TerminalInfo> {
-        let mut rows = lock(&self.state).sessions.values().filter(|s| s.project_id == project && s.scope_key == scope && s.kind != "acp-auth")
-            .map(|s| native_terminal_info(s.summary())).collect::<Vec<_>>();
+    pub(crate) fn native_list(
+        &self,
+        project: &str,
+        scope: &str,
+    ) -> Vec<wisp_dto::native_conversations::TerminalInfo> {
+        let mut rows = lock(&self.state)
+            .sessions
+            .values()
+            .filter(|s| s.project_id == project && s.scope_key == scope && s.kind != "acp-auth")
+            .map(|s| native_terminal_info(s.summary()))
+            .collect::<Vec<_>>();
         rows.sort_by(|a, b| a.id.cmp(&b.id));
         rows
     }
-    pub(crate) fn native_read(&self, id: &str, project: &str, scope: &str, cursor: Option<u64>) -> Result<wisp_dto::native_conversations::TerminalOutput, String> {
+    pub(crate) fn native_read(
+        &self,
+        id: &str,
+        project: &str,
+        scope: &str,
+        cursor: Option<u64>,
+    ) -> Result<wisp_dto::native_conversations::TerminalOutput, String> {
         let session = self.native_owned(id, project, scope)?;
         let output = lock(&session.output);
         let oldest = output.total_bytes - output.scrollback.len() as u64;
@@ -308,15 +328,34 @@ impl TerminalManager {
         let start = if reset { oldest } else { cursor.unwrap() };
         let bytes = &output.scrollback[(start - oldest) as usize..];
         Ok(wisp_dto::native_conversations::TerminalOutput {
-            terminal_id: id.into(), start, end: output.total_bytes,
-            base64: base64::engine::general_purpose::STANDARD.encode(bytes), reset, exit_code: output.exit_code,
+            terminal_id: id.into(),
+            start,
+            end: output.total_bytes,
+            base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            reset,
+            exit_code: output.exit_code,
         })
     }
-    pub(crate) fn native_write(&self, id: &str, project: &str, scope: &str, data: &[u8]) -> Result<(), String> {
+    pub(crate) fn native_write(
+        &self,
+        id: &str,
+        project: &str,
+        scope: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
         self.native_owned(id, project, scope)?.write_bytes(data)
     }
-    pub(crate) fn native_resize(&self, id: &str, project: &str, scope: &str, rows: u16, cols: u16) -> Result<(), String> {
-        if !(2..=500).contains(&rows) || !(2..=1000).contains(&cols) { return Err("Invalid terminal size".into()); }
+    pub(crate) fn native_resize(
+        &self,
+        id: &str,
+        project: &str,
+        scope: &str,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), String> {
+        if !(2..=500).contains(&rows) || !(2..=1000).contains(&cols) {
+            return Err("Invalid terminal size".into());
+        }
         self.native_owned(id, project, scope)?.resize(rows, cols)
     }
     pub(crate) fn native_close(&self, id: &str, project: &str, scope: &str) -> Result<(), String> {
@@ -880,26 +919,56 @@ mod tests {
     #[cfg(unix)]
     fn native_terminal_scopes_cursors_and_close_use_real_manager() {
         let manager = TerminalManager::new();
-        let summary = manager.open_spec("p", "main", "local", "Test".into(), "local", TerminalLaunchSpec {
-            program: "/bin/sh".into(), args: vec!["-c".into(), "printf terminal-ready; read answer".into()],
-            cwd: None, display_cwd: String::new(), envs: vec![],
-        }).unwrap();
+        let summary = manager
+            .open_spec(
+                "p",
+                "main",
+                "local",
+                "Test".into(),
+                "local",
+                TerminalLaunchSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-c".into(), "printf terminal-ready; read answer".into()],
+                    cwd: None,
+                    display_cwd: String::new(),
+                    envs: vec![],
+                },
+            )
+            .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let first = loop {
             let output = manager.native_read(&summary.id, "p", "main", None).unwrap();
-            if output.end > 0 { break output; }
+            if output.end > 0 {
+                break output;
+            }
             assert!(std::time::Instant::now() < deadline);
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
         assert!(first.reset);
-        assert_eq!(manager.native_read(&summary.id, "p", "main", Some(first.end)).unwrap().base64, "");
-        assert!(manager.native_read(&summary.id, "other", "main", None).is_err());
-        assert!(manager.native_write(&summary.id, "p", "exploration", b"x").is_err());
-        assert!(manager.native_auth_snapshot(&summary.id, Some("p")).is_err());
+        assert_eq!(
+            manager
+                .native_read(&summary.id, "p", "main", Some(first.end))
+                .unwrap()
+                .base64,
+            ""
+        );
+        assert!(manager
+            .native_read(&summary.id, "other", "main", None)
+            .is_err());
+        assert!(manager
+            .native_write(&summary.id, "p", "exploration", b"x")
+            .is_err());
+        assert!(manager
+            .native_auth_snapshot(&summary.id, Some("p"))
+            .is_err());
         assert_eq!(manager.native_list("p", "main").len(), 1);
         assert!(manager.native_list("other", "main").is_empty());
-        assert!(manager.native_resize(&summary.id, "p", "main", 0, 80).is_err());
-        manager.native_resize(&summary.id, "p", "main", 24, 80).unwrap();
+        assert!(manager
+            .native_resize(&summary.id, "p", "main", 0, 80)
+            .is_err());
+        manager
+            .native_resize(&summary.id, "p", "main", 24, 80)
+            .unwrap();
         manager.native_close(&summary.id, "p", "main").unwrap();
         assert!(manager.native_list("p", "main").is_empty());
     }
@@ -923,9 +992,16 @@ mod tests {
     }
 }
 
-pub(crate) fn native_terminal_info(summary: TerminalSessionSummary) -> wisp_dto::native_conversations::TerminalInfo {
+pub(crate) fn native_terminal_info(
+    summary: TerminalSessionSummary,
+) -> wisp_dto::native_conversations::TerminalInfo {
     wisp_dto::native_conversations::TerminalInfo {
-        id: summary.id, project_id: summary.project_id, context_id: summary.context_id,
-        title: summary.title, kind: summary.kind, display_cwd: summary.display_cwd, running: summary.running,
+        id: summary.id,
+        project_id: summary.project_id,
+        context_id: summary.context_id,
+        title: summary.title,
+        kind: summary.kind,
+        display_cwd: summary.display_cwd,
+        running: summary.running,
     }
 }
