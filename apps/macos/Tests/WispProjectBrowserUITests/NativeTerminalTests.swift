@@ -7,12 +7,14 @@ import WispProjectBrowser
 
 private actor TerminalClient: NativeConversationQuerying {
     var calls: [String] = []
+    var arguments: [[String: SettingsValue]] = []
+    func recorded() -> [[String: SettingsValue]] { arguments }
     var failWrites = false
     func failInput() { failWrites = true }
     func writes() -> Int { calls.filter { $0.hasSuffix("write") }.count }
     func snapshot(projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> ConversationSnapshot { throw ProjectBrowserError.invalidResponse }
     func invoke(_ command: String, args: [String: SettingsValue], projectID: String) async throws -> SettingsValue {
-        calls.append(command)
+        calls.append(command); arguments.append(args)
         if command.hasSuffix("write"), failWrites { throw ProjectBrowserError.service("lost response") }
         return .null
     }
@@ -47,6 +49,37 @@ final class NativeTerminalTests: XCTestCase {
         XCTAssertEqual(try decode().bytes(expectedID: "terminal-a", cursor: 0).count, 5)
         value["end"] = .integer(6)
         XCTAssertThrowsError(try decode().bytes(expectedID: "terminal-a", cursor: 0))
+    }
+    @MainActor func testCoordinatorKeepsOriginWhenCallbacksCrossActorBoundary() async throws {
+        let client = TerminalClient()
+        let model = NativeTerminalModel(client: client, projectID: "p", sessionID: "s")
+        model.select("terminal-a")
+        let coordinator = NativeTerminalEmulator.Coordinator(model, terminalID: "terminal-a")
+        let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 300))
+        coordinator.send(source: view, data: Array("stale".utf8)[...])
+        coordinator.sizeChanged(source: view, newCols: 40, newRows: 10)
+        model.select("terminal-b")
+        for _ in 0..<30 { await Task.yield() }
+        let calls = await client.recorded()
+        XCTAssertTrue(calls.isEmpty)
+        model.detach()
+    }
+    @MainActor func testOldEmulatorEventsCannotTargetNewTerminal() async throws {
+        let client = TerminalClient()
+        let model = NativeTerminalModel(client: client, projectID: "p", sessionID: "s")
+        model.select("terminal-a")
+        model.select("terminal-b")
+        model.send(Data("stale".utf8), terminalID: "terminal-a")
+        model.resize(cols: 40, rows: 10, terminalID: "terminal-a")
+        model.send(Data("current".utf8), terminalID: "terminal-b")
+        model.resize(cols: 80, rows: 24, terminalID: "terminal-b")
+        for _ in 0..<100 { if await client.recorded().count == 2 { break }; await Task.yield() }
+        let calls = await client.recorded()
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertTrue(calls.allSatisfy { $0["terminal_id"]?.string == "terminal-b" })
+        XCTAssertEqual(calls[0]["base64"]?.string, Data("current".utf8).base64EncodedString())
+        XCTAssertEqual(calls[1]["cols"], .integer(80))
+        model.detach()
     }
     @MainActor func testAmbiguousInputStopsQueuedBytesWithoutAutomaticReplay() async throws {
         let client = TerminalClient(); await client.failInput()

@@ -30,7 +30,7 @@ struct NativeTerminalPanel: View {
             if model.inputUncertain { Button("已核对终端，恢复输入") { model.resumeInput() } }
             if let code = model.exitCode { Text("进程已退出：\(code)").font(.caption).foregroundStyle(.secondary) }
             if model.selectedID == nil { Text("选择执行环境并新建终端").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { NativeTerminalEmulator(model: model).id(model.selectedID) }
+            else { NativeTerminalEmulator(model: model, terminalID: model.selectedID).id(model.selectedID) }
         }.padding(10).frame(minHeight: 220, idealHeight: 300)
             .task {
                 await model.load()
@@ -45,9 +45,10 @@ struct NativeTerminalPanel: View {
             .onDisappear { model.detach() }
     }
 }
-private struct NativeTerminalEmulator: NSViewRepresentable {
+struct NativeTerminalEmulator: NSViewRepresentable {
     let model: NativeTerminalModel
-    func makeCoordinator() -> Coordinator { Coordinator(model) }
+    let terminalID: String?
+    func makeCoordinator() -> Coordinator { Coordinator(model, terminalID: terminalID) }
     func makeNSView(context: Context) -> TerminalView {
         let view = TerminalView(frame: .zero)
         view.terminalDelegate = context.coordinator
@@ -61,9 +62,10 @@ private struct NativeTerminalEmulator: NSViewRepresentable {
     static func dismantleNSView(_ view: TerminalView, coordinator: Coordinator) { view.terminalDelegate = nil }
     final class Coordinator: NSObject, TerminalViewDelegate {
         let model: NativeTerminalModel
-        init(_ model: NativeTerminalModel) { self.model = model }
-        func send(source: TerminalView, data: ArraySlice<UInt8>) { let bytes = Data(data); Task { @MainActor in model.send(bytes) } }
-        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) { Task { @MainActor in model.resize(cols: newCols, rows: newRows) } }
+        let terminalID: String?
+        init(_ model: NativeTerminalModel, terminalID: String?) { self.model = model; self.terminalID = terminalID }
+        func send(source: TerminalView, data: ArraySlice<UInt8>) { let bytes = Data(data); Task { @MainActor in guard let terminalID else { return }; model.send(bytes, terminalID: terminalID) } }
+        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) { Task { @MainActor in guard let terminalID else { return }; model.resize(cols: newCols, rows: newRows, terminalID: terminalID) } }
         func setTerminalTitle(source: TerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func scrolled(source: TerminalView, position: Double) {}

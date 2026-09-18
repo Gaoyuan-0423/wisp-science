@@ -64,8 +64,8 @@ final class NativeTerminalModel: ObservableObject {
             receive(bytes, output.reset); cursor = output.end; exitCode = output.exit_code
         } catch { if current == generation && !Task.isCancelled { self.error = error.localizedDescription } }
     }
-    func send(_ bytes: Data) {
-        guard let id = selectedID, exitCode == nil, !inputUncertain else { return }
+    func send(_ bytes: Data, terminalID: String? = nil) {
+        guard let id = selectedID, terminalID == nil || terminalID == id, exitCode == nil, !inputUncertain else { return }
         let previous = writes; let inputEpoch = inputGeneration
         writes = Task { [weak self] in
             await previous?.value
@@ -75,8 +75,8 @@ final class NativeTerminalModel: ObservableObject {
         }
     }
     func resumeInput() { inputUncertain = false; error = nil }
-    func resize(cols: Int, rows: Int) {
-        guard let id = selectedID else { return }
+    func resize(cols: Int, rows: Int, terminalID: String? = nil) {
+        guard let id = selectedID, terminalID == nil || terminalID == id else { return }
         let previous = writes
         writes = Task {
             await previous?.value

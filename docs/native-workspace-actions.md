@@ -869,3 +869,27 @@ it does not claim a WinUI renderer exists.
 This closes specific structural gaps, not the full Markdown parity item.
 Multi-paragraph list items, nested block quotes and broader WebView comparison
 remain to be handled alongside the other original acceptance requirements.
+
+## Terminal callback identity
+
+The terminal emulator coordinator now retains the terminal ID from the view's
+creation. Its input and resize callbacks pass that identity through the main-actor
+hop; the model ignores a callback if a different terminal is selected by the time
+it arrives. Previously those callbacks looked up the selection only after the hop,
+which could redirect an old view's queued keystroke or size event to a new terminal.
+Already accepted operations still retain their original terminal ID and ordering.
+
+Two regression tests cover both the model boundary and the actual SwiftTerm
+coordinator's delayed callbacks, plus valid current-terminal input and resize.
+WinUI's existing terminal methods already take an explicit terminal ID; its eventual
+view coordinator must likewise capture the originating terminal instead of reading
+the current selection later.
+
+Inspection of the pinned SwiftTerm implementation confirmed that ordinary Copy
+and Paste use its built-in responder actions; the empty clipboard delegate methods
+are OSC 52 programmatic access, not the user's keyboard shortcuts. They remain
+unchanged. Live resize, clipboard and high-volume rollover checks remain on the
+terminal acceptance list.
+
+Full Swift verification after the callback fix passed with offline rendering
+available: 123 UI and 14 core tests (137 total). No backend or DTO shape changed.
