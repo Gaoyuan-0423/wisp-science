@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_activity",
+    "native_conversation_panel_runtime_inspect",
+    "native_conversation_panel_run_detail",
+    "native_conversation_panel_run_cancel",
+    "native_conversation_panel_run_harvest",
     "native_conversation_panel_contexts",
     "native_conversation_panel_context_enabled",
     "native_conversation_panel_artifacts",
@@ -35,6 +40,13 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_model",
 ];
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PanelActivity {
+    pub runtimes: Vec<crate::RuntimeInfo>,
+    pub runs: Vec<crate::RunSummary>,
+    pub read_only: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PanelContexts {
     pub contexts: Vec<crate::ExecutionContext>,
@@ -45,6 +57,10 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub runtime_id: Option<String>,
     #[serde(default)]
     pub context_id: Option<String>,
     #[serde(default)]
@@ -295,6 +311,18 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn panel_activity_fixtures_use_existing_runtime_and_run_shapes() {
+        let activity: PanelActivity = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-activity.json")).unwrap();
+        assert_eq!(activity.runtimes[0].key.session_id, "session-a");
+        assert_eq!(activity.runtimes[0].generation, 2);
+        assert_eq!(activity.runs[0].status, "running");
+        let run: crate::RunRecord = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-run.json")).unwrap();
+        assert_eq!(run.stdout_tail.as_deref(), Some("Processed 10 samples"));
+        let objects: crate::RuntimeObjectList = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-runtime-objects.json")).unwrap();
+        assert_eq!(objects.objects[0].name, "samples");
+        assert_eq!(objects.total_count, 1);
     }
     #[test]
     fn panel_context_fixture_preserves_session_membership() {

@@ -19,6 +19,12 @@ static class NativeConversationContractTests
         Require(share.Length == 3 && share[1].Role == "reasoning", "Share fixture drift");
         var contexts = JsonSerializer.Deserialize<NativePanelContexts>(File.ReadAllText(Path.Combine(directory, "panel-contexts.json")), ConversationSnapshot.JsonOptions)!;
         Require(contexts.Attached.Select(c => c.Id).SequenceEqual(new[] { "local", "ssh:gpu" }) && contexts.Available.Single().Id == "wsl:ubuntu", "Context session scope drift");
+        var activity = JsonSerializer.Deserialize<NativeContextActivity>(File.ReadAllText(Path.Combine(directory, "panel-activity.json")), ConversationSnapshot.JsonOptions)!;
+        Require(activity.Runtimes[0].Key.SessionId == "session-a" && activity.Runtimes[0].ResidentMemoryBytes == 104857600 && activity.Runs[0].Status == "running", "Activity contract casing drift");
+        var run = JsonSerializer.Deserialize<NativeRun>(File.ReadAllText(Path.Combine(directory, "panel-run.json")), ConversationSnapshot.JsonOptions)!;
+        Require(run.StdoutTail == "Processed 10 samples", "Run detail drift");
+        var objects = JsonSerializer.Deserialize<NativeRuntimeObjects>(File.ReadAllText(Path.Combine(directory, "panel-runtime-objects.json")), ConversationSnapshot.JsonOptions)!;
+        Require(objects.TotalCount == 1 && objects.Objects[0].TypeName == "list", "Runtime inspection drift");
         var archiveNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "archive.json")));
         var archive = NativeResearchArchive.Decode(archiveNode, "project-a", "session-a")!;
         Require(archive.Confirmation().Files[0].Path == "results/qc.txt" && archive.FrozenAt is null, "Archive fixture drift");

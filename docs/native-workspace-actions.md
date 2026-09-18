@@ -203,3 +203,33 @@ Runtime management, run lists, interpreter/storage editors and context terminal
 shortcuts still need to be integrated in this panel. Existing native settings
 remain available for configuration. Agents, optional tabs and tab management
 remain pending; this addition does not complete the side-panel acceptance item.
+
+## Runtime and run activity panels
+
+Execution-context cards now open native runtime and run sheets. Runtime rows show
+language, status, interpreter/version, process memory and last error, with variable
+inspection. The backend reuses WebView's runtime visibility predicate: the active
+conversation and shared runtimes are visible, other mainline projects remain
+visible for resource awareness, and exploration scopes exclude foreign sessions.
+No hidden window's active frame is used.
+
+Run lists reuse scoped RunSummary data and load only the selected RunRecord's
+command/output/error details. Lists poll while open. Users can cancel a live run
+with confirmation or retry harvesting a successful run's outputs. These commands
+use the existing RunManager, require an unarchived writable conversation and
+reject mutation of inherited or foreign-scope runs. No mutation is retried on a
+lost reply. A failure stays visible across polling; dismissing details invalidates
+late replies. Refresh does not flash a full loading indicator on every poll.
+
+`PanelActivity` reuses wisp-dto RuntimeInfo/RunSummary, preserving the runtime
+camelCase wire format and the run snake_case format. Swift and WinUI-facing C#
+clients share activity, run-detail and variable fixtures. All 63 native tests
+passed with opt-in rendering enabled; C# contract checks and 11 native DTO tests
+passed. Runtime/list/detail screenshots were inspected. The added Rust scope test
+is still being checked after correcting a test-only private-field access.
+
+Remaining within this area: runtime start/stop/restart, console execution,
+interpreter/storage controls, full run workspace/file review and cleanup, and
+live topmost-Escape interaction verification. These sheets are not yet full
+WebView runtime/run parity. All other outstanding toolbar acceptance items remain
+in scope.

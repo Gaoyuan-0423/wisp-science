@@ -24,7 +24,7 @@ fn active_session_id(state: &AppState, window_label: &str) -> String {
 /// project shows the viewed conversation's runtimes plus scope-shared ones;
 /// other projects keep all their mainline runtimes visible so a large kernel
 /// is never invisible.
-fn runtime_visible(
+pub(crate) fn runtime_visible(
     key: &wisp_runtime::RuntimeKey,
     scope: &wisp_store::StateScope,
     active_session: &str,

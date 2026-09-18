@@ -4567,7 +4567,7 @@ pub struct TerminalSessionSummary {
     pub running: bool,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeKeyDto {
     pub project_id: String,
@@ -4579,7 +4579,7 @@ pub struct RuntimeKeyDto {
     pub session_id: String,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeInfo {
     pub runtime_id: String,
@@ -4595,7 +4595,7 @@ pub struct RuntimeInfo {
     pub last_error: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeObject {
     pub name: String,
@@ -4604,7 +4604,7 @@ pub struct RuntimeObject {
     pub size_bytes: Option<u64>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeObjectList {
     pub objects: Vec<RuntimeObject>,
@@ -4644,7 +4644,7 @@ pub struct RuntimeSlot {
 /// the always-NULL `script_path`). No blanket `allow(dead_code)`: an unread
 /// field here means the UI is dropping data again, and the warning is the
 /// whole point.
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct RunRecord {
     pub id: String,
     pub frame_id: Option<String>,
@@ -4676,7 +4676,7 @@ pub struct RunRecord {
     pub cleanup_error: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct RunSummary {
     pub id: String,
     pub frame_id: Option<String>,

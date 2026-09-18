@@ -6,6 +6,7 @@ struct NativePanelView: View {
     @AppStorage("native.workspace.panel.tab") private var tab = "artifacts"
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
+    @State private var activity: NativeContextActivitySelection?
     let close: () -> Void
     init(client: any NativeConversationQuerying, projectID: String, sessionID: String, close: @escaping () -> Void) {
         _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.close = close
@@ -36,7 +37,7 @@ struct NativePanelView: View {
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
                     } else if tab == "hosts" {
-                        NativePanelContextsView(model: model, query: query)
+                        NativePanelContextsView(model: model, query: query) { context, runtimes in activity = .init(context: context, runtimes: runtimes) }
                     } else {
                         ForEach(model.files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
                             Button {
@@ -52,6 +53,9 @@ struct NativePanelView: View {
             .task(id: tab) { if !["artifacts", "files", "hosts"].contains(tab) { tab = "artifacts" }; await model.refresh(tab) }
             .sheet(isPresented: Binding(get: { model.preview != nil }, set: { if !$0 { model.dismissPreview() } })) {
                 if let content = model.preview { NativePanelFilePreview(content: content, close: model.dismissPreview) }
+            }
+            .sheet(item: $activity) { selection in
+                NativeContextActivityView(client: model.client, projectID: model.projectID, sessionID: model.sessionID, selection: selection) { activity = nil }
             }
             .onDisappear { model.close() }
     }
@@ -85,6 +89,7 @@ struct NativePanelFilePreview: View {
 struct NativePanelContextsView: View {
     @ObservedObject var model: NativePanelModel
     var query = ""
+    var showActivity: (String, Bool) -> Void = { _, _ in }
     @Environment(\.colorScheme) private var scheme
     @ViewBuilder var body: some View {
         if let snapshot = model.contexts {
@@ -97,6 +102,10 @@ struct NativePanelContextsView: View {
                         Button("探测") { Task { await model.probeContext(context.id) } }
                         if context.kind != "local" { Button("从会话移除") { Task { await model.setContext(context.id, enabled: false) } }.disabled(snapshot.read_only) }
                     }.disabled(model.contextBusy)
+                    HStack {
+                        Button("运行时") { showActivity(context.id, true) }
+                        Button("任务列表") { showActivity(context.id, false) }
+                    }
                     DisclosureGroup("机器信息") {
                         NativeSettingsSummary(value: SettingsValue.string(context.capabilities_json).decodedJSON)
                     }
