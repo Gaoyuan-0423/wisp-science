@@ -105,7 +105,7 @@ struct ProjectWorkspace: View {
                         if panelDragStart == nil { panelDragStart = panelWidth }
                         panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
                     }.onEnded { _ in panelDragStart = nil })
-                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings) { panelVisible = false }
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings) { panelVisible = false }
                     .frame(width: panelWidth).id(project.id + ":" + session)
             }
         }

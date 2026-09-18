@@ -479,7 +479,7 @@ pub struct AppContextNotice {
     pub structured_preview: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SideChatEvidence {
     pub source_id: String,
@@ -494,9 +494,11 @@ pub struct SideChatEvidence {
     pub relevance: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SideChatResponse {
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub answer: String,
     pub snapshot_version: i64,
     #[serde(default)]

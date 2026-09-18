@@ -492,3 +492,43 @@ output and verify failed output starts open; copy code; star and unstar a repeat
 cell and confirm the other copy reflects it; switch historical pages; reopen the
 panel and confirm library state. Repeat with an archived conversation to verify
 library edits do not modify its transcript.
+
+## Side chat
+
+The final optional tab, SideChat, now has a native question composer, model/ACP
+picker, read-only quote cards, answer rendering, evidence disclosure, no-evidence
+state, errors and session-local clear. Evidence retains source IDs, turn numbers,
+event/message locators, relevance and snapshot version from the existing backend.
+Questions reuse `side_chat` and its frozen evidence retrieval; they never become
+main-conversation messages. The HTTP picker changes the existing global active
+model just as WebView does; ACP selection belongs to the side-chat model.
+
+The native broker validates the requested conversation and the returned session
+identity. Shared SideChatResponse now preserves the backend's additive sessionId
+field (optional for old payloads); Swift/C# require it for a native reply. Model
+choices are filtered with the existing Rust `is_chat_model` logic. ACP working
+directory resolution now uses the requested frame's working project, avoiding an
+unrelated hidden window's active root and preserving exploration directories.
+
+The native session cache is keyed by database, project and session. Closing a
+panel or switching sessions does not redirect or discard a pending answer; busy
+state belongs to that same session. Requests and failed model changes are never
+automatically replayed. An uncertain HTTP-model selection disables sending until
+an explicit model-state read reconciles it. Quote source labels are escaped and
+questions use read-only blockquotes, without main-composer file-edit instructions.
+C# exposes typed options, model selection, question/reply and quote formatting.
+
+All 99 Swift tests passed with rendering enabled before the final model-selection
+guard; focused side-chat/navigation tests cover that guard. C# contracts, seventeen shared DTO tests, the wasm32 frontend check and
+sixteen existing backend evidence/classification tests passed with fake providers.
+Narrow light/dark renders were inspected. No real provider or ACP agent was
+contacted. The native composer currently uses Command-Enter to send; WebView's
+Enter/Shift-Enter behavior, direct text-selection quote integration, expanded
+source rendering and immediate Escape on the model menu still require live UI
+verification/alignment. Full repository gates and the overall toolbar acceptance
+audit remain open; exposing all eight tabs does not establish complete parity.
+
+Manual smoke: ask about the current conversation, inspect source evidence, add and
+remove a quote, choose HTTP and ACP models, switch sessions while a reply is
+pending, reopen the panel, and verify the answer remains with its original
+session. A failed request should expose an error without making a second call.

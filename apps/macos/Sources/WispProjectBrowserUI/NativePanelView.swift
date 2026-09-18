@@ -9,32 +9,38 @@ struct NativePanelView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
-    private static let availableTabs = NativePanelTabs.defaults + ["notebook", "highlights", "provenance"]
+    private var availableTabs: [String] { NativePanelTabs.defaults + ["notebook", "highlights", "provenance"] + (sideChat == nil ? [] : ["sidechat"]) }
+    let sideChat: NativeSideChatModel?
     let revealExcerpt: (String) -> Void
     let transcript: [ConversationItem]
     let transcriptPage: String
     let manageWorkflows: () -> Void
     let readOnly: Bool
     let close: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
+    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, sideChat: NativeSideChatModel? = nil, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.sideChat = sideChat; self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 tabStrip
-                if tab != "provenance" { Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新") }
+                if !["provenance", "sidechat"].contains(tab) { Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新") }
                 Button(action: close) { WispIcon(name: "close", size: 16) }.buttonStyle(.plain).help("关闭面板").accessibilityLabel("关闭面板")
             }
+            if tab != "sidechat" {
             TextField(tab == "provenance" ? "搜索工具、输入或输出" : tab == "notebook" ? "搜索代码或输出" : "筛选名称", text: $query)
             if model.loading { ProgressView().controlSize(.small) }
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            }
             if tab == "files" {
                 HStack {
                     Button("上级") { Task { await model.refresh("files", directory: model.parent) } }.disabled(model.path == ".")
                     Text(model.path).font(.caption).lineLimit(1).truncationMode(.head).help(model.path)
                 }
             }
+            if tab == "sidechat", let sideChat {
+                NativeSideChatView(model: sideChat)
+            } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if tab == "artifacts" {
@@ -65,10 +71,11 @@ struct NativePanelView: View {
                     }
                 }
             }
+            }
         }.padding(12).frame(maxHeight: .infinity).background(WispDesign.color("bg-sunken", scheme))
             .onAppear { var value = layout; value.reopen(); store(value) }
             .task(id: tab) {
-                if !Self.availableTabs.contains(tab) { tab = "artifacts" }
+                if !availableTabs.contains(tab) { tab = "artifacts" }
                 await model.refresh(tab)
                 while tab == "agents" && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -86,13 +93,13 @@ struct NativePanelView: View {
             }
             .onDisappear { model.close() }
     }
-    private var layout: NativePanelTabs { NativePanelTabs(saved: savedTabs, selected: tab, available: Self.availableTabs) }
+    private var layout: NativePanelTabs { NativePanelTabs(saved: savedTabs, selected: tab, available: availableTabs) }
     private func store(_ value: NativePanelTabs) { savedTabs = value.saved; tab = value.selected }
     private func title(_ id: String) -> String {
         if id == "notebook" { return "笔记本 (\(NativeNotebookCell.collect(transcript).count))" }
         if id == "highlights" { return "划线 (\(model.highlights.count))" }
         if id == "provenance" { return "溯源 (\(NativeProvenanceRow.collect(transcript).count))" }
-        return ["artifacts": "产物", "agents": "代理", "files": "文件", "hosts": "执行环境"][id] ?? id
+        return ["artifacts": "产物", "agents": "代理", "files": "文件", "hosts": "执行环境", "sidechat": "侧聊"][id] ?? id
     }
     private func removeTab(_ id: String) {
         var value = layout; value.remove(id); store(value)
@@ -134,7 +141,7 @@ struct NativePanelView: View {
                     .onAppear { proxy.scrollTo(tab) }
             }
             Menu {
-                ForEach(Self.availableTabs, id: \.self) { id in
+                ForEach(availableTabs, id: \.self) { id in
                     Button { var value = layout; value.show(id); store(value) } label: {
                         if layout.open.contains(id) { Label(title(id), systemImage: "checkmark") } else { Text(title(id)) }
                     }

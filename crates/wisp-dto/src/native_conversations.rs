@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_side_chat",
+    "native_conversation_panel_side_chat_options",
     "native_conversation_panel_notebook_stars",
     "native_conversation_panel_notebook_star",
     "native_conversation_panel_notebook_unstar",
@@ -54,6 +56,14 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_model",
 ];
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SideChatModelOption {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub active: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentAction {
@@ -81,6 +91,10 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub question: Option<String>,
+    #[serde(default)]
+    pub acp_agent_id: Option<String>,
     #[serde(default)]
     pub library_item_id: Option<String>,
     #[serde(default)]
@@ -353,6 +367,19 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn side_chat_fixture_preserves_evidence_and_session_identity() {
+        let response: crate::SideChatResponse = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-side-chat.json")).unwrap();
+        assert_eq!(response.session_id.as_deref(), Some("session-a"));
+        assert_eq!(response.snapshot_version, 42);
+        assert_eq!(response.evidence[0].event_seq, Some(40));
+        assert_eq!(response.evidence[0].message_seq, None);
+        let value = serde_json::to_value(response).unwrap();
+        assert_eq!(value["sessionId"], "session-a");
+        assert_eq!(value["noEvidence"], false);
+        let options: Vec<SideChatModelOption> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-side-chat-options.json")).unwrap();
+        assert_eq!(options[1].kind, "acp");
     }
     #[test]
     fn highlights_reuse_library_item_contract() {

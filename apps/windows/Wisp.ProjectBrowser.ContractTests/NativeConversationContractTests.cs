@@ -36,6 +36,15 @@ static class NativeConversationContractTests
         notebookFake.Fail = true;
         try { await notebookClient.UnstarAsync("project-a", "session-a", "code-a"); } catch (IOException) { }
         Require(notebookFake.Calls == 4 && notebookFake.Args?["library_item_id"]?.GetValue<string>() == "code-a", "Notebook mutation replayed or lost identity");
+        var sideFake = new Fake { Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-side-chat.json"))) };
+        var sideClient = new NativeSideChatClient(sideFake);
+        var sideReply = await sideClient.AskAsync("project-a", "session-a", "进展如何", "agent-a");
+        Require(sideReply.Evidence.Single().EventSeq == 40 && sideReply.SnapshotVersion == 42 && sideFake.Args?["acp_agent_id"]?.GetValue<string>() == "agent-a", "Side-chat evidence or agent identity drift");
+        try { await sideClient.AskAsync("project-a", "other", "question"); throw new Exception("Expected side-chat scope rejection"); } catch (InvalidDataException) { }
+        sideFake.Fail = true;
+        try { await sideClient.AskAsync("project-a", "session-a", "question"); } catch (IOException) { }
+        Require(sideFake.Calls == 3, "Side-chat question was replayed");
+        Require(NativeSideChatQuote.Question("解释", new[] { new NativeSideChatQuote("one\ntwo", "a`b\nc") }) == "Selected excerpt from reference `a\\`b c`:\n> one\n> two\n\n解释", "Side-chat reference formatting drift");
         var panel = JsonSerializer.Deserialize<NativePanelFile[]>(File.ReadAllText(Path.Combine(directory, "panel-files.json")), ConversationSnapshot.JsonOptions)!;
         Require(panel[0].IsDir && panel[1].Name == "README.md", "Panel file fixture drift");
         var preview = JsonSerializer.Deserialize<NativePanelFileContent>(File.ReadAllText(Path.Combine(directory, "panel-preview.json")), ConversationSnapshot.JsonOptions)!;

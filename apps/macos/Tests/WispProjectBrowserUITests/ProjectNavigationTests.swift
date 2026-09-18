@@ -29,6 +29,16 @@ private actor NavigationClient: ProjectBrowserQuerying {
 }
 
 final class ProjectNavigationTests: XCTestCase {
+    @MainActor func testSideChatCacheSeparatesProjectAndSessionAndSurvivesPanelReopen() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/side-chat-test.sqlite"))
+        let first = model.nativeSideChat(projectID: "p", sessionID: "s")
+        first.draft = "keep this draft"
+        XCTAssertTrue(first === model.nativeSideChat(projectID: "p", sessionID: "s"))
+        XCTAssertFalse(first === model.nativeSideChat(projectID: "p", sessionID: "other"))
+        XCTAssertFalse(first === model.nativeSideChat(projectID: "other", sessionID: "s"))
+        XCTAssertEqual(model.nativeSideChat(projectID: "p", sessionID: "s").draft, "keep this draft")
+    }
+
     @MainActor func testWorkflowSettingsRouteDoesNotOpenProjectEditor() {
         let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/unused.sqlite"))
         model.openProjectSettings("p")

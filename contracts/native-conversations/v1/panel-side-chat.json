@@ -1,0 +1,7 @@
+{
+  "sessionId": "session-a",
+  "answer": "样本质量检查已完成。[S1]",
+  "snapshotVersion": 42,
+  "evidence": [{"sourceId":"event:40","eventSeq":40,"turn":3,"role":"assistant","excerpt":"质量检查通过。","relevance":"最近完成的步骤"}],
+  "noEvidence": false
+}

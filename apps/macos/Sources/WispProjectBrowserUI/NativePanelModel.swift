@@ -47,7 +47,7 @@ final class NativePanelModel: ObservableObject {
         let requestedPath = directory ?? path
         defer { if generation == current { loading = false } }
         do {
-            if tab == "provenance" {
+            if tab == "provenance" || tab == "sidechat" {
                 // Uses the displayed transcript; never dispatch a file read for this tab.
                 return
             } else if tab == "notebook" {
