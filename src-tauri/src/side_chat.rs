@@ -798,6 +798,7 @@ mod tests {
                 AgentEvent::User {
                     frame_id: "f".into(),
                     text: "Choose a storage format".into(),
+                    queue_id: None,
                 },
             ),
             event(
@@ -826,6 +827,7 @@ mod tests {
                 AgentEvent::User {
                     frame_id: "f".into(),
                     text: "JSON is too large; revise the storage format.".into(),
+                    queue_id: None,
                 },
             ),
             event(

@@ -42,12 +42,31 @@
   even when its optimistic card is already visible. An enqueue failure prevents
   the waiting action from being sent; action failures are shown in the status
   area instead of silently succeeding.
+- Queue rows reconcile by their backend id and receive lifecycle updates. A
+  queued row with a duplicate body but different attachments remains a distinct
+  intent. `Interrupt and replace` marks parked intents with identical text,
+  attachments, and references superseded so they cannot be drained again.
+  Replacement reserves priority before cancelling the current workflow, so
+  waiting queue turns cannot slip in between cancellation and replacement.
+- After a cut-in is requested, the row stays visible as “Sent · waiting for the
+  current step” until the running loop consumes it. This reflects the safe
+  boundary contract; it does not claim to cancel an already running tool.
 - A final text response cannot finish a loop while guidance is already pending.
   If the turn has ended, errors, or reaches an explicit stop/iteration limit,
   unconsumed cut-ins take priority over ordinary queued turns. Each message is
   either injected once or handed off once. In-loop guidance uses the queued
   text; fallback turns retain the original attachments and references as well.
   ACP conversations continue to use ordinary queued follow-ups.
+
+## Native question cards
+
+- Selecting an option in a native `ask_user` card fills the composer and leaves
+  the card pending. The user can edit the answer, change the selection, or add
+  conditions before sending.
+- The generated draft contains the option label and, when present, an explicit
+  `说明：` line so the option description is not lost from the submitted turn.
+- ACP `ask_user` cards continue to resolve through their protocol response path;
+  they do not use the native composer-draft behavior.
 
 ## Composer attachments and references
 

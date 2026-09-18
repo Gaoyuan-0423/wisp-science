@@ -1024,7 +1024,16 @@ fn App() -> impl IntoView {
     let send_mode_menu_open = create_rw_signal(false);
     // Queue (#433): monotonic key for optimistic queued follow-ups, shared with the
     // backend queue item so edit/cancel/cut-in target the same row.
-    let queue_seq = create_rw_signal(0u64);
+    // A window-scoped seed prevents queue ID collisions across session windows.
+    let queue_seq = create_rw_signal((js_sys::Math::random() * 4_503_599_627_370_496.0) as u64);
+    // Live backend lifecycle for queued rows. The row text is deliberately
+    // excluded from reconciliation because equal bodies can carry different
+    // attachments and still be separate intents.
+    let queue_states = create_rw_signal::<HashMap<(String, u64), String>>(HashMap::new());
+    // Native ask_user option clicks stage an editable answer here. The tuple
+    // stores the last generated draft so selecting another option can replace
+    // it without overwriting text the user has already edited.
+    let native_question_draft = create_rw_signal::<Option<(String, usize, String)>>(None);
     let side_chat_input = create_rw_signal(String::new());
     let side_chat_quotes = create_rw_signal::<Vec<ComposerQuote>>(vec![]);
     let side_chat_items = create_rw_signal::<Vec<SideChatItem>>(vec![]);
@@ -2762,7 +2771,11 @@ fn App() -> impl IntoView {
                     sessions.insert(frame_id);
                 });
             }
-            AgentEvent::User { frame_id, text } => {
+            AgentEvent::User {
+                frame_id,
+                text,
+                queue_id,
+            } => {
                 dismiss_follow_up_questions(follow_up_questions, follow_up_generation, &frame_id);
                 // The banner judges the answer on screen; a new turn has none yet.
                 set_browser_offline_notice(browser_offline_cb, &frame_id, None);
@@ -2781,8 +2794,13 @@ fn App() -> impl IntoView {
                     &session_models_cb.get_untracked(),
                     Some(&frame_id),
                 );
+                if let Some(id) = queue_id {
+                    queue_states.update(|states| {
+                        states.remove(&(frame_id.clone(), id));
+                    });
+                }
                 route_items(active_cb, items_cb, transcripts_cb, &frame_id, |v| {
-                    start_user_turn(v, text, model.clone());
+                    start_user_turn(v, text, model.clone(), queue_id);
                 });
                 conversation_outlines_cb.update(|outlines| {
                     let outline = outlines.entry(frame_id.clone()).or_default();
@@ -3535,6 +3553,50 @@ fn App() -> impl IntoView {
         let _ = listen_current_window("agent", &agent_js).await;
     });
 
+    // Queue lifecycle is keyed by the backend id. This closes the gap where
+    // the optimistic row and the real User event have the same text but are
+    // different messages (for example, different attachments).
+    let queue_state_cb = Closure::wrap(Box::new(move |payload: JsValue| {
+        let Ok(event) = serde_wasm_bindgen::from_value::<QueuedTurnStateEvent>(payload) else {
+            return;
+        };
+        queue_states.update(|states| match event.state.as_str() {
+            "queued" | "cutin_pending" => {
+                states.insert((event.session_id.clone(), event.id), event.state.clone());
+            }
+            _ => {
+                states.remove(&(event.session_id.clone(), event.id));
+            }
+        });
+        if matches!(
+            event.state.as_str(),
+            "started" | "cancelled" | "superseded" | "failed"
+        ) {
+            route_items(
+                active_session,
+                items,
+                transcripts,
+                &event.session_id,
+                |rows| {
+                    rows.retain(
+                        |row| !matches!(row, ChatItem::QueuedUser { id, .. } if *id == event.id),
+                    );
+                },
+            );
+            transcript_projection_epoch.update(|revision| {
+                *revision = revision.wrapping_add(1);
+            });
+        }
+    }) as Box<dyn FnMut(JsValue)>);
+    let queue_state_js = queue_state_cb
+        .as_ref()
+        .unchecked_ref::<js_sys::Function>()
+        .clone();
+    queue_state_cb.forget();
+    spawn_local(async move {
+        let _ = listen_current_window("queued-turn-state", &queue_state_js).await;
+    });
+
     // Confirm handler: render an inline approval card in the session thread
     // (not a global modal — see README inline tool-approval card).
     let confirm_active = active_session;
@@ -4099,6 +4161,26 @@ fn App() -> impl IntoView {
         }
         let active = active_session.get();
         let creates_session = active.is_none();
+        if action == ComposerSendAction::Normal {
+            if let Some((question_session, question_index, _)) =
+                native_question_draft.get_untracked()
+            {
+                if active.as_deref() == Some(question_session.as_str()) {
+                    route_items(
+                        active_session,
+                        items,
+                        transcripts,
+                        &question_session,
+                        |rows| {
+                            if let Some(ChatItem::Question(card)) = rows.get_mut(question_index) {
+                                card.state = QuestionState::Answered;
+                            }
+                        },
+                    );
+                    native_question_draft.set(None);
+                }
+            }
+        }
         let pending_fast = pending_service_tier.get();
         // Any prior send-failed hint (e.g. the max_tokens truncation notice) is
         // stale once a new turn is committed; the Ok path never cleared it, so it
@@ -4153,6 +4235,9 @@ fn App() -> impl IntoView {
                     text: display_message.clone(),
                 });
             });
+            queue_states.update(|states| {
+                states.insert((session.clone(), qid), "queued".into());
+            });
             transcript_projection_epoch.update(|revision| {
                 *revision = revision.wrapping_add(1);
             });
@@ -4169,8 +4254,13 @@ fn App() -> impl IntoView {
                 .unwrap();
                 if let Err(error) = invoke_checked("enqueue_turn", args).await {
                     mcp_app_context.set(saved_mcp_app_context.clone());
+                    queue_states.update(|states| {
+                        states.remove(&(session.clone(), qid));
+                    });
                     route_items(active_session, items, transcripts, &session, |rows| {
-                        remove_optimistic_send_rows(rows, &enqueue_msg);
+                        rows.retain(
+                            |row| !matches!(row, ChatItem::QueuedUser { id, .. } if *id == qid),
+                        );
                     });
                     transcript_projection_epoch.update(|revision| {
                         *revision = revision.wrapping_add(1);
@@ -4306,14 +4396,7 @@ fn App() -> impl IntoView {
                 *revision = revision.wrapping_add(1);
             });
             force_chat_bottom();
-            // Await the stop before send_message so the running turn is already
-            // flagged for cancellation; send_message then blocks on the session's
-            // workflow lock and starts as soon as the old turn aborts. Firing the
-            // stop concurrently could cancel the new turn instead.
-            if action == ComposerSendAction::InterruptReplace {
-                let arg = to_value(&tauri_args::stop_agent(&Some(id.clone()))).unwrap();
-                let _ = invoke("stop_agent", arg).await;
-            }
+            // The backend reserves replacement priority before cancelling.
             // Persist/emit the same display text the optimistic bubble uses
             // (including "Uploaded files: …"). Sending the bare composer body
             // makes AgentEvent::User mismatch the optimistic row and append a
@@ -4847,6 +4930,9 @@ fn App() -> impl IntoView {
                     input.set(draft);
                     focus_composer();
                 }
+                queue_states.update(|states| {
+                    states.remove(&(sid.clone(), id));
+                });
                 (id, "cancel", None)
             }
             // The bubble stays; it promotes to a User row when the running turn
@@ -7015,9 +7101,37 @@ fn App() -> impl IntoView {
     // source: resolve the bridge's pending request; the answer returns inside
     // the agent's still-running turn.
     let on_question_answer = Callback::new(
-        move |(ui_index, request_id, answer): (usize, Option<String>, String)| {
+        move |(ui_index, request_id, answer, fill_only): (usize, Option<String>, String, bool)| {
             let answer = answer.trim().to_string();
             if answer.is_empty() {
+                return;
+            }
+            // Native option clicks stage an editable composer draft. The card
+            // remains pending until the user submits the resulting message.
+            // ACP responses still resolve immediately because they are a
+            // protocol reply to a live bridge request, not a new turn.
+            if fill_only && request_id.is_none() {
+                let Some(session_id) = active_session.get_untracked() else {
+                    return;
+                };
+                let previous = native_question_draft.get_untracked();
+                let current_input = input.get_untracked();
+                let draft = if previous.as_ref().is_some_and(
+                    |(previous_session, previous_index, previous_text)| {
+                        *previous_session == session_id
+                            && *previous_index == ui_index
+                            && current_input == *previous_text
+                    },
+                ) {
+                    answer.clone()
+                } else if current_input.trim().is_empty() {
+                    answer.clone()
+                } else {
+                    format!("{}\n\n{}", current_input.trim_end(), answer)
+                };
+                input.set(draft.clone());
+                native_question_draft.set(Some((session_id, ui_index, draft)));
+                focus_composer();
                 return;
             }
             // Settle the card before sending: the send appends rows, so the
@@ -7039,6 +7153,7 @@ fn App() -> impl IntoView {
                 None => {
                     // The send callback reads the composer synchronously, so
                     // swap the answer in and restore any draft right after.
+                    native_question_draft.set(None);
                     let draft = input.get_untracked();
                     input.set(answer);
                     send.call(ComposerSendAction::Normal);
@@ -13172,6 +13287,7 @@ fn App() -> impl IntoView {
                         items=items
                         user_offset=composer_queue_offset
                         can_cut_in=composer_queue_can_cut_in
+                        queue_states=Signal::derive(move || { let sid = active_session.get().unwrap_or_default(); queue_states.get().into_iter().filter_map(|((session, id), state)| (session == sid).then_some((id, state))).collect() })
                         on_queue=on_queue
                     />
                 })}

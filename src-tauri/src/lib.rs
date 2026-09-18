@@ -154,6 +154,8 @@ enum AgentEvent {
     User {
         frame_id: String,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_id: Option<u64>,
     },
     MessageBoundary {
         frame_id: String,
@@ -656,7 +658,7 @@ struct SessionSearchInfo {
     status: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ComposerReferenceArg {
     Artifact {
@@ -2931,6 +2933,9 @@ fn ensure_writable(dir: PathBuf, app_data: &std::path::Path) -> PathBuf {
 struct TauriOutput {
     app: AppHandle,
     frame_id: String,
+    /// Identifies a queued follow-up when its User event reaches the UI.
+    queue_id: StdMutex<Option<u64>>,
+    queue_runtime: Arc<SessionRuntime>,
     model: String,
     project_id: String,
     project_root: PathBuf,
@@ -3397,6 +3402,7 @@ impl Output for TauriOutput {
             self.emit(AgentEvent::User {
                 frame_id: self.frame_id.clone(),
                 text: msg.content.as_text(),
+                queue_id: self.queue_id.lock().unwrap().take(),
             });
         }
         if let Some(tx) = &self.persist {
@@ -3407,6 +3413,17 @@ impl Output for TauriOutput {
             frame_id: self.frame_id.clone(),
             seq,
         });
+    }
+    fn on_guidance_message(&self, id: u64, msg: &Message) {
+        let queue_id = {
+            let mut cutins = self.queue_runtime.queued_cutins.lock().unwrap();
+            cutins
+                .iter()
+                .position(|(guidance_id, _)| *guidance_id == id)
+                .map(|index| cutins.remove(index).1.id)
+        };
+        *self.queue_id.lock().unwrap() = queue_id;
+        self.on_message(msg);
     }
     fn provenance(&self, rec: &wisp_core::ProvenanceRecord) {
         for path in provenance_ui_file_changes(rec) {

@@ -1,6 +1,6 @@
 use super::*;
 use leptos::leptos_dom::helpers::TimeoutHandle;
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 const STREAMING_MARKDOWN_TAIL_THRESHOLD_BYTES: usize = 8_000;
 
@@ -642,18 +642,25 @@ pub(crate) enum QueueOp {
 pub(crate) fn QueuedMessage(
     id: u64,
     text: String,
+    status: String,
     user_index: usize,
     can_cut_in: bool,
     can_reorder: bool,
     on_queue: Callback<QueueOp>,
 ) -> impl IntoView {
     let locale = use_locale();
-    let show_controls = id != 0;
+    let cut_in_pending = status == "cutin_pending";
+    let show_controls = id != 0 && !cut_in_pending;
     let preview = text.clone();
     view! {
         <div class="msg user queued" data-user-index=user_index.to_string()>
             <div class="queued-card">
                 <div class="body" title=preview>{text}</div>
+                {cut_in_pending.then(|| view! {
+                    <span class="queue-state" aria-live="polite">
+                        {move || t(locale.get(), "queue.waiting_current_step")}
+                    </span>
+                })}
                 {show_controls.then(move || view! {
                     <div class="queue-actions">
                         {can_cut_in.then(|| view! {
@@ -703,6 +710,7 @@ pub(crate) fn ComposerQueue(
     items: RwSignal<Vec<ChatItem>>,
     user_offset: Signal<usize>,
     can_cut_in: Signal<bool>,
+    queue_states: Signal<HashMap<u64, String>>,
     on_queue: Callback<QueueOp>,
 ) -> impl IntoView {
     let locale = use_locale();
@@ -723,10 +731,16 @@ pub(crate) fn ComposerQueue(
                     </div>
                     <div class="composer-queue-list">
                         {rows.into_iter().map(|row| {
+                            let status = queue_states
+                                .get()
+                                .get(&row.id)
+                                .cloned()
+                                .unwrap_or_else(|| "queued".into());
                             view! {
                                 <QueuedMessage
                                     id=row.id
                                     text=row.text
+                                    status=status
                                     user_index=row.user_index
                                     can_cut_in=can_cut_in
                                     can_reorder=can_reorder

@@ -6271,6 +6271,7 @@ export function parallelMock(): void {
       windowListeners[event]?.({ payload });
     } catch { /* not registered yet */ }
   };
+  (window as any).__emitParallelEvent = emit;
   const sessions: { id: string; title: string; ts: number; folder_id: string | null; stale_prompt?: boolean }[] = [];
   if (params.get("mockStaleRules") === "1") {
     sessions.push({ id: "stale-session", title: "Outdated rules chat", ts: 1999, folder_id: null, stale_prompt: true });
@@ -6528,8 +6529,14 @@ export function parallelMock(): void {
             // immediately (the real command is fast and non-blocking).
             const fid = (args && (args.sessionId ?? args.session_id)) || "t1";
             const msg = (args && args.message) || "";
+            const queueId = Number(args && (args.id ?? args.queue_id));
             const run = async () => {
-              emit("agent", { kind: "User", frame_id: fid, text: msg });
+              emit("queued-turn-state", {
+                sessionId: fid,
+                id: queueId,
+                state: "started",
+              });
+              emit("agent", { kind: "User", frame_id: fid, text: msg, queue_id: queueId });
               emit("agent", { kind: "Text", frame_id: fid, delta: `echo:${msg}` });
               await new Promise((resolve) => setTimeout(resolve, 50));
               emit("agent", { kind: "Done", frame_id: fid });

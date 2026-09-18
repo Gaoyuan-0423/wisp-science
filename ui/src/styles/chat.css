@@ -786,6 +786,10 @@ button.tool-btn.card-copy { margin-left: auto; flex: 0 0 auto; padding: 2px 8px;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
   font-size: calc(var(--ui-font-size, 14px) - 0.5px); line-height: 1.45;
 }
+.composer-queue .queue-state {
+  flex: 0 0 auto; align-self: center; color: var(--text-muted); font-size: 11px;
+  white-space: nowrap;
+}
 .composer-queue .queue-actions {
   display: flex; align-items: center; gap: 2px; flex: 0 0 auto; margin: 0;
 }
