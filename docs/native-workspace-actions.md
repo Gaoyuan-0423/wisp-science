@@ -312,8 +312,8 @@ not invalidate a pending action's error, and uncertain actions are never replaye
 Swift and C# share the closed action set and reviewed-version/budget contract.
 All 73 native tests passed before the final plan/retry-layout additions; the
 focused seven agent tests passed afterward. C# contracts and thirteen native DTO
-tests passed. Native panel Rust tests passed; the shared retry preservation tests
-are being rerun. Approval and retry layouts were rendered and inspected.
+tests passed. Native panel Rust tests and both shared retry preservation tests passed.
+Formatting checks passed. Approval and retry layouts were rendered and inspected.
 
 Still pending: delegation enablement, create/edit plans, specialist/template
 entry points, immediate-Escape interaction tests, tab management and the other
