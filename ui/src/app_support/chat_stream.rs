@@ -246,10 +246,7 @@ mod start_user_turn_tests {
         selection_targets_center_file, start_user_turn, trailing_queue_start, ComposerQuote,
         ComposerReferenceChip,
     };
-    use crate::dto::{
-        AppContextNotice, ChatItem, ContextUsage, PlanCard, PlanEntry, PlanState, PlanStatus,
-        ReviewTransitionPhase,
-    };
+    use crate::dto::{AppContextNotice, ChatItem, ContextUsage, PlanCard, ReviewTransitionPhase};
     use leptos::*;
     use std::collections::HashMap;
 
@@ -582,7 +579,7 @@ mod start_user_turn_tests {
     }
 
     #[test]
-    fn commentary_skips_empty_placeholders_and_plan_cards() {
+    fn commentary_skips_empty_placeholders() {
         let assistant = |text: &str| ChatItem::Assistant {
             text: text.into(),
             model: None,
@@ -592,7 +589,6 @@ mod start_user_turn_tests {
             ChatItem::User("question".into()),
             assistant("checking"),
             assistant(""),
-            ChatItem::Plan(PlanCard::default()),
             ChatItem::Tool {
                 name: "python".into(),
                 ok: Some(true),
@@ -604,7 +600,7 @@ mod start_user_turn_tests {
             assistant("final answer"),
         ];
         assert!(is_commentary_at(&items, 1));
-        assert!(!is_commentary_at(&items, 5));
+        assert!(!is_commentary_at(&items, 4));
     }
 
     #[test]
@@ -736,15 +732,6 @@ mod start_user_turn_tests {
             max_context: 0,
             context_usage: ContextUsage::default(),
         };
-        let plan = ChatItem::Plan(PlanCard {
-            entries: vec![PlanEntry {
-                content: "Plot heatmap".into(),
-                status: PlanStatus::Completed,
-                ..PlanEntry::default()
-            }],
-            state: PlanState::Ready,
-            ..PlanCard::default()
-        });
         let notice = ChatItem::AppContextNotice(AppContextNotice {
             context_id: "app".into(),
             app_name: "plot".into(),
@@ -764,7 +751,6 @@ mod start_user_turn_tests {
             items.push(tool(Some(true)));
             items.push(ChatItem::FileChanged(format!("fig{phase}.png")));
             items.push(usage.clone());
-            items.push(plan.clone());
             items.push(notice.clone());
             items.push(ChatItem::ReviewTransition {
                 phase: ReviewTransitionPhase::Passed,
@@ -795,6 +781,32 @@ mod start_user_turn_tests {
         ));
         assert!(is_commentary_at(&items, 1));
         assert!(!is_commentary_at(&items, groups[0].end));
+    }
+
+    #[test]
+    fn propose_plan_cards_stay_outside_the_processed_summary() {
+        let items = vec![
+            ChatItem::User("Prepare the regression plan".into()),
+            ChatItem::Plan(PlanCard::default()),
+        ];
+        assert!(completed_activity_groups(&items, false).is_empty());
+        assert_eq!(completed_activity_end(&items, 1, false), None);
+
+        let items = vec![
+            ChatItem::User("Inspect then plan".into()),
+            ChatItem::Reasoning("checking".into()),
+            ChatItem::Tool {
+                name: "read".into(),
+                ok: Some(true),
+                input: String::new(),
+                output: String::new(),
+                started_at_ms: None,
+                duration_ms: Some(2),
+            },
+            ChatItem::Plan(PlanCard::default()),
+        ];
+        let groups = completed_activity_groups(&items, false);
+        assert_eq!(groups, vec![1..3]);
     }
 
     #[test]
@@ -983,17 +995,13 @@ pub(crate) fn is_commentary_at(items: &[ChatItem], index: usize) -> bool {
     }
     items[index + 1..]
         .iter()
-        .find(|item| {
-            !is_activity_glue(item) && !matches!(item, ChatItem::Reasoning(_) | ChatItem::Plan(_))
-        })
+        .find(|item| !is_activity_glue(item) && !matches!(item, ChatItem::Reasoning(_)))
         .is_some_and(is_tool_activity)
 }
 
 pub(crate) fn is_turn_activity_at(items: &[ChatItem], index: usize) -> bool {
-    matches!(
-        items.get(index),
-        Some(ChatItem::Reasoning(_) | ChatItem::Plan(_))
-    ) || items.get(index).is_some_and(is_tool_activity)
+    matches!(items.get(index), Some(ChatItem::Reasoning(_)))
+        || items.get(index).is_some_and(is_tool_activity)
         || (index < items.len() && is_commentary_at(items, index))
 }
 

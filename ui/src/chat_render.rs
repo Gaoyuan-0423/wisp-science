@@ -1170,40 +1170,8 @@ fn render_step_row(
         Some(item @ (ChatItem::Usage { .. } | ChatItem::Compaction { .. })) => {
             view! { <div class=class_for(item)>{render_process_metadata(item, locale)}</div> }.into_view()
         }
-        Some(ChatItem::Plan(plan)) => render_folded_plan_card(plan, locale),
         _ => view! {}.into_view(),
     })
-}
-
-fn render_folded_plan_card(plan: &PlanCard, locale: ReadSignal<Locale>) -> View {
-    let entries = plan.entries.clone();
-    view! {
-        <article class="plan-card" data-testid="plan-card">
-            <header class="plan-card-head">
-                <span class="plan-card-icon">{compose_icon("plan")}</span>
-                <div>
-                    <strong>{move || t(locale.get(), "plan.card.title")}</strong>
-                </div>
-            </header>
-            <ul class="plan-card-body" data-testid="plan-entries">
-                {entries.into_iter().map(|entry| {
-                    let (status, mark, label) = match entry.status {
-                        PlanStatus::Completed => ("completed", "✓", "plan.status.completed"),
-                        PlanStatus::InProgress => ("in_progress", "▸", "plan.status.in_progress"),
-                        PlanStatus::Pending => ("pending", "", "plan.status.pending"),
-                    };
-                    view! {
-                        <li data-status=status>
-                            <span class="plan-entry-mark" role="img"
-                                aria-label=move || t(locale.get(), label)>{mark}</span>
-                            <div class="plan-entry-text">{entry.content}</div>
-                        </li>
-                    }
-                }).collect_view()}
-            </ul>
-        </article>
-    }
-    .into_view()
 }
 
 // Shared by standalone metadata rows and metadata between folded phases.

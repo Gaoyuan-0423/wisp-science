@@ -23,7 +23,6 @@ for (const width of [1280, 540]) {
               { role: "tool", tool_name: "python", ok: true, input: "analyze()", text: `Phase ${phase + 1} results`, duration_ms: 50 },
               { role: "file_changed", text: `results/phase_${phase + 1}.csv` },
               usage,
-              { role: "plan", text: JSON.stringify({ entries: [{ content: `Phase ${phase + 1}`, status: "completed" }] }) },
               { role: "app_context", text: JSON.stringify({ contextId: "plot", appName: "plot", state: "ready", summary: "", structuredPreview: null }) },
               ...(phase === 2 ? [{ role: "compaction", text: JSON.stringify({ before: 1000, after: 500, strategy: "auto" }) }] : []),
             ]).flat(),
@@ -49,7 +48,6 @@ for (const width of [1280, 540]) {
     await head.click();
     await expect(activity.locator(".step-progress")).toHaveCount(6);
     await expect(activity.locator(".usage-row")).toHaveCount(6);
-    await expect(activity.getByTestId("plan-card")).toHaveCount(6);
     await expect(activity.getByTestId("context-compaction-flag")).toBeVisible();
     await expect(activity.locator(".execution-plan")).toBeVisible();
     await expect(activity.locator(".step-name")).toContainText([
