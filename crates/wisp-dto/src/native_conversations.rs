@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_notebook_stars",
+    "native_conversation_panel_notebook_star",
+    "native_conversation_panel_notebook_unstar",
     "native_conversation_panel_highlights",
     "native_conversation_panel_highlight_remove",
     "native_conversation_panel_agent_delegation",

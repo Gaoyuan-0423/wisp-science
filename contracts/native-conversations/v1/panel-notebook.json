@@ -1,0 +1,112 @@
+{
+  "items": [
+    {
+      "role": "user",
+      "text": "```python\nignored()\n```"
+    },
+    {
+      "role": "assistant",
+      "text": "```PYTHON\n print(1) \n```\n```rust extra\nfn main() {}\n```\n```CSV\na,b\n```\n```\nnotes\n```\n```javascript\nconsole.log(2)\n"
+    },
+    {
+      "role": "tool",
+      "tool_name": "python",
+      "input": "[python @ local] print(1)",
+      "text": "1",
+      "ok": true
+    },
+    {
+      "role": "tool",
+      "tool_name": "python",
+      "input": "print(1)",
+      "text": "1 again",
+      "ok": true
+    },
+    {
+      "role": "tool",
+      "tool_name": "r",
+      "input": "[r @ ssh:omics] summary(dataset)",
+      "text": "object not found",
+      "ok": false
+    },
+    {
+      "role": "tool",
+      "tool_name": "shell",
+      "input": "[ -f data.csv ]",
+      "text": "",
+      "ok": null
+    },
+    {
+      "role": "tool",
+      "tool_name": "read",
+      "input": "ignored",
+      "text": "ignored",
+      "ok": true
+    },
+    {
+      "role": "tool",
+      "tool_name": "python",
+      "input": "  ",
+      "text": "ignored",
+      "ok": true
+    }
+  ],
+  "cells": [
+    {
+      "index": 0,
+      "language": "rust",
+      "source": "fn main() {}",
+      "output": "",
+      "ok": null,
+      "origin": "assistant"
+    },
+    {
+      "index": 1,
+      "language": "text",
+      "source": "notes",
+      "output": "",
+      "ok": null,
+      "origin": "assistant"
+    },
+    {
+      "index": 2,
+      "language": "javascript",
+      "source": "console.log(2)",
+      "output": "",
+      "ok": null,
+      "origin": "assistant"
+    },
+    {
+      "index": 3,
+      "language": "python",
+      "source": "print(1)",
+      "output": "1",
+      "ok": true,
+      "origin": "repl"
+    },
+    {
+      "index": 4,
+      "language": "python",
+      "source": "print(1)",
+      "output": "1 again",
+      "ok": true,
+      "origin": "repl"
+    },
+    {
+      "index": 5,
+      "language": "r",
+      "source": "summary(dataset)",
+      "output": "object not found",
+      "ok": false,
+      "origin": "repl"
+    },
+    {
+      "index": 6,
+      "language": "bash",
+      "source": "[ -f data.csv ]",
+      "output": "",
+      "ok": null,
+      "origin": "shell"
+    }
+  ]
+}

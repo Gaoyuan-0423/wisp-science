@@ -23,6 +23,19 @@ static class NativeConversationContractTests
         Require(highlightFake.Calls == 3 && highlightFake.Args?["library_item_id"]?.GetValue<string>() == "highlight-a", "Highlight removal replayed or lost identity");
         Require(NativeSavedExcerpt.Find("样本 质量\n合格", "样本质量合格") is { } range && "样本 质量\n合格"[range] == "样本 质量\n合格", "Saved excerpt whitespace match drift");
         Require(NativeSavedExcerpt.Find("abc", " ") is null && NativeSavedExcerpt.Find("abc", "ABC") is null, "Saved excerpt empty/case matching drift");
+        var notebookFixture = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-notebook.json")))!;
+        var notebookCells = NativeNotebookCell.Collect(notebookFixture["items"]!.Deserialize<ConversationItem[]>(ConversationSnapshot.JsonOptions)!);
+        Require(notebookCells.SequenceEqual(notebookFixture["cells"]!.Deserialize<NativeNotebookCell[]>(ConversationSnapshot.JsonOptions)!), "Notebook projection differs from WebView fixture");
+        Require(notebookCells[5].OutputInitiallyExpanded && !notebookCells[3].OutputInitiallyExpanded && notebookCells[6].Status == "running", "Notebook output/status drift");
+        var notebookFake = new Fake { Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-notebook-stars.json"))) };
+        var notebookClient = new NativeNotebookClient(notebookFake);
+        Require((await notebookClient.ListStarsAsync("project-a", "session-a")).Single().Matches(notebookCells[3]), "Notebook saved code mismatch");
+        notebookFake.Reply = notebookFake.Reply![0]!.DeepClone();
+        await notebookClient.StarAsync("project-a", "session-a", "python", "print(1)");
+        try { await notebookClient.StarAsync("project-a", "session-a", "r", "print(1)"); throw new Exception("Expected code identity rejection"); } catch (InvalidDataException) { }
+        notebookFake.Fail = true;
+        try { await notebookClient.UnstarAsync("project-a", "session-a", "code-a"); } catch (IOException) { }
+        Require(notebookFake.Calls == 4 && notebookFake.Args?["library_item_id"]?.GetValue<string>() == "code-a", "Notebook mutation replayed or lost identity");
         var panel = JsonSerializer.Deserialize<NativePanelFile[]>(File.ReadAllText(Path.Combine(directory, "panel-files.json")), ConversationSnapshot.JsonOptions)!;
         Require(panel[0].IsDir && panel[1].Name == "README.md", "Panel file fixture drift");
         var preview = JsonSerializer.Deserialize<NativePanelFileContent>(File.ReadAllText(Path.Combine(directory, "panel-preview.json")), ConversationSnapshot.JsonOptions)!;

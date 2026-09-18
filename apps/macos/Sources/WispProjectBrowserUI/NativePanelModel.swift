@@ -3,6 +3,9 @@ import WispProjectBrowser
 
 @MainActor
 final class NativePanelModel: ObservableObject {
+    @Published private(set) var notebookStars: [NativeNotebookStar] = []
+    @Published private(set) var notebookLoaded = false
+    @Published private(set) var notebookBusy: Set<String> = []
     @Published private(set) var highlights: [NativeHighlight] = []
     @Published private(set) var highlightRemoving: Set<String> = []
     @Published private(set) var artifacts: [NativePanelArtifact] = []
@@ -47,6 +50,10 @@ final class NativePanelModel: ObservableObject {
             if tab == "provenance" {
                 // Uses the displayed transcript; never dispatch a file read for this tab.
                 return
+            } else if tab == "notebook" {
+                let rows = try decode(await call("notebook_stars"), as: [NativeNotebookStar].self)
+                guard rows.allSatisfy({ $0.belongs(project: projectID, session: sessionID) }) else { throw ProjectBrowserError.invalidResponse }
+                guard generation == current, !Task.isCancelled else { return }; notebookStars = rows; notebookLoaded = true
             } else if tab == "highlights" {
                 let rows = try decode(await call("highlights"), as: [NativeHighlight].self)
                 guard rows.allSatisfy({ $0.belongs(project: projectID, session: sessionID) }) else { throw ProjectBrowserError.invalidResponse }
@@ -67,6 +74,26 @@ final class NativePanelModel: ObservableObject {
                 guard generation == current, !Task.isCancelled else { return }; files = rows; path = requestedPath
             }
         } catch { if generation == current, !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+    func notebookStar(_ cell: NativeNotebookCell) -> NativeNotebookStar? { notebookStars.first { $0.matches(cell) } }
+    func toggleNotebookStar(_ cell: NativeNotebookCell) async {
+        guard notebookLoaded, !notebookBusy.contains(cell.starKey) else { return }
+        let epoch = agentEpoch; notebookBusy.insert(cell.starKey); error = nil
+        defer { if epoch == agentEpoch { notebookBusy.remove(cell.starKey) } }
+        do {
+            if let saved = notebookStar(cell) {
+                let removed = try decode(await call("notebook_unstar", ["library_item_id": .string(saved.id)]), as: Bool.self)
+                guard epoch == agentEpoch, !Task.isCancelled else { return }
+                guard removed else { throw ProjectBrowserError.unavailable("收藏已发生变化，请刷新后重试。") }
+                notebookStars.removeAll { $0.id == saved.id }
+            } else {
+                let row = try decode(await call("notebook_star", ["language": .string(cell.language), "code": .string(cell.source)]), as: NativeNotebookStar.self)
+                guard epoch == agentEpoch, !Task.isCancelled else { return }
+                guard row.belongs(project: projectID, session: sessionID), row.matches(cell) else { throw ProjectBrowserError.invalidResponse }
+                notebookStars.removeAll { $0.id == row.id }; notebookStars.append(row)
+            }
+            if selectedTab == "notebook" { generation = UUID(); loading = false }
+        } catch { if epoch == agentEpoch { self.error = error.localizedDescription } }
     }
     func removeHighlight(_ id: String) async {
         guard highlights.contains(where: { $0.id == id }), !highlightRemoving.contains(id) else { return }
@@ -153,5 +180,5 @@ final class NativePanelModel: ObservableObject {
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
     func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
-    func close() { agentEpoch = UUID(); highlightRemoving = []; agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
+    func close() { agentEpoch = UUID(); notebookBusy = []; highlightRemoving = []; agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }

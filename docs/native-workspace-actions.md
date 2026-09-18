@@ -450,3 +450,45 @@ All four backend panel tests and sixteen shared DTO tests passed. Backend tests
 exercise foreign project/session rejection and preservation of non-text library
 items using a temporary database. Full repository gates and
 live clipboard/history/selection smoke tests remain pending.
+
+## Notebook panel
+
+Add Panel now includes Notebook with a code-cell count. The panel projects the
+same displayed transcript as WebView: assistant fences (excluding CSV/TSV/FASTA
+bodies), Python/R runtime calls and shell calls. Executed code replaces matching
+assistant fences after trim comparison, while repeated executions remain separate
+cells. Runtime context prefixes are removed only from Python/R previews. Cell
+language, source, output, origin and tri-state status remain intact. Failed output
+starts expanded; other output starts collapsed. Code and output are selectable,
+copy preserves the source, and search covers language/source/output.
+
+The shared `panel-notebook.json` fixture is checked by the real WebView
+`collect_notebook_cells` implementation and by Swift/C# projections. It covers
+executed-fence deduplication, repeated executions, data-fence exclusion,
+unspecified language, unclosed fences, runtime prefixes and shell bracket syntax.
+This provides an executable reference for keeping both native implementations
+aligned with WebView. Per-cell disclosure state resets when a live projection
+replaces the cell with different code/origin.
+
+Code stars reuse `star_library_code` and the existing LibraryItem contract.
+Native list/delete operations validate project, session and `code` kind, sharing
+the library scope guard with Highlights. Source archives remain immutable;
+collection edits still work for read-only conversations. Swift and C# expose
+matching list/star/unstar operations. Failed mutations are not automatically
+replayed or optimistically displayed. Late list results cannot remove a confirmed
+star, and repeated execution cells share the same in-flight star identity.
+
+All 92 Swift tests passed with renders enabled before the final identity guard;
+five focused notebook tests passed afterward, including mismatched reply rejection.
+C# contracts, three WebView notebook tests, four native backend panel tests and
+the wasm32 frontend check passed. Narrow light/dark renders were inspected.
+Native syntax coloring, live clipboard/disclosure testing, SideChat and the
+remaining toolbar acceptance work are still pending. Notebook does not introduce
+a new run-code action: the existing WebView panel also exposes copy and library
+controls, while execution stays in the conversation/runtime flows.
+
+Manual smoke: add Notebook; inspect source versus executed cells; expand successful
+output and verify failed output starts open; copy code; star and unstar a repeated
+cell and confirm the other copy reflects it; switch historical pages; reopen the
+panel and confirm library state. Repeat with an archived conversation to verify
+library edits do not modify its transcript.
