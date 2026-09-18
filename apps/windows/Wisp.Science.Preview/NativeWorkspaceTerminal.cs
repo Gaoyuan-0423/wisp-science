@@ -27,11 +27,13 @@ internal sealed class NativeWorkspaceTerminal : UserControl, IDisposable
         refresh.Click += async (_, _) => { await model.LoadAsync(lifetime.Token); Render(); };
         var open = new Button { Content = "新建本地终端" };
         open.Click += async (_, _) => { await model.OpenAsync("local", lifetime.Token); Render(); };
+        var interrupt = new Button { Content = "中断" };
+        interrupt.Click += async (_, _) => await model.WriteAsync([3], lifetime.Token);
         var close = new Button { Content = "关闭终端" };
         close.Click += async (_, _) => { await model.CloseSelectedAsync(lifetime.Token); Render(); };
         var dismiss = new Button { Content = "隐藏" };
         dismiss.Click += (_, _) => hide();
-        toolbar.Children.Add(refresh); toolbar.Children.Add(open); toolbar.Children.Add(close); toolbar.Children.Add(dismiss);
+        toolbar.Children.Add(refresh); toolbar.Children.Add(open); toolbar.Children.Add(interrupt); toolbar.Children.Add(close); toolbar.Children.Add(dismiss);
         root.Children.Add(toolbar);
         Grid.SetRow(output, 1); root.Children.Add(output);
         input.KeyDown += async (_, e) =>
@@ -47,6 +49,8 @@ internal sealed class NativeWorkspaceTerminal : UserControl, IDisposable
         Content = root;
         _ = LoopAsync();
     }
+
+    public Task OpenContextAsync(string context) => model.OpenAsync(context, lifetime.Token);
 
     private async Task LoopAsync()
     {

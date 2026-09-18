@@ -65,14 +65,17 @@ the composer; the user sends their chosen answer as the next message.
 
 ## WinUI integration
 
-Reuse `NativeSettingsClient.ConnectAsync`, then construct
-`NativeConversationClient` with that transport. Keep a `ConversationCursor` per
-selected session, call `SnapshotAsync`, and replace items only when `TryAccept`
-returns true. Maintain a separate state for historical pages. Pass one fresh UUID
-for each intentional send, preserve the draft on ambiguous transport errors, and
-reconcile via the snapshot's `RequestId`. Cancellation tokens cancel the client
-request, **not** the agent; call `StopAsync` for that. Render `Approvals` with their
-IDs and call `ApproveAsync` with the matching ID and explicit user choice.
+The WinUI preview now hosts the same live loop as SwiftUI: create/open a session,
+select an HTTP model, send, stop, one-shot approvals, older-page history, and
+draft recovery after an ambiguous send. Reuse `NativeSettingsClient.ConnectAsync`,
+then construct `NativeConversationClient` with that transport. Keep a
+`ConversationCursor` per selected session, call `SnapshotAsync`, and replace items
+only when `TryAccept` returns true. Maintain a separate state for historical pages.
+Pass one fresh UUID for each intentional send, preserve the draft on ambiguous
+transport errors, and reconcile via the snapshot's `RequestId`. Cancellation tokens
+cancel the client request, **not** the agent; call `StopAsync` for that. Render
+`Approvals` with their IDs and call `ApproveAsync` with the matching ID and explicit
+user choice. Attachments, ACP composers and PNG share export remain follow-ups.
 
 ## Verification and manual smoke
 

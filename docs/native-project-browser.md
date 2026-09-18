@@ -268,11 +268,12 @@ The transcript renders text, tool records and basic questions; rich attachments,
 branch/review cards and interactive tool surfaces remain follow-ups.
 
 Windows now has a WinUI 3 project/session preview, in-window appearance
-settings, and in-window workspace actions that consume the #1284/#1288
-contracts: outline, share (HTML), trajectory, archive, inbox, a text terminal
-pane, and a right-hand panel for artifacts/files/hosts plus notebook,
-highlights and provenance projections. PNG share export, a VT terminal
-emulator, live conversation send, and remaining panel mutations remain
+settings, a live conversation loop (create/send/stop/approve/model), and
+workspace actions that consume the #1284/#1288 contracts: outline, share
+(HTML), trajectory, archive, inbox, a text terminal pane, and a right-hand
+panel with file create/rename/delete, save, hosts, agents, notebook stars,
+highlights and side-chat. PNG share export, a VT terminal emulator, the
+remaining 18 settings editors, attachments and ACP composers remain
 follow-ups. Windows Markdown is intentionally limited to native text
 formatting, with no interactive HTML or attachment rendering.
 
