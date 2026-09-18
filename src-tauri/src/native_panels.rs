@@ -526,14 +526,24 @@ pub(crate) async fn dispatch(
         }
         "native_conversation_panel_file_action" => {
             crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
-            state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            state
+                .store
+                .require_unarchived_session(session)
+                .await
+                .map_err(|e| e.to_string())?;
             let _activity = state.begin_project_activity(project_id)?;
             let action = args.file_action.ok_or("File action is required")?;
             let path = args.path.ok_or("File path is required")?;
             tokio::task::spawn_blocking(move || {
                 apply_file_action(&project.root, action, &path, args.new_path.as_deref())
-            }).await.map_err(|e| e.to_string())??;
-            state.store.bump_state_generation(&scope).await.map_err(|e| e.to_string())?;
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            state
+                .store
+                .bump_state_generation(&scope)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(Value::Bool(true))
         }
         "native_conversation_panel_savefile" => {
@@ -663,12 +673,21 @@ async fn read(root: std::path::PathBuf, path: String) -> Result<Value, String> {
     .map_err(|e| e.to_string())?
 }
 
-fn apply_file_action(root: &std::path::Path, action: wisp_dto::native_conversations::PanelFileAction, path: &str, new_path: Option<&str>) -> Result<(), String> {
+fn apply_file_action(
+    root: &std::path::Path,
+    action: wisp_dto::native_conversations::PanelFileAction,
+    path: &str,
+    new_path: Option<&str>,
+) -> Result<(), String> {
     use wisp_dto::native_conversations::PanelFileAction;
     match action {
         PanelFileAction::CreateFile => crate::file_browser::create_file_at(root, path),
         PanelFileAction::CreateDirectory => crate::file_browser::create_directory_at(root, path),
-        PanelFileAction::Rename => crate::file_browser::rename_entry_at(root, path, new_path.ok_or("New path is required")?),
+        PanelFileAction::Rename => crate::file_browser::rename_entry_at(
+            root,
+            path,
+            new_path.ok_or("New path is required")?,
+        ),
         PanelFileAction::Delete => crate::file_browser::delete_entry_at(root, path),
     }
 }
@@ -691,9 +710,15 @@ mod tests {
         assert!(apply_file_action(&root, Rename, "data/a.txt", None).is_err());
         assert!(apply_file_action(&root, Rename, "data/a.txt", Some("../escape.txt")).is_err());
         assert!(apply_file_action(&root, Delete, ".", None).is_err());
-        assert_eq!(std::fs::read_to_string(root.join("data/a.txt")).unwrap(), "keep");
+        assert_eq!(
+            std::fs::read_to_string(root.join("data/a.txt")).unwrap(),
+            "keep"
+        );
         apply_file_action(&root, Rename, "data/a.txt", Some("data/c.txt")).unwrap();
-        assert_eq!(std::fs::read_to_string(root.join("data/c.txt")).unwrap(), "keep");
+        assert_eq!(
+            std::fs::read_to_string(root.join("data/c.txt")).unwrap(),
+            "keep"
+        );
         apply_file_action(&root, Delete, "data", None).unwrap();
         assert!(!root.join("data").exists());
         assert!(root.is_dir());
