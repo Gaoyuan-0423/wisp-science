@@ -351,7 +351,8 @@ mod tests {
     fn provenance_fixture_reuses_recorded_transcript_items() {
         let rows: Vec<Item> = serde_json::from_str(include_str!(
             "../../../contracts/native-conversations/v1/panel-provenance.json"
-        )).unwrap();
+        ))
+        .unwrap();
         let tools: Vec<_> = rows.iter().filter(|row| row.role == "tool").collect();
         assert_eq!(tools.len(), 4);
         assert_eq!(tools[0].ok, Some(true));
