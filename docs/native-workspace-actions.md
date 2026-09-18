@@ -167,9 +167,10 @@ project and state scope, validates artifact visibility, and reuses existing
 file boundary/preview logic; it never depends on a shared hidden window's current
 frame. Swift/C# use existing ArtifactInfo/DirEntry/FileContent shapes. Focused
 Swift tests for late directory responses and truncated preview metadata and C#
-fixtures passed. The Rust file-boundary integration test is running.
+fixtures passed. The Rust file-boundary integration test passed after adding
+the missing tempfile test dependency.
 
-This is not side-panel parity yet: agent workflows, execution contexts, optional
+This is not side-panel parity yet: agent workflows, advanced execution controls, optional
 notebook/highlights/provenance/side-chat tabs, tab add/close/reorder state, remote
 file operations, editing/download/actions and full visual/Escape QA remain to be
 implemented/verified. Their absence must not be treated as task completion.
@@ -192,10 +193,11 @@ navigation cannot trigger a stale context refresh.
 
 Swift behavior tests cover session filtering, read-only controls and mutation
 failure without replay. C# contract tests passed. The 280-point light/dark cards
-were rendered and inspected. Full native tests passed before the render-only
-view extraction, and the five panel tests passed afterward. The missing tempfile
-test dependency from the previous file-preview test has been added; the Rust
-integration check is being rerun.
+were rendered and inspected. The latest full native suite passed (60 tests,
+three opt-in render tests skipped); all five panel tests also passed with
+rendering enabled. The Rust file-boundary integration test and ten shared native
+DTO tests passed. Formatting checks passed. Full Rust workspace, WebView and
+packaged-app verification remain pending.
 
 Runtime management, run lists, interpreter/storage editors and context terminal
 shortcuts still need to be integrated in this panel. Existing native settings
