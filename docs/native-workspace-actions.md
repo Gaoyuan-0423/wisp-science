@@ -659,3 +659,15 @@ projection beyond the persisted snapshot polling, real chart click/scroll
 interaction and immediate topmost Escape still require final app verification.
 The workspace Rust gate is still running; this section does not claim the full
 seven-action objective is complete.
+
+Repository gate checkpoint after trajectory alignment: `cargo fmt --all --
+--check`, UI formatting, generated native-asset consistency and the wasm UI
+check passed. The 826-test Playwright run finished with 823 passed, two optional
+real-Motif tests skipped and one timeout in the actual Chromium extension-manager
+tutorial screenshot. The failed screenshot passed its isolated one-worker rerun
+in 3.2 seconds with no test or timeout changes. This is an initial failure plus
+a successful rerun, not an uninterrupted all-green run. Generated research-
+journey screenshots from the suite were restored; they are unrelated to this PR.
+The workspace Rust test process remains live and must be collected before final
+acceptance. Other native toolbar interaction and remaining functional checklist
+items above are still open.
