@@ -5,6 +5,39 @@ order, implemented as SwiftUI surfaces with shared native contracts for WinUI 3.
 The WebView remains supported. This work is in progress; enabled icons alone do
 not establish parity.
 
+## Latest acceptance evidence (2026-09-18)
+
+The packaged QA app uses a separate bundle identifier and synthetic database.
+Files → README.md → Edit → Save wrote `NATIVE_SAVE_OK` to that workspace.
+Escape on a dirty editor opened the discard confirmation; a second Escape closed
+only that confirmation and retained the draft. Replacing the file externally
+before Save produced a baseline-conflict error and retained the editor draft.
+Discarding and reopening displayed `EXTERNAL_CHANGE_QA`, confirming that the
+external content was not overwritten. These checks establish the local text
+editor interaction; they do not establish remote editing or atomic file locking.
+
+The cross-project inbox listed an unseen synthetic assistant reply from a second
+project. Clicking it selected that project's exact session and working directory;
+reopening the inbox showed no remaining entries. No model or remote host was used.
+
+This smoke run also found a backend bug in the agent delegation read path:
+an irrefutable `if let` forwarded an absent `enabled` value as a write. The branch
+now requires `Some(enabled)` and the module denies irrefutable patterns at build
+time. Swift regression coverage checks that both initial and quiet refreshes
+perform zero delegation writes.
+The rebuilt app subsequently displayed the checkbox without an error and saved
+an enabled value. An authenticated scoped request read back `true`, restored
+`false`, and read back `false`. The eight Swift agent-panel tests and five Rust
+native-panel tests passed, as did formatting and strict packaged code signing.
+After the UI toggle, automation returned `elementHasNoFrame` for refresh and
+then timed out reading accessibility state; the backend remained responsive.
+This intermittent automation/window interaction needs further investigation and
+is not classified as either a confirmed app hang or a passed refresh interaction.
+
+The sections below retain the implementation and verification history; older
+pending statements are superseded by newer evidence, not acceptance of the
+entire toolbar. The PR remains draft until the complete checklist is satisfied.
+
 ## Acceptance checklist
 
 - [ ] Conversation outline: full persisted question index, search, historical
@@ -43,7 +76,7 @@ field; native navigation reports a refresh/upgrade error instead of guessing.
 SwiftUI has a searchable outline popover and history navigation. WinUI has the
 same outline method and DTO. Remaining acceptance items above still apply.
 
-## Current verification
+## Initial foundation verification (historical)
 
 The focused Swift conversation and outline suite passes (11 tests), covering
 history cursor routing and global question indexes for repeated prompts. The

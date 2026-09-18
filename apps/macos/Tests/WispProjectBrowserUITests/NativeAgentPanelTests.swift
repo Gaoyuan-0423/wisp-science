@@ -113,6 +113,8 @@ final class NativeAgentPanelTests: XCTestCase {
         let client = try client(); let model = NativePanelModel(client: client, projectID: "project-a", sessionID: "session-a")
         await model.refresh("agents")
         XCTAssertEqual(model.agentDelegationEnabled, true)
+        await model.refresh("agents", quiet: true)
+        let reads = await client.delegationWriteCount(); XCTAssertEqual(reads, 0)
         await model.setAgentDelegation(false)
         XCTAssertEqual(model.agentDelegationEnabled, false)
         await client.failDelegationWrites()

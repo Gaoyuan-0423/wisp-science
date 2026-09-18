@@ -1,5 +1,6 @@
 //! Native side-panel operations resolve the requested frame directly, never a shared
 //! hidden window's active frame. Exploration directories remain isolated.
+#![deny(irrefutable_let_patterns)]
 use crate::native_settings::{invoke_command, Broker};
 use serde_json::Value;
 use tauri::Manager;
@@ -133,7 +134,7 @@ pub(crate) async fn dispatch(
             ))
         }
         "native_conversation_panel_agent_delegation" => {
-            if let enabled = args.enabled {
+            if let Some(enabled) = args.enabled {
                 crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
                 state
                     .store
