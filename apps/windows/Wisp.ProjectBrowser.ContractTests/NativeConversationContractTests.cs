@@ -14,6 +14,15 @@ static class NativeConversationContractTests
         Require(provenance[0].Output == "42\n" && provenance[1].Input == "样本.csv" && provenance[3].Input == "", "Provenance recorded text drift");
         Require(provenance[1].Matches("not FOUND") && !provenance[1].Matches("python") && provenance[2].Matches("LS"), "Provenance search drift");
         Require(NativeProvenanceRow.Collect(new[] { provenanceItems[4] }).Single().Index == 0 && NativeProvenanceRow.Collect(new[] { provenanceItems[0] }).Length == 0, "Transcript page isolation drift");
+        var highlightFake = new Fake { Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-highlights.json"))) };
+        var highlights = new NativeHighlightClient(highlightFake);
+        Require((await highlights.ListAsync("project-a", "session-a")).Single().Code == "样本 质量\n合格", "Highlight text drift");
+        try { await highlights.ListAsync("other", "session-a"); throw new Exception("Expected scope rejection"); } catch (InvalidDataException) { }
+        highlightFake.Fail = true;
+        try { await highlights.RemoveAsync("project-a", "session-a", "highlight-a"); } catch (IOException) { }
+        Require(highlightFake.Calls == 3 && highlightFake.Args?["library_item_id"]?.GetValue<string>() == "highlight-a", "Highlight removal replayed or lost identity");
+        Require(NativeSavedExcerpt.Find("样本 质量\n合格", "样本质量合格") is { } range && "样本 质量\n合格"[range] == "样本 质量\n合格", "Saved excerpt whitespace match drift");
+        Require(NativeSavedExcerpt.Find("abc", " ") is null && NativeSavedExcerpt.Find("abc", "ABC") is null, "Saved excerpt empty/case matching drift");
         var panel = JsonSerializer.Deserialize<NativePanelFile[]>(File.ReadAllText(Path.Combine(directory, "panel-files.json")), ConversationSnapshot.JsonOptions)!;
         Require(panel[0].IsDir && panel[1].Name == "README.md", "Panel file fixture drift");
         var preview = JsonSerializer.Deserialize<NativePanelFileContent>(File.ReadAllText(Path.Combine(directory, "panel-preview.json")), ConversationSnapshot.JsonOptions)!;

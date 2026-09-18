@@ -3,6 +3,8 @@ import WispProjectBrowser
 
 @MainActor
 final class NativePanelModel: ObservableObject {
+    @Published private(set) var highlights: [NativeHighlight] = []
+    @Published private(set) var highlightRemoving: Set<String> = []
     @Published private(set) var artifacts: [NativePanelArtifact] = []
     @Published private(set) var files: [NativePanelFile] = []
     @Published private(set) var path = "."
@@ -45,6 +47,10 @@ final class NativePanelModel: ObservableObject {
             if tab == "provenance" {
                 // Uses the displayed transcript; never dispatch a file read for this tab.
                 return
+            } else if tab == "highlights" {
+                let rows = try decode(await call("highlights"), as: [NativeHighlight].self)
+                guard rows.allSatisfy({ $0.belongs(project: projectID, session: sessionID) }) else { throw ProjectBrowserError.invalidResponse }
+                guard generation == current, !Task.isCancelled else { return }; highlights = rows
             } else if tab == "artifacts" {
                 let rows = try decode(await call("artifacts"), as: [NativePanelArtifact].self)
                 guard generation == current, !Task.isCancelled else { return }; artifacts = rows
@@ -61,6 +67,18 @@ final class NativePanelModel: ObservableObject {
                 guard generation == current, !Task.isCancelled else { return }; files = rows; path = requestedPath
             }
         } catch { if generation == current, !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+    func removeHighlight(_ id: String) async {
+        guard highlights.contains(where: { $0.id == id }), !highlightRemoving.contains(id) else { return }
+        let epoch = agentEpoch; highlightRemoving.insert(id); error = nil
+        defer { if epoch == agentEpoch { highlightRemoving.remove(id) } }
+        do {
+            let removed = try decode(await call("highlight_remove", ["library_item_id": .string(id)]), as: Bool.self)
+            guard epoch == agentEpoch, !Task.isCancelled else { return }
+            guard removed else { throw ProjectBrowserError.unavailable("摘录已发生变化，请刷新后重试。") }
+            if selectedTab == "highlights" { generation = UUID(); loading = false }
+            highlights.removeAll { $0.id == id }
+        } catch { if epoch == agentEpoch { self.error = error.localizedDescription } }
     }
     func setContext(_ id: String, enabled: Bool) async {
         guard !contextBusy, contexts?.read_only == false else { return }
@@ -135,5 +153,5 @@ final class NativePanelModel: ObservableObject {
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
     func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
-    func close() { agentEpoch = UUID(); agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
+    func close() { agentEpoch = UUID(); highlightRemoving = []; agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }

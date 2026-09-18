@@ -1335,7 +1335,7 @@ pub struct ArtifactInfo {
 
 /// Immutable item in the app-global library database. Source names are
 /// snapshots, so this remains useful after its project or session is deleted.
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct LibraryItem {
     pub id: String,
     pub kind: String,

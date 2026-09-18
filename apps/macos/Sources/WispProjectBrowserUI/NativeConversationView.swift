@@ -28,7 +28,7 @@ struct NativeConversationView: View {
                             Spacer()
                         }
                         ForEach(Array(conversation.visibleItems.enumerated()), id: \.offset) { index, item in
-                            message(item).id(index)
+                            message(item, index: index).id(index)
                         }
                         if conversation.loading { ProgressView().frame(maxWidth: .infinity) }
                         else if conversation.visibleItems.isEmpty { Text("向 Wisp Science 提问，开始这个会话。").foregroundStyle(color("text-muted")).padding(.vertical, 48).frame(maxWidth: .infinity) }
@@ -39,7 +39,7 @@ struct NativeConversationView: View {
                     }.frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
                 }
                 .onChange(of: conversation.scrollRevision) { _ in
-                    if let target = conversation.scrollTarget { scroll.scrollTo(target, anchor: .top) }
+                    if let target = conversation.scrollTarget { followLatest = false; scroll.scrollTo(target, anchor: .center) }
                 }
                 .onChange(of: conversation.snapshot?.sequence) { _ in
                     if followLatest && !conversation.showingHistory { scroll.scrollTo("latest", anchor: .bottom) }
@@ -70,12 +70,28 @@ struct NativeConversationView: View {
             }
             composer
         }
+            .task(id: conversation.scrollRevision) {
+                let revision = conversation.scrollRevision
+                guard conversation.revealedExcerpt != nil else { return }
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                if !Task.isCancelled { conversation.clearExcerpt(revision: revision) }
+            }
         .confirmationDialog("先核对最新消息，避免重复执行同一个任务。确认仍需再次发送？", isPresented: $confirmResend) {
             Button("保留草稿，允许再次发送") { conversation.acknowledgeUncertainSend() }
             Button("取消", role: .cancel) {}
         }
     }
-    private func message(_ item: ConversationItem) -> some View {
+    private func markedText(_ item: ConversationItem, index: Int) -> AttributedString {
+        var text = (try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text)
+        if conversation.scrollTarget == index, let excerpt = conversation.revealedExcerpt,
+           let range = NativeSavedExcerpt.range(in: String(text.characters), excerpt: excerpt) {
+            let start = text.characters.index(text.startIndex, offsetBy: range.lowerBound)
+            let end = text.characters.index(text.startIndex, offsetBy: range.upperBound)
+            text[start..<end].backgroundColor = .yellow.opacity(0.4)
+        }
+        return text
+    }
+    private func message(_ item: ConversationItem, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(item.role == "user" ? "你" : item.role == "tool" ? (item.tool_name ?? "工具") : item.role == "reasoning" ? "思考" : "Wisp Science")
@@ -100,7 +116,7 @@ struct NativeConversationView: View {
                 }
                 Text("选择选项会填入输入框，点击发送后继续。").font(WispDesign.font(size: 11)).foregroundStyle(.secondary)
             } else {
-                Text((try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text))
+                Text(markedText(item, index: index))
                     .font(WispDesign.font(size: 14)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)

@@ -414,3 +414,39 @@ The native model test confirms this tab never dispatches a file read or duplicat
 snapshot request. Live scrolling/history/disclosure interactions remain part of
 final native smoke verification. Notebook, Highlights and SideChat remain open
 implementation items, alongside the other toolbar acceptance work above.
+
+## Saved text highlights
+
+Add Panel now includes Highlights, backed by the existing app-global library's
+text snapshots for the requested project and conversation. Cards expose copy,
+remove-from-library and reveal-in-conversation actions. Removal does not edit the
+source transcript and remains available for archived/read-only sources, as in
+WebView. The native broker validates the source project, session and `text` kind
+before deleting; unrelated code/figure snapshots cannot be removed through this
+route. Responses reuse the existing shared LibraryItem DTO. No new database or
+secret storage was added.
+
+Swift validates returned source identities before showing rows, and C# exposes
+matching list/remove methods with the same validation. A failed/uncertain removal
+retains the displayed card and is never replayed automatically. A late list read
+cannot restore a successfully removed card. Search filters excerpt text.
+
+Reveal searches the currently loaded transcript, ignoring whitespace like
+WebView's saved-mark navigation. It scrolls to the first matching rendered message
+and briefly highlights the matching text; explicit navigation disables automatic
+following of new replies. Missing text reports that the corresponding history
+page must be loaded. Swift returns character offsets and C# UTF-16 ranges suited
+to each platform's text controls. Persistent underlining of all saved excerpts,
+selection-based creation from the native message context menu, and richer tool
+body reveal remain follow-up work; this increment connects the saved-excerpt
+panel rather than claiming every transcript selection interaction is complete.
+
+All 88 Swift tests with rendering enabled and the C# contract executable passed.
+Focused tests passed again after tightening scope validation and clearing marks
+on history navigation. Narrow light/dark highlight cards were rendered and
+inspected. Tests cover scope mismatch, no replay, late reads after deletion,
+Unicode/whitespace matching, first occurrence and highlight expiration guards.
+All four backend panel tests and sixteen shared DTO tests passed. Backend tests
+exercise foreign project/session rejection and preservation of non-text library
+items using a temporary database. Full repository gates and
+live clipboard/history/selection smoke tests remain pending.

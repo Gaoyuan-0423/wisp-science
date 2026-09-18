@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_highlights",
+    "native_conversation_panel_highlight_remove",
     "native_conversation_panel_agent_delegation",
     "native_conversation_panel_agent_action",
     "native_conversation_panel_agents",
@@ -76,6 +78,8 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub library_item_id: Option<String>,
     #[serde(default)]
     pub action: Option<AgentAction>,
     #[serde(default)]
@@ -346,6 +350,17 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn highlights_reuse_library_item_contract() {
+        let rows: Vec<crate::LibraryItem> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-highlights.json"
+        )).unwrap();
+        assert_eq!(rows[0].kind, "text");
+        assert_eq!(rows[0].source_session_id, "session-a");
+        assert_eq!(rows[0].code.as_ref(), "样本 质量\n合格");
+        let value = serde_json::to_value(rows).unwrap();
+        assert_eq!(value[0]["source_project_id"], "project-a");
     }
     #[test]
     fn provenance_fixture_reuses_recorded_transcript_items() {

@@ -20,6 +20,17 @@ pub(crate) async fn dispatch(
         return Err("Project scope mismatch".into());
     }
     match request.command.as_str() {
+        "native_conversation_panel_highlights" => {
+            let rows = state.library.list_for_session(session).await.map_err(|e| e.to_string())?;
+            let rows: Vec<_> = rows.into_iter().filter(|row| highlight_in_scope(row, project_id, session)).collect();
+            contract::<Vec<wisp_dto::LibraryItem>>(serde_json::to_value(rows).map_err(|e| e.to_string())?)
+        }
+        "native_conversation_panel_highlight_remove" => {
+            // Personal library snapshots remain editable even when the source session is read-only.
+            let id = args.library_item_id.ok_or("Library item ID is required")?;
+            Ok(Value::Bool(remove_highlight(&state.library, project_id, session, &id).await?))
+        }
+
         "native_conversation_panel_agent_delegation" => {
             if let enabled = args.enabled {
                 crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
@@ -436,6 +447,14 @@ pub(crate) async fn dispatch(
         _ => Err("Unknown native panel command".into()),
     }
 }
+fn highlight_in_scope(row: &wisp_store::LibraryItem, project: &str, session: &str) -> bool {
+    row.kind == "text" && row.source_project_id == project && row.source_session_id == session
+}
+async fn remove_highlight(library: &wisp_store::LibraryStore, project: &str, session: &str, id: &str) -> Result<bool, String> {
+    let row = library.get(id).await.map_err(|e| e.to_string())?.ok_or("Highlight no longer exists; refresh the panel")?;
+    if !highlight_in_scope(&row.item, project, session) { return Err("Highlight is outside this conversation scope".into()); }
+    library.delete(id).await.map_err(|e| e.to_string())
+}
 fn require_runtime_generation(current: u64, expected: Option<u64>) -> Result<(), String> {
     if expected != Some(current) {
         return Err("Runtime changed; refresh before controlling it".into());
@@ -485,6 +504,29 @@ async fn read(root: std::path::PathBuf, path: String) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn highlights_reject_foreign_sources_and_non_text_deletions() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = wisp_store::LibraryStore::open(&temp.path().join("library.sqlite")).await.unwrap();
+        for kind in ["text", "code"] {
+            let row = library.insert(wisp_store::NewLibraryItem {
+                kind: kind.into(), title: "Saved".into(), language: None, code: kind.into(),
+                content_type: None, content: None, source_project_id: "p".into(),
+                source_project_name: "P".into(), source_session_id: "s".into(),
+                source_session_title: "S".into(), source_path: None,
+            }).await.unwrap();
+            assert!(remove_highlight(&library, "other", "s", &row.id).await.is_err());
+            assert!(remove_highlight(&library, "p", "other", &row.id).await.is_err());
+            assert!(library.get(&row.id).await.unwrap().is_some());
+            if kind == "text" {
+                assert!(remove_highlight(&library, "p", "s", &row.id).await.unwrap());
+                assert!(remove_highlight(&library, "p", "s", &row.id).await.is_err());
+            } else {
+                assert!(remove_highlight(&library, "p", "s", &row.id).await.is_err());
+                assert!(library.get(&row.id).await.unwrap().is_some());
+            }
+        }
+    }
     #[test]
     fn runtime_control_requires_the_displayed_generation() {
         assert!(require_runtime_generation(2, Some(2)).is_ok());

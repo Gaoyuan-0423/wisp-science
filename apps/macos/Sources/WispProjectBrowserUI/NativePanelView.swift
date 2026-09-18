@@ -9,14 +9,15 @@ struct NativePanelView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
-    private static let availableTabs = NativePanelTabs.defaults + ["provenance"]
+    private static let availableTabs = NativePanelTabs.defaults + ["highlights", "provenance"]
+    let revealExcerpt: (String) -> Void
     let transcript: [ConversationItem]
     let transcriptPage: String
     let manageWorkflows: () -> Void
     let readOnly: Bool
     let close: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, transcript: [ConversationItem] = [], transcriptPage: String = "latest", readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
+    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -43,6 +44,8 @@ struct NativePanelView: View {
                             }.buttonStyle(.plain)
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
+                    } else if tab == "highlights" {
+                        NativeHighlightsView(model: model, query: query, reveal: revealExcerpt)
                     } else if tab == "provenance" {
                         NativeProvenanceView(rows: NativeProvenanceRow.collect(transcript), query: query).id(transcriptPage)
                     } else if tab == "agents" {
@@ -84,6 +87,7 @@ struct NativePanelView: View {
     private var layout: NativePanelTabs { NativePanelTabs(saved: savedTabs, selected: tab, available: Self.availableTabs) }
     private func store(_ value: NativePanelTabs) { savedTabs = value.saved; tab = value.selected }
     private func title(_ id: String) -> String {
+        if id == "highlights" { return "划线 (\(model.highlights.count))" }
         if id == "provenance" { return "溯源 (\(NativeProvenanceRow.collect(transcript).count))" }
         return ["artifacts": "产物", "agents": "代理", "files": "文件", "hosts": "执行环境"][id] ?? id
     }

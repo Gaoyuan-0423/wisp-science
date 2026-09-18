@@ -42,6 +42,23 @@ private actor ConversationFake: NativeConversationQuerying {
     func finish(_ value: ConversationSnapshot) { held?.resume(returning: value); held = nil }
 }
 final class NativeConversationModelTests: XCTestCase {
+    @MainActor func testSavedExcerptSelectsRenderedMessageAndDoesNotClearNewerHighlight() async throws {
+        let client = ConversationFake(); let model = NativeConversationModel(client: client)
+        await client.configure([try fixture()]); await model.open(project: "project-a", session: "session-a")
+        model.revealExcerpt("检查 样本")
+        XCTAssertEqual(model.scrollTarget, 0)
+        let first = model.scrollRevision
+        model.revealExcerpt("正在 检查样本…")
+        XCTAssertEqual(model.scrollTarget, 1)
+        model.clearExcerpt(revision: first)
+        XCTAssertNotNil(model.revealedExcerpt)
+        model.clearExcerpt(revision: model.scrollRevision)
+        XCTAssertNil(model.revealedExcerpt)
+        model.revealExcerpt("missing")
+        XCTAssertNotNil(model.operationError)
+        XCTAssertEqual(model.scrollTarget, 1)
+        model.pause()
+    }
     @MainActor func testOnlySuccessfulOpenMarksSessionSeen() async throws {
         let client = ConversationFake(); let model = NativeConversationModel(client: client)
         await client.configure([try fixture()], failRead: true)

@@ -9,6 +9,7 @@ final class NativeConversationModel: ObservableObject {
     @Published private(set) var outline: [ConversationOutlineEntry] = []
     @Published private(set) var outlineLoading = false
     @Published private(set) var outlineError: String?
+    @Published private(set) var revealedExcerpt: String?
     @Published private(set) var scrollTarget: Int?
     @Published private(set) var scrollRevision = 0
     @Published private(set) var snapshot: ConversationSnapshot?
@@ -36,7 +37,7 @@ final class NativeConversationModel: ObservableObject {
 
     func open(project: String, session: String) async {
         pause()
-        outlinePresented = false; outline = []; outlineError = nil; outlineLoading = false; scrollTarget = nil
+        outlinePresented = false; outline = []; outlineError = nil; outlineLoading = false; scrollTarget = nil; revealedExcerpt = nil
         projectID = project; sessionID = session; draft = drafts[session] ?? ""
         snapshot = nil; history = nil; showingHistory = false; pending = pendingSends[session]; uncertainSend = pending != nil; retiredEpochs = []
         operationError = pending == nil ? nil : "上次发送结果尚未确认。请核对最新消息；不会自动重发。"
@@ -139,6 +140,7 @@ final class NativeConversationModel: ObservableObject {
         if current == generation { busy = false; await refresh() }
     }
     func older() async {
+        revealedExcerpt = nil
         guard let project = projectID, let session = sessionID,
               let cursor = (showingHistory ? history : snapshot)?.next_before_seq else { return }
         let current = generation
@@ -161,6 +163,7 @@ final class NativeConversationModel: ObservableObject {
         } catch { if current == generation { outlineError = error.localizedDescription } }
     }
     func navigateToQuestion(_ entry: ConversationOutlineEntry) async {
+        revealedExcerpt = nil
         guard let project = projectID, let session = sessionID else { return }
         let current = generation
         do {
@@ -177,6 +180,21 @@ final class NativeConversationModel: ObservableObject {
             outlinePresented = false
         } catch { if current == generation { outlineError = error.localizedDescription } }
     }
+    func revealExcerpt(_ text: String) {
+        guard let index = visibleItems.firstIndex(where: { item in
+            NativeSavedExcerpt.range(in: Self.renderedText(item), excerpt: text) != nil
+        }) else {
+            operationError = "未在当前已加载的消息中找到原文；请打开对应历史记录后重试。"
+            return
+        }
+        operationError = nil; revealedExcerpt = text; scrollTarget = index; scrollRevision += 1
+    }
+    static func renderedText(_ item: ConversationItem) -> String {
+        if item.role == "tool" { return item.text }
+        let attributed = (try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text)
+        return String(attributed.characters)
+    }
+    func clearExcerpt(revision: Int) { if scrollRevision == revision { revealedExcerpt = nil } }
     static func questionItemIndex(_ target: Int, offset: Int, items: [ConversationItem]) -> Int? {
         var index = offset
         for (position, item) in items.enumerated() where item.role == "user" {
@@ -185,7 +203,7 @@ final class NativeConversationModel: ObservableObject {
         }
         return nil
     }
-    func latest() { showingHistory = false; history = nil }
+    func latest() { revealedExcerpt = nil; showingHistory = false; history = nil }
 }
 
 func nativeDesktopHostURL() -> URL? {
