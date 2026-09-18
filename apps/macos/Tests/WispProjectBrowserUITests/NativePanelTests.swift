@@ -26,6 +26,22 @@ final class NativePanelTests: XCTestCase {
         for _ in 0..<5 { root.deleteLastPathComponent() }
         return try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/\(name).json")))
     }
+    @MainActor func testPreviewQuotePreservesSourceAndRejectsDismissedOrChangedFile() throws {
+        let rows = try fixture("panel-preview")
+        let model = NativePanelModel(client: PanelClient(rows), projectID: "p", sessionID: "s")
+        let preview = try JSONDecoder().decode(NativePanelFileContent.self, from: JSONEncoder().encode(rows))
+        let text = try XCTUnwrap(preview.text)
+        model.preview = preview
+        let quote = try XCTUnwrap(model.selectedPreviewQuote(text, path: preview.path))
+        XCTAssertEqual(quote.text, text); XCTAssertEqual(quote.source, preview.path)
+        XCTAssertNil(model.selectedPreviewQuote(text, path: "other.txt"))
+        XCTAssertNil(model.selectedPreviewQuote("not contained in the preview", path: preview.path))
+        XCTAssertNil(model.selectedPreviewQuote("  ", path: preview.path))
+        model.dismissPreview()
+        XCTAssertNil(model.selectedPreviewQuote(text, path: preview.path))
+        model.preview = preview; model.close()
+        XCTAssertNil(model.selectedPreviewQuote(text, path: preview.path))
+    }
     @MainActor func testRenderContextsAtNarrowPanelWidth() async throws {
         guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in native rendering") }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

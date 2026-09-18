@@ -5,8 +5,8 @@ import WispProjectBrowser
 struct NativeSelectableMessage: NSViewRepresentable {
     let text: AttributedString
     let saved: [String]
-    let quote: (String) -> Void
-    let save: (String) -> Void
+    let quote: ((String) -> Void)?
+    let save: ((String) -> Void)?
     var monospaced = false
     @Environment(\.colorScheme) private var scheme
 

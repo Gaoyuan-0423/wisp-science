@@ -179,6 +179,12 @@ final class NativePanelModel: ObservableObject {
             preview = content
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
+    func selectedPreviewQuote(_ text: String, path: String) -> NativeSideChatQuote? {
+        guard let preview, preview.path == path, let source = preview.text,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              source.contains(text) else { return nil }
+        return NativeSideChatQuote(text: text, source: path)
+    }
     func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
     func close() { agentEpoch = UUID(); notebookBusy = []; highlightRemoving = []; agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }

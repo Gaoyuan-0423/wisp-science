@@ -601,3 +601,18 @@ after the transient reveal highlight clears. Disclosure state resets on session
 or history-mode switches. All 115 Swift tests passed, including the new literal
 Unicode tool-output selection test and opt-in renders. Tool inputs retain their
 existing selectable display; custom input actions are not yet wired.
+
+## File-preview quotes
+
+Text previews for files and artifacts expose Quote to Side Chat with the original
+path attached as the reference source. Quoting closes the preview and selects
+the SideChat tab without sending a request. The source preview must still be
+open and contain the selected text, and the receiving side chat must match the
+project/session. Dismissed previews and mismatched paths are rejected. Binary
+previews keep Quick Look. Text previews wrap to the available width. File excerpts
+do not offer transcript-highlight saving, since they are not conversation text.
+
+The 103 UI tests passed, including preview-source validation and quote-only menu
+coverage. In this run the same existing process-transport test timed out again
+in the separate 14-test core target; this run is not a full-suite pass. The
+previous 115-test run passed. Full repository checks remain in progress.

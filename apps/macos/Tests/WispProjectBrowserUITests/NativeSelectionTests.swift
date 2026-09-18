@@ -19,6 +19,14 @@ final class NativeSelectionTests: XCTestCase {
         XCTAssertEqual(original, ["quote:🧬 selected", "save:🧬 selected"])
         XCTAssertTrue(newer.isEmpty)
     }
+    @MainActor func testQuoteOnlyPreviewDoesNotOfferTranscriptHighlightSave() {
+        let view = NativeMessageTextView(frame: .zero)
+        view.apply(NSAttributedString(string: "file excerpt"))
+        view.setSelectedRange(NSRange(location: 0, length: 4)); view.quote = { _ in }
+        XCTAssertEqual(view.selectionActions().map(\.title), ["引用到侧聊"])
+        view.quote = nil
+        XCTAssertTrue(view.selectionActions().isEmpty)
+    }
     @MainActor func testEmptyAndWhitespaceSelectionsHaveNoCustomActions() {
         let view = NativeMessageTextView(frame: .zero)
         view.apply(NSAttributedString(string: " \ntext")); view.quote = { _ in }; view.save = { _ in }

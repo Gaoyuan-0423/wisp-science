@@ -85,7 +85,15 @@ struct NativePanelView: View {
                 }
             }
             .sheet(isPresented: Binding(get: { model.preview != nil }, set: { if !$0 { model.dismissPreview() } })) {
-                if let content = model.preview { NativePanelFilePreview(content: content, close: model.dismissPreview) }
+                if let content = model.preview {
+                    NativePanelFilePreview(content: content, close: model.dismissPreview, quote: sideChat == nil ? nil : { text in
+                        guard let sideChat, sideChat.projectID == model.projectID, sideChat.sessionID == model.sessionID,
+                              let quote = model.selectedPreviewQuote(text, path: content.path) else { return }
+                        sideChat.quotes.append(quote)
+                        model.dismissPreview()
+                        var value = layout; value.show("sidechat"); store(value)
+                    })
+                }
             }
             .sheet(item: $model.agentResult, onDismiss: model.dismissPreview) { result in
                 NativeAgentResultView(result: result, close: model.dismissPreview)
@@ -168,12 +176,13 @@ struct NativePanelView: View {
 struct NativePanelFilePreview: View {
     let content: NativePanelFileContent
     let close: () -> Void
+    var quote: ((String) -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Text((content.path as NSString).lastPathComponent).font(.headline); Spacer(); Button("关闭预览", action: close) }
             if content.truncated { Text("仅展示文件开头；完整文件大小 \(content.total_bytes ?? 0) bytes。").font(.caption).foregroundStyle(.orange) }
             if let text = content.text {
-                ScrollView([.vertical, .horizontal]) { Text(text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) }
+                ScrollView { NativeSelectableMessage(text: AttributedString(text), saved: [], quote: quote, save: nil, monospaced: true).frame(maxWidth: .infinity, alignment: .topLeading) }
             } else { NativeQuickLookPreview(url: URL(fileURLWithPath: content.path)) }
         }.padding(16).frame(minWidth: 560, idealWidth: 850, minHeight: 420, idealHeight: 650)
             .background(NativeSettingsEscape(close: close))
