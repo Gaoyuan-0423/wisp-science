@@ -263,7 +263,13 @@
     },
     {
       "command": "get_auto_review_enabled",
-      "arguments": [],
+      "arguments": [
+        {
+          "name": "sessionId",
+          "rust_type": "Option<String>",
+          "optional": true
+        }
+      ],
       "result": "Result<bool, String>",
       "source": "src-tauri/src/settings_commands.rs"
     },
@@ -1134,6 +1140,11 @@
     {
       "command": "set_auto_review_enabled",
       "arguments": [
+        {
+          "name": "sessionId",
+          "rust_type": "Option<String>",
+          "optional": true
+        },
         {
           "name": "enabled",
           "rust_type": "bool",
