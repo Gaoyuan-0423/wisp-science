@@ -699,3 +699,11 @@ The intermittent full-run timeout remains unexplained; no transport behavior or
 timeout was changed. An empty/loading trajectory has no visible inspector, so
 its first Escape now dismisses the sheet instead of consuming an invisible
 inspector state.
+
+Two additional tests host the actual `NativeTrajectoryView` in an NSWindow and
+route Escape through its registered stack immediately after layout without
+moving focus: an empty trajectory closes on the first event; a populated
+trajectory closes only its inspector on the first event and its sheet callback
+on the second. Both passed. These prove the SwiftUI-to-stack wiring and avoid
+an invisible inspector consuming Escape, while real native menu tracking and
+application event-loop smoke remain pending.

@@ -53,6 +53,39 @@ final class NativeTrajectoryLayoutTests: XCTestCase {
         let cell = try JSONDecoder().decode(NativeTrajectoryCell.self, from: JSONEncoder().encode(failed))
         XCTAssertEqual(cell.status(running: true), "error")
     }
+    @MainActor func testEscapeClosesTrajectoryInspectorBeforeItsSheet() async throws {
+        _ = NSApplication.shared
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let value = try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/trajectory.json")))
+        let model = NativeTrajectoryModel(client: TrajectoryLayoutClient(value), projectID: "project-a", sessionID: "session-a")
+        await model.refresh(); XCTAssertNotNil(model.snapshot)
+        var closed = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; defer { window.close() }
+        let view = NSHostingView(rootView: NativeTrajectoryView(model: model, close: { closed = true }))
+        window.contentView = view; view.frame = window.contentLayoutRect; view.layoutSubtreeIfNeeded()
+        let focus = window.firstResponder
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        XCTAssertTrue(NativeEscapeStack.shared.consume(event, keyWindow: window, modalWindow: nil))
+        XCTAssertFalse(closed); XCTAssertTrue(window.firstResponder === focus)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertTrue(NativeEscapeStack.shared.consume(event, keyWindow: window, modalWindow: nil))
+        XCTAssertTrue(closed)
+    }
+    @MainActor func testEscapeImmediatelyDismissesEmptyTrajectoryWithoutInvisibleInspector() {
+        _ = NSApplication.shared
+        let model = NativeTrajectoryModel(client: TrajectoryLayoutClient(.null), projectID: "project-a", sessionID: "session-a")
+        var closed = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; defer { window.close() }
+        let view = NSHostingView(rootView: NativeTrajectoryView(model: model, close: { closed = true }))
+        window.contentView = view; view.frame = window.contentLayoutRect; view.layoutSubtreeIfNeeded()
+        let focus = window.firstResponder
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        XCTAssertTrue(NativeEscapeStack.shared.consume(event, keyWindow: window, modalWindow: nil))
+        XCTAssertTrue(closed); XCTAssertTrue(window.firstResponder === focus)
+    }
     @MainActor func testRenderFullTrajectoryAtNarrowAndDesktopWidths() async throws {
         guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else { throw XCTSkip("Opt-in rendering") }
         var root = URL(fileURLWithPath: #filePath)
