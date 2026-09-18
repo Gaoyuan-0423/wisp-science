@@ -64,7 +64,7 @@ def exports():
         prefix = "lp" if theme == "light" else "dp"
         values = dict(re.findall(r"--([\w-]+):\s*([^;]+);", block))
         palettes[f"{theme}-{name}"] = {token: values[f"{prefix}-{alias}"] for token, alias in aliases.items()}
-    trajectory = (ROOT / "ui/src/styles/chat.css").read_text()
+    trajectory = (ROOT / "ui/src/styles/chat.css").read_text(encoding="utf-8")
     for theme, selector in (("light", ".trajectory"), ("dark", ':root[data-theme="dark"] .trajectory')):
         block = re.search(re.escape(selector) + r"\s*\{(.*?)\n\}", trajectory, re.S)[1]
         colors = dict(re.findall(r"--(traj-(?:input|model|tool)-bar):\s*([^;]+);", block))
