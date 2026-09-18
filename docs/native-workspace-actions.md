@@ -823,3 +823,27 @@ Closing and reopening the side panel preserves grid mode. The artifact context
 menu's immediate Escape closes only the menu, leaving the panel visible. Selecting
 Provenance from that menu opens its previously absent tab and displays the recorded
 Python step. The rebuilt QA bundle passed strict signing verification.
+
+## Tool-input selections
+
+Expanded tool inputs now use the same native selectable text component as tool
+outputs: contextual quotation, confirmed excerpt saving, saved-excerpt underlines
+and the configured code font. Revealing a saved excerpt searches each tool's input
+and output separately, expands the matching tool, and marks the selected range.
+It does not join the fields (which could manufacture a match across their boundary)
+or search a non-tool item's hidden input field. Regression coverage checks input,
+output, cross-boundary rejection and the non-tool case.
+
+The shared highlight save/read contract is unchanged. WinUI implementations should
+apply `NativeSavedExcerpt.Find`/`FindAll` separately to `ConversationItem.Input` and
+`Text` for tool rows, render input as literal code, and expand the matching row when
+navigating from Highlights. The existing scoped `StarAsync` method accepts either
+selection without a new command or platform-specific DTO.
+
+The complete Swift suite passed after this change: 118 UI plus 14 core tests
+(132 total), with offline rendering enabled. The QA package rebuilt and passed
+strict signing verification. In the actual synthetic conversation, selecting the
+expanded Python input exposed both contextual actions. Saving it added the
+underline after the backend confirmed the saved highlight; quoting it opened
+SideChat and displayed the exact code as a conversation excerpt without sending a
+question. No provider request was made for that quotation check.

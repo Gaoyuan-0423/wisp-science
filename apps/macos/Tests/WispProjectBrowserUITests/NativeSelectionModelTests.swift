@@ -37,6 +37,31 @@ final class NativeSelectionModelTests: XCTestCase {
         return try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/\(name).json")))
     }
     private func client() throws -> SelectionClient { SelectionClient(snapshot: try fixture("snapshot"), saved: try fixture("panel-highlights").array[0]) }
+    @MainActor func testToolInputExcerptRevealsItsToolWithoutJoiningInputAndOutput() async throws {
+        var payload = try fixture("snapshot")
+        payload["items"] = .array([
+            .object(["role": .string("tool"), "text": .string("sample A 12"), "input": .string("print('sample A', 12)"), "tool_name": .string("python"), "ok": .bool(true)]),
+            .object(["role": .string("assistant"), "text": .string("done"), "input": .string("hidden non-tool input")])
+        ])
+        let client = SelectionClient(snapshot: payload, saved: try fixture("panel-highlights").array[0])
+        let model = NativeConversationModel(client: client)
+        await model.open(project: "project-a", session: "session-a")
+        model.pause()
+        model.revealExcerpt("print('sample A', 12)")
+        XCTAssertEqual(model.scrollTarget, 0)
+        XCTAssertNil(model.operationError)
+        XCTAssertEqual(model.revealedExcerpt, "print('sample A', 12)")
+        let revision = model.scrollRevision
+        model.revealExcerpt("12)sample A")
+        XCTAssertNotNil(model.operationError)
+        XCTAssertEqual(model.scrollRevision, revision)
+        model.revealExcerpt("hidden non-tool input")
+        XCTAssertNotNil(model.operationError)
+        XCTAssertEqual(model.scrollRevision, revision)
+        model.revealExcerpt("sample A 12")
+        XCTAssertNil(model.operationError)
+        XCTAssertGreaterThan(model.scrollRevision, revision)
+    }
     @MainActor func testSaveMarksOnlyConfirmedExactSelectionAndFailedSaveDoesNotReplay() async throws {
         let client = try client(); let model = NativeConversationModel(client: client)
         await model.open(project: "project-a", session: "session-a")

@@ -216,6 +216,7 @@ final class NativeConversationModel: ObservableObject {
     func revealExcerpt(_ text: String) {
         guard let index = visibleItems.firstIndex(where: { item in
             NativeSavedExcerpt.range(in: Self.renderedText(item), excerpt: text) != nil
+                || (item.role == "tool" && item.input.map { NativeSavedExcerpt.range(in: $0, excerpt: text) != nil } == true)
         }) else {
             operationError = "未在当前已加载的消息中找到原文；请打开对应历史记录后重试。"
             return

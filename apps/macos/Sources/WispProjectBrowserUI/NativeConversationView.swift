@@ -87,8 +87,8 @@ struct NativeConversationView: View {
             Button("取消", role: .cancel) {}
         }
     }
-    private func markedText(_ item: ConversationItem, index: Int) -> AttributedString {
-        var text = item.role == "tool" ? AttributedString(item.text) : ((try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text))
+    private func markedText(_ item: ConversationItem, index: Int, input: Bool = false) -> AttributedString {
+        var text = input ? AttributedString(item.input ?? "") : item.role == "tool" ? AttributedString(item.text) : ((try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text))
         if conversation.scrollTarget == index, let excerpt = conversation.revealedExcerpt,
            let range = NativeSavedExcerpt.range(in: String(text.characters), excerpt: excerpt) {
             let start = text.characters.index(text.startIndex, offsetBy: range.lowerBound)
@@ -111,7 +111,7 @@ struct NativeConversationView: View {
                 }, set: { expanded in
                     if expanded { expandedTools.insert(index) } else { expandedTools.remove(index) }
                 })) {
-                    if let input = item.input, !input.isEmpty { Text(input).font(WispDesign.font(size: 12, design: .monospaced)).textSelection(.enabled) }
+                    if let input = item.input, !input.isEmpty { selectableMessage(item, index: index, input: true) }
                     selectableMessage(item, index: index)
                 } label: { Text(item.text.isEmpty ? "执行中…" : String(item.text.prefix(180))).font(WispDesign.font(size: 13)).lineLimit(3) }
             } else if item.role == "question", let data = item.text.data(using: .utf8), let question = try? JSONDecoder().decode(SettingsValue.self, from: data) {
@@ -131,8 +131,8 @@ struct NativeConversationView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(item.role == "user" ? color("bg-sunken") : .clear, in: RoundedRectangle(cornerRadius: 12))
     }
-    private func selectableMessage(_ item: ConversationItem, index: Int) -> some View {
-        NativeSelectableMessage(text: markedText(item, index: index), saved: conversation.savedHighlights.map(\.code), quote: quoteSelection, save: { selection in
+    private func selectableMessage(_ item: ConversationItem, index: Int, input: Bool = false) -> some View {
+        NativeSelectableMessage(text: markedText(item, index: index, input: input), saved: conversation.savedHighlights.map(\.code), quote: quoteSelection, save: { selection in
             guard let projectID, let sessionID else { return }
             Task { await conversation.saveSelection(selection, project: projectID, session: sessionID) }
         }, monospaced: item.role == "tool").frame(maxWidth: .infinity, alignment: .leading)
