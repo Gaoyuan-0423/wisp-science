@@ -90,6 +90,13 @@ static class NativeConversationContractTests
         Require(share.Length == 3 && share[1].Role == "reasoning", "Share fixture drift");
         var complexShare = JsonSerializer.Deserialize<NativeShareRow[]>(File.ReadAllText(Path.Combine(directory, "share-complex.json")), ConversationSnapshot.JsonOptions)!;
         Require(complexShare.Length == 1 && complexShare[0].Text.Contains("| 样本 A | **Passed** |") && complexShare[0].Text.Contains("   - Check **read depth**"), "Complex share Markdown must survive the native contract");
+        var saveFake = new Fake { Reply = JsonValue.Create(true) };
+        var fileClient = new NativePanelClient(saveFake);
+        await fileClient.SaveFileAsync("project-a", "session-a", "analysis.py", "old", "new");
+        Require(saveFake.Project == "project-a" && saveFake.Args?["session_id"]?.GetValue<string>() == "session-a" && saveFake.Args?["original_text"]?.GetValue<string>() == "old" && saveFake.Args?["text"]?.GetValue<string>() == "new", "Native file save scope or conflict baseline lost");
+        saveFake.Fail = true;
+        try { await fileClient.SaveFileAsync("project-a", "session-a", "analysis.py", "old", "new"); throw new Exception("Expected lost save response"); } catch (IOException) { }
+        Require(saveFake.Calls == 2, "File saves must not replay after an uncertain response");
         var contexts = JsonSerializer.Deserialize<NativePanelContexts>(File.ReadAllText(Path.Combine(directory, "panel-contexts.json")), ConversationSnapshot.JsonOptions)!;
         Require(contexts.Attached.Select(c => c.Id).SequenceEqual(new[] { "local", "ssh:gpu" }) && contexts.Available.Single().Id == "wsl:ubuntu", "Context session scope drift");
         var activity = JsonSerializer.Deserialize<NativeContextActivity>(File.ReadAllText(Path.Combine(directory, "panel-activity.json")), ConversationSnapshot.JsonOptions)!;

@@ -20,11 +20,59 @@ private actor PanelClient: NativeConversationQuerying {
     func pending() -> Bool { held != nil }
     func finish() { held?.resume(returning: rows); held = nil }
 }
+private actor FileSaveClient: NativeConversationQuerying {
+    let content: SettingsValue
+    var saves: [[String: SettingsValue]] = []
+    var fail = false
+    init(_ content: SettingsValue) { self.content = content }
+    func failNext() { fail = true }
+    func recorded() -> [[String: SettingsValue]] { saves }
+    func snapshot(projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> ConversationSnapshot { throw ProjectBrowserError.invalidResponse }
+    func invoke(_ command: String, args: [String: SettingsValue], projectID: String) async throws -> SettingsValue {
+        if command.hasSuffix("savefile") {
+            saves.append(args)
+            if fail { throw ProjectBrowserError.service("lost response") }
+            return .bool(true)
+        }
+        return content
+    }
+}
 final class NativePanelTests: XCTestCase {
     func fixture(_ name: String) throws -> SettingsValue {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
         return try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/\(name).json")))
+    }
+    @MainActor func testFilePreviewSaveUsesBaselineAndKeepsDraftOnUncertainResult() async throws {
+        var payload = try fixture("panel-preview"); payload["truncated"] = .bool(false)
+        let client = FileSaveClient(payload)
+        let model = NativePanelModel(client: client, projectID: "p", sessionID: "s")
+        await model.readFile("analysis.py")
+        let original = try XCTUnwrap(model.preview)
+        XCTAssertTrue(model.previewEditable)
+        try await model.savePreview("edited text", original: original)
+        XCTAssertEqual(model.preview?.text, "edited text")
+        let calls = await client.recorded()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls[0]["original_text"]?.string, original.text)
+        XCTAssertEqual(calls[0]["session_id"]?.string, "s")
+        await client.failNext()
+        do { try await model.savePreview("uncertain text", original: XCTUnwrap(model.preview)); XCTFail("Expected uncertain save") } catch {}
+        XCTAssertEqual(model.preview?.text, "edited text")
+        let final = await client.recorded(); XCTAssertEqual(final.count, 2)
+        XCTAssertFalse(model.savingPreview)
+        await model.readArtifact("artifact-a")
+        XCTAssertFalse(model.previewEditable)
+        do { try await model.savePreview("artifact overwrite", original: XCTUnwrap(model.preview)); XCTFail("Artifact preview is read-only") } catch {}
+        let afterArtifact = await client.recorded(); XCTAssertEqual(afterArtifact.count, 2)
+    }
+    @MainActor func testTruncatedPreviewCannotBeSaved() async throws {
+        let client = FileSaveClient(try fixture("panel-preview"))
+        let model = NativePanelModel(client: client, projectID: "p", sessionID: "s")
+        await model.readFile("large.txt")
+        XCTAssertFalse(model.previewEditable)
+        do { try await model.savePreview("prefix", original: XCTUnwrap(model.preview)); XCTFail("Truncated file cannot be saved") } catch {}
+        let calls = await client.recorded(); XCTAssertTrue(calls.isEmpty)
     }
     @MainActor func testPreviewQuotePreservesSourceAndRejectsDismissedOrChangedFile() throws {
         let rows = try fixture("panel-preview")

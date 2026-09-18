@@ -935,3 +935,30 @@ end marker present. No credentials were printed. The probe was read-only and use
 the existing scoped terminal API. This satisfies the local large-output/reconnect
 smoke case; it does not establish remote SSH/WSL behavior or all terminal emulation
 sequences. Earlier notes that local rollover was unverified are superseded.
+
+## Editable local text previews (implementation in verification)
+
+Workspace text files opened from Files now expose Edit and Save. The editor keeps
+an unsaved draft, asks before discarding it, and blocks dismissal while saving.
+Artifact previews and partially loaded/binary previews do not expose editing.
+The native save command resolves the explicit frame's workspace, rejects archived
+sessions or non-writable scopes, validates the existing file boundary, compares
+its current full text to the editor's original text, and uses the existing bounded
+file-save implementation. A differing baseline or truncated read rejects the save.
+State generation is bumped after the write.
+
+The new `native_conversation_panel_savefile` request carries `session_id`, `path`,
+`original_text` and replacement `text`; its confirmed result is `true`. The command
+is in the shared Rust allowlist, and C# `INativePanelClient.SaveFileAsync` exposes
+this same contract without retrying mutations. Swift updates its preview only
+following a confirmed result; failed/uncertain saves retain the draft and show an
+error. This addresses local text editing; file creation, remote editing and
+artifact snapshot mutation are separate behaviors.
+
+Current checks: complete Swift suite passed (127 UI + 14 core = 141), including
+baseline forwarding, uncertain-save state, artifact rejection and truncation
+rejection. C# contract checks passed for scoped payloads and no replay on lost
+responses. The new Rust test exercises successful replacement, changed baselines,
+missing files, parent-directory escape and oversized previews. Rust verification
+and packaged editor interaction are still in progress; this feature is not yet
+counted as fully accepted.

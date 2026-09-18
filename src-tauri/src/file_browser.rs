@@ -649,6 +649,16 @@ pub(super) async fn create_file(
 /// edit files it could not load in full, so anything larger is a bug or abuse.
 const SAVE_FILE_MAX_BYTES: usize = 8 * 1024 * 1024;
 
+/// Existing, fully loaded workspace text only. Comparing the original prevents
+/// an editor left open across an agent write from silently replacing that write.
+pub(super) fn save_file_preview_at(root: &std::path::Path, path: &str, original: &str, text: &str) -> Result<(), String> {
+    let preview = read_file_at(root, path.into(), None)?;
+    if preview.truncated || preview.text.as_deref() != Some(original) {
+        return Err("File changed or was not loaded in full; reopen it before saving".into());
+    }
+    save_file_at(root, path, text)
+}
+
 pub(super) fn save_file_at(root: &Path, path: &str, content: &str) -> Result<(), String> {
     if content.len() > SAVE_FILE_MAX_BYTES {
         return Err(format!(

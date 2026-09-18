@@ -24,6 +24,8 @@ final class NativePanelModel: ObservableObject {
     private var selectedTab = "artifacts"
     @Published var agentResult: NativeAgentResult?
     @Published private(set) var agentResultLoading = false
+    @Published private(set) var previewEditable = false
+    @Published private(set) var savingPreview = false
     @Published var preview: NativePanelFileContent?
     let client: any NativeConversationQuerying
     let projectID: String
@@ -176,8 +178,20 @@ final class NativePanelModel: ObservableObject {
         do {
             let content = try decode(await call(action, args), as: NativePanelFileContent.self)
             guard previewGeneration == current, !Task.isCancelled else { return }
-            preview = content
+            preview = content; previewEditable = action == "readfile" && content.text != nil && !content.truncated
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
+    }
+    func savePreview(_ text: String, original: NativePanelFileContent) async throws {
+        guard previewEditable, !savingPreview, !original.truncated, let previous = original.text,
+              preview?.path == original.path, preview?.text == previous else { throw ProjectBrowserError.invalidResponse }
+        let current = previewGeneration; savingPreview = true
+        defer { if current == previewGeneration { savingPreview = false } }
+        let confirmed = try await call("savefile", ["path": .string(original.path), "original_text": .string(previous), "text": .string(text)])
+        guard confirmed == .bool(true) else { throw ProjectBrowserError.invalidResponse }
+        guard current == previewGeneration, !Task.isCancelled else { return }
+        var value = try JSONDecoder().decode(SettingsValue.self, from: JSONEncoder().encode(original))
+        value["text"] = .string(text); value["total_bytes"] = .integer(Int64(text.utf8.count))
+        preview = try decode(value, as: NativePanelFileContent.self)
     }
     func selectedPreviewQuote(_ text: String, path: String) -> NativeSideChatQuote? {
         guard let preview, preview.path == path, let source = preview.text,
@@ -185,6 +199,6 @@ final class NativePanelModel: ObservableObject {
               source.contains(text) else { return nil }
         return NativeSideChatQuote(text: text, source: path)
     }
-    func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
+    func dismissPreview() { previewGeneration = UUID(); preview = nil; previewEditable = false; savingPreview = false; agentResult = nil; agentResultLoading = false }
     func close() { agentEpoch = UUID(); notebookBusy = []; highlightRemoving = []; agentDelegationBusy = false; agentLaunching = []; agentActions = []; generation = UUID(); dismissPreview() }
 }
