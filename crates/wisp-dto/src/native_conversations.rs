@@ -50,7 +50,13 @@ pub const COMMANDS: &[&str] = &[
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentAction { Approve, Run, Cancel, Discard, Retry }
+pub enum AgentAction {
+    Approve,
+    Run,
+    Cancel,
+    Discard,
+    Retry,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PanelActivity {
@@ -342,10 +348,16 @@ mod tests {
     }
     #[test]
     fn agent_actions_are_closed_and_approval_keeps_reviewed_version() {
-        let args: PanelRequest = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agent-action.json")).unwrap();
+        let args: PanelRequest = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-agent-action.json"
+        ))
+        .unwrap();
         assert_eq!(args.action, Some(AgentAction::Approve));
         assert_eq!(args.expected_version, Some(7));
-        assert!(serde_json::from_value::<PanelRequest>(serde_json::json!({"session_id":"s", "action":"delete_project"})).is_err());
+        assert!(serde_json::from_value::<PanelRequest>(
+            serde_json::json!({"session_id":"s", "action":"delete_project"})
+        )
+        .is_err());
         let args: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s", "action":"retry", "budget_overrides":{"review":{"max_tokens":0}}})).unwrap();
         assert_eq!(args.budget_overrides.unwrap()["review"].max_tokens, Some(0));
     }
