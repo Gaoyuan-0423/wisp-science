@@ -110,7 +110,7 @@ struct NativeTrajectoryView: View {
             }
             }
         }.padding(20).frame(minWidth: 640, idealWidth: 980, minHeight: 420, idealHeight: 650)
-            .background(NativeSettingsEscape { if inspectorOpen { inspectorOpen = false } else { close() } })
+            .background(NativeSettingsEscape { if selected != nil { inspectorOpen = false } else { close() } })
             .task {
                 while !Task.isCancelled {
                     await model.refresh()

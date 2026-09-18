@@ -671,3 +671,31 @@ journey screenshots from the suite were restored; they are unrelated to this PR.
 The workspace Rust test process remains live and must be collected before final
 acceptance. Other native toolbar interaction and remaining functional checklist
 items above are still open.
+
+## Window-level native Escape stack
+
+Native overlays now share one application event monitor and an ordered,
+window-scoped registration stack. Within the event's key window the newest
+presentation alone receives Escape; disabled top overlays consume it rather
+than exposing their parent. Held-key repeats cannot close subsequent layers.
+Menu tracking, modal windows, attached sheets and marked IME text retain their
+native handling before the overlay stack runs. Registrations weakly reference
+the coordinator/view, update their callback without changing order and remove
+the shared listeners when the last overlay disappears.
+
+Five AppKit routing tests pass: immediate topmost dismissal without moving
+focus, disabled/repeating keys, distinct windows and updated callbacks, menu and
+IME precedence, and detached/deallocated overlays. They exercise the exact event
+routing method with real NSWindow/NSEvent objects and explicit window context;
+they do not replace live menu/popup/sheet keyboard smoke verification. The full
+Swift run passed the 114 UI tests, but both existing shell-process transport tests
+hit their 30-second timeout in the separate core target. The transport is being
+diagnosed without relaxing the production timeout. Packaged app build is running
+for subsequent live QA; no completed-build claim is made here.
+
+The seven-test process-client suite passed its subsequent isolated diagnostic
+run (0.858 seconds), so that attempt did not reproduce a running child to sample.
+The intermittent full-run timeout remains unexplained; no transport behavior or
+timeout was changed. An empty/loading trajectory has no visible inspector, so
+its first Escape now dismisses the sheet instead of consuming an invisible
+inspector state.
