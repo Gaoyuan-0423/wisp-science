@@ -5,6 +5,17 @@ public sealed record NativePanelArtifact(string Id, string Name, string Kind, st
 public sealed record NativePanelFile(string Name, bool IsDir, ulong Size, ulong? ModifiedUnixMillis);
 public sealed record NativePanelFileContent(string Path, string Mime, string? Text, string? Base64, bool Truncated, ulong? TotalBytes);
 public enum NativePanelFileAction { CreateFile, CreateDirectory, Rename, Delete }
+public static class NativePanelPaths
+{
+    public static string Destination(string directory, string name)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0 || trimmed is "." or ".." || name.Contains('/') || name.Contains('\\')
+            || name.Any(char.IsControl))
+            throw new InvalidOperationException("请输入有效名称，不含路径分隔符或控制字符。");
+        return directory is "." or "" ? trimmed : directory.TrimEnd('/') + "/" + trimmed;
+    }
+}
 public sealed record NativePanelContext(string Id, string Kind, string Label, string ConfigJson, string CapabilitiesJson, string? LastProbeStatus, string? LastProbeError);
 public sealed record NativePanelContexts(NativePanelContext[] Contexts, string[] EnabledIds, bool ReadOnly)
 {

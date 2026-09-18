@@ -28,6 +28,9 @@ internal sealed class MainWindow : Window
     private WorkspaceInboxModel? inbox;
     private NativeWorkspacePanel? panelPage;
     private NativeWorkspaceTerminal? terminalPage;
+    private WorkspaceConversationModel? conversation;
+    private NativeConversationPage? conversationPage;
+    private WorkspaceSideChatModel? sideChat;
     private bool panelVisible;
     private bool terminalVisible;
     private string? workspaceKey;
@@ -75,7 +78,8 @@ internal sealed class MainWindow : Window
         Closed += (_, _) =>
         {
             windowClosed = true; model.Changed -= Render; model.Dispose();
-            DisposeWorkspace(); settingsPage?.Dispose(); workspaceHost?.Dispose();
+            DisposeWorkspace(); conversationPage?.Dispose(); conversation?.Pause();
+            settingsPage?.Dispose(); workspaceHost?.Dispose();
         };
         root.Loaded += async (_, _) => await model.RefreshAsync();
         Render();
@@ -294,24 +298,24 @@ internal sealed class MainWindow : Window
         }
         if (model.SessionsLoading || model.TranscriptLoading) messages.Children.Add(new ProgressBar { IsIndeterminate = true, Width = 180 });
         else if (model.Messages.Count == 0 && model.SessionError == null) messages.Children.Add(Text(model.Sessions.Count == 0 ? "这个项目还没有会话" : "这个会话暂无消息", 14, "text-faint"));
-        transcriptScroll = new ScrollViewer { Content = messages, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        Grid.SetRow(transcriptScroll, 1); main.Children.Add(transcriptScroll);
+        if (conversationPage != null)
+        {
+            if (conversationPage.Parent is Panel previous) previous.Children.Remove(conversationPage);
+            Grid.SetRow(conversationPage, 1); main.Children.Add(conversationPage);
+        }
+        else
+        {
+            transcriptScroll = new ScrollViewer { Content = messages, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            Grid.SetRow(transcriptScroll, 1); main.Children.Add(transcriptScroll);
+            var bottom = Stack(6); bottom.Margin = new Thickness(20, 0, 20, 8);
+            bottom.Children.Add(Text(localError ?? "正在连接桌面宿主以发送消息…", 12, "text-muted"));
+            Grid.SetRow(bottom, 3); main.Children.Add(bottom);
+        }
         if (terminalVisible && model.ActiveSessionId != null && terminalPage != null)
         {
             if (terminalPage.Parent is Panel previous) previous.Children.Remove(terminalPage);
             Grid.SetRow(terminalPage, 2); main.Children.Add(terminalPage);
         }
-        var bottom = Stack(6); bottom.Margin = new Thickness(20, 0, 20, 8);
-        var composer = Stack(8); composer.Children.Add(Text("向 Wisp Science 提问…", 13, "text-faint"));
-        var composeActions = Row(8);
-        composeActions.Children.Add(ActionButton("添加附件", "attach", quiet: true));
-        composeActions.Children.Add(ActionButton("选择模型", null, quiet: true));
-        var composerActions = new Grid();
-        composerActions.Children.Add(composeActions);
-        var send = ActionButton("发送", null, primary: true); send.HorizontalAlignment = HorizontalAlignment.Right; composerActions.Children.Add(send);
-        composer.Children.Add(composerActions); bottom.Children.Add(Card(composer, 12));
-        bottom.Children.Add(Text("原生预览 · 只读 · 发送消息与实时运行尚未接入", 10, "text-faint"));
-        Grid.SetRow(bottom, 3); main.Children.Add(bottom);
         Grid.SetColumn(main, 1); shell.Children.Add(main);
         if (panelVisible && model.ActiveSessionId != null && panelPage != null)
         {
@@ -334,7 +338,9 @@ internal sealed class MainWindow : Window
         switcher.MaxWidth = layout.CompactWorkspace ? 122 : 148;
         AutomationProperties.SetName(switcher, "切换项目");
         var menu = new MenuFlyout();
-        menu.Items.Add(new MenuFlyoutItem { Text = "项目设置（尚未接入）", IsEnabled = false });
+        var projectSettings = new MenuFlyoutItem { Text = "项目设置" };
+        projectSettings.Click += (_, _) => OpenSettings();
+        menu.Items.Add(projectSettings);
         menu.Items.Add(new MenuFlyoutSeparator());
         foreach (var item in model.Projects)
         {
@@ -345,7 +351,7 @@ internal sealed class MainWindow : Window
         Register(menu); switcher.Flyout = menu; heading.Children.Add(switcher);
         heading.Children.Add(ActionButton("收起侧边栏", "chevron-left", () => { sidebarVisible = false; Render(); }, quiet: true));
         top.Children.Add(heading);
-        top.Children.Add(ActionButton("新建会话", "plus", showLabel: true, primary: true, quiet: true));
+        top.Children.Add(ActionButton("新建会话", "plus", () => _ = CreateSessionAsync(), showLabel: true, primary: true, quiet: true));
         top.Children.Add(ActionButton("搜索", "search", OpenSearch, true, quiet: true));
         foreach (var (label, icon) in new[] { ("新建文件夹", "folder-plus"), ("文件", "doc"), ("研究历程", "research-trail"), ("论文证据", "book"), ("收藏", "star") })
             top.Children.Add(ActionButton(label, icon, showLabel: true, quiet: true));
@@ -380,7 +386,7 @@ internal sealed class MainWindow : Window
     private FrameworkElement Footer(bool workspace = false)
     {
         var footer = Stack(6);
-        if (!workspace) footer.Children.Add(Text("WinUI 3 原生预览 · 会话只读 · 灰色操作尚未接入", 11, "text-faint"));
+        if (!workspace) footer.Children.Add(Text("WinUI 3 原生预览 · 会话连接桌面宿主后可发送", 11, "text-faint"));
         var actions = Row(8);
         var refresh = ActionButton("刷新", "refresh", () => { localError = null; _ = model.RefreshAsync(); }, quiet: true); refresh.IsEnabled = !model.Loading;
         actions.Children.Add(refresh);
@@ -460,7 +466,46 @@ internal sealed class MainWindow : Window
         CloseSheet();
         panelPage?.Dispose(); panelPage = null;
         terminalPage?.Dispose(); terminalPage = null;
+        sideChat = null;
         inbox?.Reset();
+        conversation?.Pause();
+        if (model.ActiveProjectId != null) _ = EnsureConversationAsync();
+    }
+
+    private async Task EnsureConversationAsync()
+    {
+        var host = await ConnectHostAsync();
+        if (host == null || windowClosed) return;
+        conversation ??= new WorkspaceConversationModel(new NativeConversationClient(host), host);
+        conversationPage ??= new NativeConversationPage(conversation, design, QuoteSelection, CreateSessionAsync);
+        if (model.ActiveProjectId is { } project && model.ActiveSessionId is { } session)
+        {
+            sideChat = new WorkspaceSideChatModel(new NativeSideChatClient(host), project, session);
+            await conversation.OpenAsync(project, session);
+        }
+        else conversation.Reset();
+        if (!windowClosed) Render();
+    }
+
+    private void QuoteSelection(string text)
+    {
+        if (sideChat is null) return;
+        sideChat.Quotes.Add(new NativeSideChatQuote(text, "会话摘录"));
+        panelVisible = true; settings.PanelVisible = true; settings.PanelTab = "sidechat"; SaveSettings();
+        if (panelPage == null) _ = EnsurePanelAndTerminalAsync();
+        else panelPage.Refresh();
+    }
+
+    private async Task CreateSessionAsync()
+    {
+        if (model.ActiveProjectId is not { } project) return;
+        var host = await ConnectHostAsync();
+        if (host == null) return;
+        conversation ??= new WorkspaceConversationModel(new NativeConversationClient(host), host);
+        var id = await conversation.CreateAsync(project);
+        if (id is null) { conversationPage?.Refresh(); return; }
+        await model.RefreshAsync();
+        await model.OpenProjectAsync(project, id);
     }
 
     private async Task EnsurePanelAndTerminalAsync()
@@ -472,10 +517,16 @@ internal sealed class MainWindow : Window
         if (panelVisible && panelPage == null)
         {
             var tabs = new NativePanelTabs(settings.PanelTabs, settings.PanelTab, NativePanelTabs.All);
+            sideChat ??= new WorkspaceSideChatModel(new NativeSideChatClient(host), project, session);
             panelPage = new NativeWorkspacePanel(new WorkspacePanelModel(panelClient, project, session, tabs,
                 new NativeHighlightClient(host), new NativeNotebookClient(host), new NativeAgentPanelClient(host)),
-                model.Messages.Select(message => new ConversationItem(message.Role, message.Text, message.ToolName, null, null, null)).ToArray(),
-                design, TogglePanel);
+                () => conversation?.VisibleItems ?? [],
+                design, TogglePanel, sideChat, context =>
+                {
+                    terminalVisible = true;
+                    if (terminalPage == null) _ = EnsurePanelAndTerminalAsync();
+                    else _ = terminalPage.OpenContextAsync(context);
+                });
         }
         if (terminalVisible && terminalPage == null)
         {
@@ -587,6 +638,8 @@ internal sealed class MainWindow : Window
         CloseSheet();
         panelPage?.Dispose(); panelPage = null;
         terminalPage?.Dispose(); terminalPage = null;
+        conversationPage?.Dispose(); conversationPage = null;
+        conversation?.Pause();
         inbox?.Reset();
     }
 

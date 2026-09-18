@@ -111,10 +111,10 @@ exclusive transcript cursor. Snapshot `user_offset` is additive and allows a
 client to locate identical prompts without text matching. Older hosts omit this
 field; native navigation reports a refresh/upgrade error instead of guessing.
 SwiftUI has a searchable outline popover and history navigation. WinUI now
-opens the same outline, inbox, trajectory, archive and share contracts as
-in-window pages, plus a text terminal pane and a right-hand panel for the
-default artifact/file/host tabs. PNG export, VT rendering, live send and the
-remaining panel editors are still follow-ups. Remaining acceptance items
+hosts the live conversation loop plus the same outline, inbox, trajectory,
+archive and HTML share pages, a text terminal pane, and a right-hand panel
+with file mutations, hosts, agents, notebook stars, highlights and side-chat.
+PNG export and VT rendering remain follow-ups. Remaining acceptance items
 above still apply.
 
 ## Initial foundation verification (historical)
