@@ -6649,8 +6649,11 @@ test("agent menu updates review, reviewer model, and memory preferences", async 
     .toMatchObject({ policy: "inline", autoResume: false });
   await expect(autoResume).toHaveCount(0);
 
-  await menu.locator("label.agent-menu-row", { hasText: "Auto-review" }).click();
-  await expect.poll(() => lastInvokeArgs(page, "set_auto_review_enabled")).toMatchObject({ enabled: true });
+  const autoReview = menu.locator("label.agent-menu-row", { hasText: "Auto-review" });
+  await autoReview.click();
+  await expect.poll(() => lastInvokeArgs(page, "set_auto_review_enabled"))
+    .toMatchObject({ sessionId: expect.stringMatching(/^s-/), enabled: true });
+  await expect(autoReview.locator('input[type="checkbox"]')).toBeChecked();
 
   await menu.getByRole("button", { name: /^Reviewer model/ }).click();
   await page.getByRole("menu", { name: "Reviewer model" })
@@ -6699,6 +6702,20 @@ test("agent menu updates review, reviewer model, and memory preferences", async 
   menu = await openAgentMenu(page);
   await menu.getByRole("button", { name: /^Reviewer model/ }).click();
   await expect(page.getByRole("menu", { name: "Reviewer model" })).toBeVisible();
+});
+
+test("auto-review stays with the session that enabled it", async ({ page }) => {
+  await enterApp(page);
+  await enableDelegation(page);
+  let menu = await openAgentMenu(page);
+  await menu.locator("label.agent-menu-row", { hasText: "Auto-review" }).click();
+  await expect.poll(() => lastInvokeArgs(page, "set_auto_review_enabled")).toMatchObject({ enabled: true });
+  await page.keyboard.press("Escape");
+
+  await newSessionButton(page).click();
+  menu = await openAgentMenu(page);
+  await expect(menu.locator("label.agent-menu-row", { hasText: "Auto-review" })
+    .locator('input[type="checkbox"]')).not.toBeChecked();
 });
 
 test("research relationships remain available inside the daily journey", async ({ page }) => {

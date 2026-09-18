@@ -4661,7 +4661,9 @@ async fn save_memory_enabled(store: &Store, on: bool) -> Result<(), String> {
         .map_err(|e| format!("{e}"))
 }
 
-async fn load_auto_review_enabled(store: &Store) -> bool {
+/// Default for sessions that never touched the composer toggle. The settings
+/// pane writes this one; a session that has its own flag ignores it.
+async fn load_default_auto_review_enabled(store: &Store) -> bool {
     store
         .get_setting("auto_review_enabled")
         .await
@@ -4671,9 +4673,40 @@ async fn load_auto_review_enabled(store: &Store) -> bool {
         .unwrap_or(false)
 }
 
-async fn save_auto_review_enabled(store: &Store, enabled: bool) -> Result<(), String> {
+async fn save_default_auto_review_enabled(store: &Store, enabled: bool) -> Result<(), String> {
     store
         .set_setting("auto_review_enabled", &enabled.to_string())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn auto_review_setting_key(frame_id: &str) -> String {
+    format!("frame_auto_review:{frame_id}")
+}
+
+/// Auto-review is per conversation: turning it on in one session must not turn
+/// it on in the next one (#1292). Rides the `settings` kv keyed by frame, like
+/// `frame_plan_mode` — a per-session boolean does not deserve a migration.
+async fn load_auto_review_enabled(store: &Store, frame_id: &str) -> bool {
+    match store
+        .get_setting(&auto_review_setting_key(frame_id))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<bool>().ok())
+    {
+        Some(enabled) => enabled,
+        None => load_default_auto_review_enabled(store).await,
+    }
+}
+
+async fn save_auto_review_enabled(
+    store: &Store,
+    frame_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    store
+        .set_setting(&auto_review_setting_key(frame_id), &enabled.to_string())
         .await
         .map_err(|e| e.to_string())
 }
