@@ -9,6 +9,7 @@ struct NativeConversationView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var confirmResend = false
     @State private var followLatest = true
+    @State private var expandedTools: Set<Int> = []
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
     var body: some View {
         VStack(spacing: 0) {
@@ -42,7 +43,7 @@ struct NativeConversationView: View {
                     }.frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
                 }
                 .onChange(of: conversation.scrollRevision) { _ in
-                    if let target = conversation.scrollTarget { followLatest = false; scroll.scrollTo(target, anchor: .center) }
+                    if let target = conversation.scrollTarget { expandedTools.insert(target); followLatest = false; scroll.scrollTo(target, anchor: .center) }
                 }
                 .onChange(of: conversation.snapshot?.sequence) { _ in
                     if followLatest && !conversation.showingHistory { scroll.scrollTo("latest", anchor: .bottom) }
@@ -79,13 +80,15 @@ struct NativeConversationView: View {
                 try? await Task.sleep(nanoseconds: 1_600_000_000)
                 if !Task.isCancelled { conversation.clearExcerpt(revision: revision) }
             }
+        .onChange(of: sessionID) { _ in expandedTools = [] }
+        .onChange(of: conversation.showingHistory) { _ in expandedTools = [] }
         .confirmationDialog("先核对最新消息，避免重复执行同一个任务。确认仍需再次发送？", isPresented: $confirmResend) {
             Button("保留草稿，允许再次发送") { conversation.acknowledgeUncertainSend() }
             Button("取消", role: .cancel) {}
         }
     }
     private func markedText(_ item: ConversationItem, index: Int) -> AttributedString {
-        var text = (try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text)
+        var text = item.role == "tool" ? AttributedString(item.text) : ((try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text))
         if conversation.scrollTarget == index, let excerpt = conversation.revealedExcerpt,
            let range = NativeSavedExcerpt.range(in: String(text.characters), excerpt: excerpt) {
             let start = text.characters.index(text.startIndex, offsetBy: range.lowerBound)
@@ -103,9 +106,13 @@ struct NativeConversationView: View {
                 if let status = item.status { Text(status).font(.caption).foregroundStyle(.secondary) }
             }
             if item.role == "tool" {
-                DisclosureGroup {
+                DisclosureGroup(isExpanded: Binding(get: {
+                    expandedTools.contains(index)
+                }, set: { expanded in
+                    if expanded { expandedTools.insert(index) } else { expandedTools.remove(index) }
+                })) {
                     if let input = item.input, !input.isEmpty { Text(input).font(WispDesign.font(size: 12, design: .monospaced)).textSelection(.enabled) }
-                    Text(item.text).font(WispDesign.font(size: 12, design: .monospaced)).textSelection(.enabled)
+                    selectableMessage(item, index: index)
                 } label: { Text(item.text.isEmpty ? "执行中…" : String(item.text.prefix(180))).font(WispDesign.font(size: 13)).lineLimit(3) }
             } else if item.role == "question", let data = item.text.data(using: .utf8), let question = try? JSONDecoder().decode(SettingsValue.self, from: data) {
                 Text(question["question"].string).font(WispDesign.font(size: 14)).textSelection(.enabled)
@@ -119,13 +126,16 @@ struct NativeConversationView: View {
                 }
                 Text("选择选项会填入输入框，点击发送后继续。").font(WispDesign.font(size: 11)).foregroundStyle(.secondary)
             } else {
-                NativeSelectableMessage(text: markedText(item, index: index), saved: conversation.savedHighlights.map(\.code), quote: quoteSelection) { selection in
-                    guard let projectID, let sessionID else { return }
-                    Task { await conversation.saveSelection(selection, project: projectID, session: sessionID) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                selectableMessage(item, index: index)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(item.role == "user" ? color("bg-sunken") : .clear, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func selectableMessage(_ item: ConversationItem, index: Int) -> some View {
+        NativeSelectableMessage(text: markedText(item, index: index), saved: conversation.savedHighlights.map(\.code), quote: quoteSelection, save: { selection in
+            guard let projectID, let sessionID else { return }
+            Task { await conversation.saveSelection(selection, project: projectID, session: sessionID) }
+        }, monospaced: item.role == "tool").frame(maxWidth: .infinity, alignment: .leading)
     }
     private var composer: some View {
         VStack(spacing: 8) {

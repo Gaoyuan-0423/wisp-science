@@ -38,6 +38,21 @@ final class NativeSelectionTests: XCTestCase {
         let plain = NativeSelectableMessage.content(text, saved: [], scheme: .light)
         XCTAssertNil(plain.attribute(.underlineStyle, at: first.location, effectiveRange: nil))
     }
+    @MainActor func testToolOutputRemainsLiteralMonospacedAndSelectable() throws {
+        let source = "**literal**\n🧬 result = [1, 2]"
+        let content = NativeSelectableMessage.content(AttributedString(source), saved: ["🧬 result"], scheme: .dark, monospaced: true)
+        XCTAssertEqual(content.string, source)
+        let font = try XCTUnwrap(content.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(font.isFixedPitch)
+        let range = (source as NSString).range(of: "🧬 result")
+        XCTAssertNotNil(content.attribute(.underlineStyle, at: range.location, effectiveRange: nil))
+        let view = NativeMessageTextView(frame: .zero)
+        view.apply(content); view.setSelectedRange(range)
+        var quotes: [String] = []; var saves: [String] = []
+        view.quote = { quotes.append($0) }; view.save = { saves.append($0) }
+        for action in view.selectionActions() { (action.representedObject as? NativeSelectionAction)?.invoke(nil) }
+        XCTAssertEqual(quotes, ["🧬 result"]); XCTAssertEqual(saves, ["🧬 result"])
+    }
     @MainActor func testMarkRefreshPreservesSelectedRangeAndText() throws {
         let view = NativeMessageTextView(frame: .zero)
         let text = AttributedString("selected text")

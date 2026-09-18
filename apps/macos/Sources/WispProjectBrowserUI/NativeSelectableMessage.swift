@@ -7,6 +7,7 @@ struct NativeSelectableMessage: NSViewRepresentable {
     let saved: [String]
     let quote: (String) -> Void
     let save: (String) -> Void
+    var monospaced = false
     @Environment(\.colorScheme) private var scheme
 
     func makeNSView(context: Context) -> NativeMessageTextView {
@@ -25,7 +26,7 @@ struct NativeSelectableMessage: NSViewRepresentable {
     private func configure(_ view: NativeMessageTextView) {
         view.quote = quote; view.save = save
         view.linkTextAttributes = [.foregroundColor: NSColor(WispDesign.color("clay", scheme)), .underlineStyle: NSUnderlineStyle.single.rawValue]
-        view.apply(Self.content(text, saved: saved, scheme: scheme))
+        view.apply(Self.content(text, saved: saved, scheme: scheme, monospaced: monospaced))
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NativeMessageTextView, context: Context) -> CGSize? {
         let width = max(1, proposal.width ?? 400)
@@ -36,14 +37,14 @@ struct NativeSelectableMessage: NSViewRepresentable {
         return CGSize(width: width, height: max(20, ceil(layout.usedRect(for: container).height)))
     }
     static func dismantleNSView(_ view: NativeMessageTextView, coordinator: ()) { view.quote = nil; view.save = nil }
-    static func content(_ text: AttributedString, saved: [String], scheme: ColorScheme) -> NSAttributedString {
+    static func content(_ text: AttributedString, saved: [String], scheme: ColorScheme, monospaced: Bool = false) -> NSAttributedString {
         let value = NSMutableAttributedString(text)
         let plain = value.string
         let whole = NSRange(location: 0, length: value.length)
         let size = UserDefaults.standard.double(forKey: "nativeSettings.ui_font_size")
         let family = UserDefaults.standard.string(forKey: "nativeSettings.ui_font_family") ?? ""
         let pointSize = size > 0 ? size : 14
-        let base = NSFont(name: family, size: pointSize) ?? NSFont.systemFont(ofSize: pointSize)
+        let base = monospaced ? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) : (NSFont(name: family, size: pointSize) ?? NSFont.systemFont(ofSize: pointSize))
         value.addAttributes([.font: base, .foregroundColor: NSColor(WispDesign.color("text", scheme))], range: whole)
         func nsRange(_ range: Range<Int>) -> NSRange {
             let start = plain.index(plain.startIndex, offsetBy: range.lowerBound)

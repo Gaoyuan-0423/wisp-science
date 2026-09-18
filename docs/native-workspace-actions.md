@@ -583,7 +583,7 @@ formatting, selection preservation, failed/mismatched saves and session switches
 Narrow light/dark selectable-message renders were inspected. These tests use
 actual AppKit text selection and menu action objects; they do not yet prove the
 complete application's immediate-Escape behavior for a displayed context menu.
-Tool-result and file-preview selections still need the same native action wiring.
+File-preview selections and tool-input selections still need the same native action wiring.
 Full repository gates and final live toolbar smoke verification remain pending.
 
 Validation: all 114 Swift tests (including opt-in rendering), 17 DTO contract
@@ -591,3 +591,13 @@ tests, four native panel backend tests and the C# contract executable passed.
 The first Swift run hit a 30-second timeout in the existing process-transport
 test; its focused rerun and the subsequent complete suite passed without changing
 the transport timeout. The cause of that transient failure is not established.
+
+## Tool-output selections
+
+Tool result bodies share the native quote/save selection actions and persistent
+marks. Tool text remains literal and monospaced, including Markdown-like syntax.
+Revealing a saved tool-output excerpt expands its disclosure and keeps it open
+after the transient reveal highlight clears. Disclosure state resets on session
+or history-mode switches. All 115 Swift tests passed, including the new literal
+Unicode tool-output selection test and opt-in renders. Tool inputs retain their
+existing selectable display; custom input actions are not yet wired.
