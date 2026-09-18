@@ -95,9 +95,13 @@ internal sealed class NativeOutlinePage : WorkspaceSheet
             var index = 0;
             foreach (var item in history.Items)
             {
-                var block = new TextBlock { Text = item.Text, TextWrapping = TextWrapping.Wrap, Padding = new Thickness(8),
-                    Background = index == model.HistoryItemIndex ? Design.Brush("surface-hover") : Design.Brush("bg-elev") };
-                list.Children.Add(block); index++;
+                var block = new TextBlock { Text = item.Text, TextWrapping = TextWrapping.Wrap };
+                list.Children.Add(new Border
+                {
+                    Child = block, Padding = new Thickness(8), CornerRadius = new CornerRadius(8),
+                    Background = index == model.HistoryItemIndex ? Design.Brush("surface-hover") : Design.Brush("bg-elev")
+                });
+                index++;
             }
         }
     }
