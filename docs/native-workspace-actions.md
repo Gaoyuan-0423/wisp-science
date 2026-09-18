@@ -24,6 +24,9 @@ adapter uses the existing workspace file implementation; Swift and WinUI's
 collision preservation, boundary/root rejection, real temporary-file operations,
 name validation, scope, refreshed listings and no replay after lost responses.
 Packaged interaction acceptance for these new actions is in progress.
+The complete Swift suite passed 143 tests (129 UI + 14 core), C# contract tests
+passed, and wasm compilation and Rust formatting checks passed. Rust native-panel
+tests and the updated QA package are still running.
 
 The packaged QA app uses a separate bundle identifier and synthetic database.
 Files → README.md → Edit → Save wrote `NATIVE_SAVE_OK` to that workspace.
@@ -58,7 +61,11 @@ without establishing a root cause.
 
 Sharing two selected messages through the real macOS Save dialog produced a
 9,684-byte HTML file containing the first turn and excluding the unselected
-second turn. Live PNG Save-dialog acceptance is still pending. The latest full
+second turn. The real PNG Save dialog subsequently exported an 840 × 352 image
+of those same two messages; visual inspection confirmed the selected text and
+code block. Opening the Save dialog again and immediately pressing Escape kept
+the Share sheet open. Broader Markdown parity remains a separate open item.
+The latest full
 Playwright run finished with 823 passed, two skipped and one initialization
 timeout waiting for `open-session` in the 540 px completed-report test. Its
 unchanged 1280/540 px tests both passed on isolated rerun. Full Rust workspace
