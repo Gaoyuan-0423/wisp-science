@@ -396,12 +396,17 @@ wisp-science/
   streaming tokens to an `Output` sink. Stops on `attempt_completion` or when
   the model returns no tool calls.
 - **Context compaction** (`wisp-core::context`): an archive-first pipeline fires
-  before each model call at 80% of the context budget — prune tool/media noise
-  older than the protected recent agent rounds, then summarize sanitized
-  history, keeping one incremental checkpoint plus an 8K-token recent tail. The
-  post-compact target adapts to measured per-iteration growth instead of a
-  fixed percentage, and a failed attempt suppresses automatic retries until the
-  estimate grows further. Old turns are never silently dropped.
+  before each model call at 80% of the usable budget (context window minus
+  `max_tokens`, which providers reserve for output) — prune tool results,
+  oversized tool-call arguments, and media older than the protected recent
+  agent rounds, then summarize sanitized history, keeping one incremental
+  checkpoint plus an 8K-token recent tail. Automatic compaction
+  (`CompactionGoal::Threshold`) skips the summary when pruning suffices;
+  manual `/compact` and overflow recovery (`CompactionGoal::WorkingSet`)
+  always fold history beyond the tail. The post-compact target adapts to
+  measured per-iteration growth instead of a fixed percentage, and a failed
+  attempt suppresses automatic retries until the estimate grows further. Old
+  turns are never silently dropped.
 - **Providers** (`wisp-llm`): one trait, two wire formats (OpenAI
   `/chat/completions` and Anthropic `/v1/messages`), both with SSE streaming.
   `RoutedProvider` picks a low/medium/high tier per turn.

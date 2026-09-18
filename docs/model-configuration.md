@@ -316,29 +316,61 @@ questions are not generated for that interrupted turn.
 **Settings → Session → Automatically compact long conversations** is enabled by
 default. Following mangopi-cli's model-boundary approach, Wisp checks the
 estimated context before every native-agent model call, including later calls
-after large tool results and ephemeral host/reviewer injections. At 80% it
-archives the complete pre-compact history and targets the trigger minus an
-adaptive headroom (twice the measured per-iteration growth, at least ~16K
-tokens, at most 20% of the window), so slow conversations keep more context
-while fast tool loops still land well clear of the next trigger. Older tool
-output, reasoning, and images are safely pruned first without shortening user
+after large tool results and ephemeral host/reviewer injections.
+
+Every compaction budget is computed against the **usable window**: the
+model's context window minus its `max_tokens` setting. Providers enforce
+`input + max_tokens <= context window`, so a model with a 1M window and a
+384K output ceiling only accepts about 616K input tokens; budgeting against
+the full window let such a request be rejected with a 400 while Wisp still
+reported the context as 66% full. The warning and the automatic trigger fire
+at 80% of the usable window (reservations above half the window are capped so
+a usable budget always remains). If a model's catalog output ceiling is far
+larger than the replies it will actually produce, lowering its `max_tokens`
+returns that room to the conversation. The composer footer gauge still shows
+the share of the full context window, so on a model with a large `max_tokens`
+automatic compaction fires visibly below 80% on that gauge.
+
+At the trigger Wisp archives the complete pre-compact history and targets the
+trigger minus an adaptive headroom (twice the measured per-iteration growth,
+at least ~16K tokens, at most 20% of the usable window), so slow
+conversations keep more context while fast tool loops still land well clear
+of the next trigger. Older tool output, oversized tool-call arguments,
+reasoning, and images are safely pruned first without shortening user
 messages or visible assistant answers — protection is counted in agent rounds
 (user messages and tool-call batches), so a single instruction followed by
-hundreds of tool calls still leaves old rounds prunable; oversized recent tool
-payloads become bounded excerpts that point to the archive. If semantic turns
-must be removed, Wisp summarizes a sanitized projection of the original
-history before deleting them, then retains one incrementally updated summary
-checkpoint plus at most two recent turns in an 8K-token tail. Raw images and
-large tool results are not replayed to the summary model. The internal summary
+hundreds of tool calls still leaves old rounds prunable. Tool-call arguments
+older than the protected rounds and larger than 512 bytes (Python code,
+`write` payloads, browser scripts) become a short JSON tombstone naming the
+archive while the call id and tool name stay in place, so the call/result
+pairing survives; a long tool loop keeps most of its weight there once its
+results are already tombstoned. Oversized recent tool payloads become bounded
+excerpts that point to the archive. If the request is still above the target,
+Wisp summarizes a sanitized projection of the original history before
+deleting turns, then retains one incrementally updated summary checkpoint
+plus at most two recent turns in an 8K-token tail. Raw images and large tool
+results are not replayed to the summary model. The internal summary
 instruction is never added to the conversation, and a failed compaction rolls
 back the rewrite and stops before Wisp can send the known-oversized main
 request; after such a failure, automatic retries are suppressed until the
 estimate grows by another tenth of the window, so a doomed compaction is not
-repaid at every model boundary. Tool
-results are also capped to a 16 KiB head/tail excerpt when they enter model
-context (the full result is still shown in the tool event), preventing one
-read, grep, browser, or MCP response from consuming the whole window. Each
-automatic or manual rewrite leaves a persistent **Context automatically
+repaid at every model boundary.
+
+Manual `/compact` and context-overflow recovery use a stricter goal than the
+automatic boundary check: after the same archive-first pruning they always
+run the semantic summary when any history exists beyond what the recent tail
+would retain, so the request shrinks to the post-summary working set (system
+prompt, one checkpoint, and the bounded tail) instead of merely landing under
+the automatic trigger. An explicit compaction therefore never reports success
+with no reduction on a session that still has foldable history; it is only a
+no-op on a short conversation or on a context that a previous compaction has
+already reduced to that shape. Hidden reasoning is excluded from the request
+estimate because no provider adapter replays chain-of-thought on the wire.
+
+Tool results are also capped to a 16 KiB head/tail excerpt when they enter
+model context (the full result is still shown in the tool event), preventing
+one read, grep, browser, or MCP response from consuming the whole window.
+Each automatic or manual rewrite leaves a persistent **Context automatically
 compacted** / **Context compacted** flag in the conversation with the before
 and after request-token estimates. Turning the setting off keeps the warning,
 manual `/compact`, and overflow recovery dialog available. ACP agents are not
