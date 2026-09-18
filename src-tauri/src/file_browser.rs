@@ -543,7 +543,7 @@ fn modified_unix_millis(metadata: &std::fs::Metadata) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
-fn list_dir_entries(dir: &Path) -> Result<Vec<DirEntry>, String> {
+pub(crate) fn list_dir_entries(dir: &Path) -> Result<Vec<DirEntry>, String> {
     let mut entries = vec![];
     for ent in std::fs::read_dir(dir).map_err(|e| format!("{e}"))? {
         let ent = ent.map_err(|e| format!("{e}"))?;

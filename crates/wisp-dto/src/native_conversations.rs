@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_artifacts",
+    "native_conversation_panel_files",
+    "native_conversation_panel_readfile",
+    "native_conversation_panel_readartifact",
     "native_conversation_terminal_list",
     "native_conversation_terminal_open",
     "native_conversation_terminal_read",
@@ -28,6 +32,16 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_approve",
     "native_conversation_model",
 ];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PanelRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TerminalInfo {
@@ -162,6 +176,15 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn panel_fixtures_use_existing_file_contracts() {
+        let files: Vec<crate::DirEntry> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-files.json")).unwrap();
+        assert!(files[0].is_dir);
+        assert_eq!(files[1].name, "README.md");
+        let preview: crate::FileContent = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-preview.json")).unwrap();
+        assert!(preview.truncated);
+        assert_eq!(preview.total_bytes, Some(8_000_000));
+    }
     #[test]
     fn terminal_fixture_has_explicit_raw_byte_cursor() {
         let output: TerminalOutput = serde_json::from_str(include_str!(

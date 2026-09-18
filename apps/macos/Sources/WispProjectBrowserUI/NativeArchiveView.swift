@@ -82,7 +82,7 @@ struct NativeArchiveView: View {
                 if let preview {
                     VStack {
                         HStack { Text(preview.lastPathComponent); Spacer(); Button("关闭材料预览") { self.preview = nil } }.padding()
-                        NativeArchiveMaterialPreview(url: preview)
+                        NativeQuickLookPreview(url: preview)
                     }.frame(minWidth: 520, minHeight: 420)
                         .background(NativeSettingsEscape { self.preview = nil })
                 }
@@ -117,7 +117,7 @@ private struct NativeArchiveFileRow: View {
     }
 }
 
-private struct NativeArchiveMaterialPreview: NSViewRepresentable {
+struct NativeQuickLookPreview: NSViewRepresentable {
     let url: URL
     func makeNSView(context: Context) -> NSView {
         guard let view = QLPreviewView(frame: .zero, style: .normal) else { return NSView() }

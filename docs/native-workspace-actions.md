@@ -72,7 +72,7 @@ Latest focused Swift run: 15 passed, one opt-in render test skipped. Coverage
 includes repeated prompt history positioning, trajectory scope/search/export,
 inbox failure preservation and marking only successfully read sessions seen.
 Rust compilation remains running; it must be rerun for the final changed tree.
-The right-side panel is still a disabled placeholder.
+The right-side panel is enabled for artifacts and files; its other tabs remain pending.
 
 
 ## Research archive implementation
@@ -148,7 +148,28 @@ native-build-system workaround is not required by project scripts.
 
 Three focused Swift tests passed: byte cursor validation, no replay of uncertain
 queued input, and real native emulator cursor/alternate-screen handling. The ANSI
-output bitmap was inspected. C# fixture/client verification passed. A scoped
-native PTY lifecycle Rust test is running. Reconnect under high-volume rollover,
+output bitmap was inspected. C# fixture/client verification passed. The scoped
+native PTY lifecycle Rust test passed. Reconnect under high-volume rollover,
 live app keyboard/resize, cross-platform runtime smoke and full-suite checks are
 still pending; SSH/WSL tests must continue to use mocks, not real hosts.
+
+
+## Side-panel foundation
+
+The seventh toolbar action now toggles a native, width-adjustable panel and
+persists visibility and selected tab. Artifacts and local files are connected:
+name filtering, directory/parent navigation, file sizes, scoped artifact reads,
+text and Quick Look previews, truncation notices, and refresh. Quick Look is
+shared with archive material previews. No preview executes a file.
+
+`native_conversation_panel_*` resolves the requested frame to its actual working
+project and state scope, validates artifact visibility, and reuses existing
+file boundary/preview logic; it never depends on a shared hidden window's current
+frame. Swift/C# use existing ArtifactInfo/DirEntry/FileContent shapes. Focused
+Swift tests for late directory responses and truncated preview metadata and C#
+fixtures passed. The Rust file-boundary integration test is running.
+
+This is not side-panel parity yet: agent workflows, execution contexts, optional
+notebook/highlights/provenance/side-chat tabs, tab add/close/reorder state, remote
+file operations, editing/download/actions and full visual/Escape QA remain to be
+implemented/verified. Their absence must not be treated as task completion.

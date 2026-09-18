@@ -17,6 +17,9 @@ struct ProjectWorkspace: View {
     @State private var archivePresented = false
     @State private var sharePresented = false
     @State private var terminalVisible = false
+    @AppStorage("native.workspace.panel.visible") private var panelVisible = false
+    @State private var panelWidth: CGFloat = 340
+    @State private var panelDragStart: CGFloat?
     @State private var terminalHeight: CGFloat = 300
     @State private var terminalDragStart: CGFloat?
     @State private var inboxPresented = false
@@ -64,7 +67,8 @@ struct ProjectWorkspace: View {
                         }
                     Button { terminalVisible.toggle() } label: { WispIcon(name: "terminal") }
                         .buttonStyle(.plain).help("终端").accessibilityLabel("终端").disabled(model.activeSessionID == nil)
-                    WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
+                    Button { panelVisible.toggle() } label: { WispIcon(name: "panel") }
+                        .buttonStyle(.plain).help("切换侧面板").accessibilityLabel("切换侧面板").disabled(model.activeSessionID == nil)
                 }
                 .padding(16)
                 Rectangle().fill(color("border")).frame(height: 1)
@@ -94,6 +98,15 @@ struct ProjectWorkspace: View {
                     NativeTerminalPanel(client: conversation.client, projectID: project.id, sessionID: session) { terminalVisible = false }
                         .frame(height: terminalHeight).id(project.id + ":" + session)
                 }
+            }
+            if panelVisible, let session = model.activeSessionID {
+                Rectangle().fill(color("border")).frame(width: 5)
+                    .gesture(DragGesture().onChanged { value in
+                        if panelDragStart == nil { panelDragStart = panelWidth }
+                        panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
+                    }.onEnded { _ in panelDragStart = nil })
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session) { panelVisible = false }
+                    .frame(width: panelWidth).id(project.id + ":" + session)
             }
         }
         .sheet(isPresented: $sharePresented) {

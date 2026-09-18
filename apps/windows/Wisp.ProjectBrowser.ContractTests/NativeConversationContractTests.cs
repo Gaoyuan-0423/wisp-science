@@ -7,6 +7,10 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var panel = JsonSerializer.Deserialize<NativePanelFile[]>(File.ReadAllText(Path.Combine(directory, "panel-files.json")), ConversationSnapshot.JsonOptions)!;
+        Require(panel[0].IsDir && panel[1].Name == "README.md", "Panel file fixture drift");
+        var preview = JsonSerializer.Deserialize<NativePanelFileContent>(File.ReadAllText(Path.Combine(directory, "panel-preview.json")), ConversationSnapshot.JsonOptions)!;
+        Require(preview.Truncated && preview.TotalBytes == 8000000, "Truncated preview drift");
         var terminal = JsonSerializer.Deserialize<NativeTerminalOutput>(File.ReadAllText(Path.Combine(directory, "terminal-output.json")), ConversationSnapshot.JsonOptions)!;
         Require(System.Text.Encoding.UTF8.GetString(terminal.Bytes("terminal-a", null)) == "hello", "Terminal byte fixture drift");
         try { terminal.Bytes("other", null); throw new Exception("Expected terminal scope rejection"); } catch (InvalidDataException) { }
