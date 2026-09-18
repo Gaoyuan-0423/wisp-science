@@ -180,14 +180,60 @@ pub(crate) fn trailing_queue_start(items: &[ChatItem]) -> usize {
         .unwrap_or(0)
 }
 
-pub(crate) fn start_user_turn(items: &mut Vec<ChatItem>, text: String, model: Option<String>) {
+pub(crate) fn start_user_turn(
+    items: &mut Vec<ChatItem>,
+    text: String,
+    model: Option<String>,
+    queue_id: Option<u64>,
+) {
     let incoming_body = composer_text_from_user_message(&text);
-    // ponytail: text-keyed promotion; upgrade to a backend intent_id if
-    // display/echo texts ever diverge beyond the attachment suffix.
-    if let Some((idx, queued)) = items.iter().enumerate().find_map(|(i, item)| match item {
-        ChatItem::QueuedUser { text: queued, .. }
-            if queued == &text || composer_text_from_user_message(queued) == incoming_body =>
+    // Queue turns carry their backend id, so remove exactly that optimistic
+    // row. Equal message bodies are allowed to have different attachments.
+    if let Some(queue_id) = queue_id {
+        if let Some(idx) = items
+            .iter()
+            .position(|item| matches!(item, ChatItem::QueuedUser { id, .. } if *id == queue_id))
         {
+            let display = match &items[idx] {
+                ChatItem::QueuedUser { text: queued, .. } if queued.len() > text.len() => {
+                    queued.clone()
+                }
+                _ => text,
+            };
+            items.splice(
+                idx..=idx,
+                [
+                    ChatItem::User(display),
+                    ChatItem::Assistant {
+                        text: String::new(),
+                        model,
+                        resources: Vec::new(),
+                    },
+                ],
+            );
+        } else {
+            let index = trailing_queue_start(items);
+            items.splice(
+                index..index,
+                [
+                    ChatItem::User(text),
+                    ChatItem::Assistant {
+                        text: String::new(),
+                        model,
+                        resources: Vec::new(),
+                    },
+                ],
+            );
+        }
+        return;
+    }
+    // Mid-turn cut-ins predate the queue id propagation and remain transient
+    // rows (id == 0). Only those rows may use text matching as a fallback.
+    if let Some((idx, queued)) = items.iter().enumerate().find_map(|(i, item)| match item {
+        ChatItem::QueuedUser {
+            id: 0,
+            text: queued,
+        } if queued == &text || composer_text_from_user_message(queued) == incoming_body => {
             Some((i, queued.clone()))
         }
         _ => None,
@@ -425,7 +471,12 @@ mod start_user_turn_tests {
                 resources: Vec::new(),
             },
         ];
-        start_user_turn(&mut items, "图片里有啥文字?".into(), Some("gpt".into()));
+        start_user_turn(
+            &mut items,
+            "图片里有啥文字?".into(),
+            Some("gpt".into()),
+            None,
+        );
         assert_eq!(items.len(), 2);
         assert!(matches!(&items[0], ChatItem::User(s) if s == &display));
     }
@@ -441,7 +492,7 @@ mod start_user_turn_tests {
                 resources: Vec::new(),
             },
         ];
-        start_user_turn(&mut items, display.clone(), None);
+        start_user_turn(&mut items, display.clone(), None, None);
         assert_eq!(items.len(), 2);
         assert!(matches!(&items[0], ChatItem::User(s) if s == &display));
         assert_eq!(composer_text_from_user_message(&display), "描述下图片");
@@ -871,7 +922,7 @@ mod start_user_turn_tests {
             },
         ];
 
-        start_user_turn(&mut items, "图片里有啥文字?".into(), None);
+        start_user_turn(&mut items, "图片里有啥文字?".into(), None, Some(1));
 
         assert_eq!(items.len(), 4);
         assert!(matches!(&items[2], ChatItem::User(s) if s == &display));
@@ -900,7 +951,7 @@ mod start_user_turn_tests {
             },
         ];
 
-        start_user_turn(&mut items, "queued".into(), Some("model".into()));
+        start_user_turn(&mut items, "queued".into(), Some("model".into()), Some(1));
 
         assert!(matches!(&items[2], ChatItem::User(text) if text == "queued"));
         assert!(matches!(
@@ -908,6 +959,26 @@ mod start_user_turn_tests {
             ChatItem::Assistant { text, model, .. } if text.is_empty() && model.as_deref() == Some("model")
         ));
         assert!(matches!(&items[4], ChatItem::QueuedUser { text, .. } if text == "later"));
+    }
+
+    #[test]
+    fn untagged_user_event_does_not_guess_between_normal_queue_rows() {
+        let mut items = vec![
+            ChatItem::QueuedUser {
+                id: 1,
+                text: "same".into(),
+            },
+            ChatItem::QueuedUser {
+                id: 2,
+                text: "same".into(),
+            },
+        ];
+
+        start_user_turn(&mut items, "same".into(), None, None);
+
+        assert!(matches!(&items[0], ChatItem::QueuedUser { id: 1, .. }));
+        assert!(matches!(&items[1], ChatItem::QueuedUser { id: 2, .. }));
+        assert!(matches!(&items[2], ChatItem::User(text) if text == "same"));
     }
 }
 

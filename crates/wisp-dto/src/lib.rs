@@ -219,6 +219,10 @@ pub enum AgentEvent {
     User {
         frame_id: String,
         text: String,
+        /// Queue identity for a follow-up or queued cut-in. Ordinary user
+        /// messages and guidance sent directly from the composer omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_id: Option<u64>,
     },
     MessageBoundary {
         frame_id: String,
@@ -2126,6 +2130,17 @@ pub struct QueuedTurnActionArgs {
     pub action: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+/// Live lifecycle update for an optimistic queued follow-up. The frontend
+/// uses the id instead of matching user-visible text, which remains ambiguous
+/// when two messages share a body but carry different attachments.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedTurnStateEvent {
+    pub session_id: String,
+    pub id: u64,
+    pub state: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

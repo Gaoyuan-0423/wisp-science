@@ -294,6 +294,7 @@ mod tests {
             AgentEvent::User {
                 frame_id: "a".into(),
                 text: "prompt".into(),
+                queue_id: None,
             },
             text("a"),
             AgentEvent::Reasoning {

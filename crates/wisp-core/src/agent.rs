@@ -163,10 +163,10 @@ fn inject_pending_guidance(
     };
     let drained = std::mem::take(&mut *queue.lock().unwrap());
     let injected = !drained.is_empty();
-    for (_, text) in drained {
+    for (id, text) in drained {
         ctx.append_user(&text);
         if let Some(message) = ctx.messages.last() {
-            output.on_message(message);
+            output.on_guidance_message(id, message);
         }
     }
     injected
@@ -3133,6 +3133,30 @@ mod tests {
                 ..Completion::default()
             })
         }
+    }
+
+    #[test]
+    fn guidance_injection_preserves_ids_even_for_identical_text() {
+        #[derive(Default)]
+        struct RecordedGuidance(Mutex<Vec<(u64, String)>>);
+        impl Output for RecordedGuidance {
+            fn on_guidance_message(&self, id: u64, message: &Message) {
+                self.0.lock().unwrap().push((id, message.content.as_text()));
+            }
+        }
+        let queue = GuidanceQueue::default();
+        queue
+            .lock()
+            .unwrap()
+            .extend([(7, "same".into()), (9, "same".into())]);
+        let output = RecordedGuidance::default();
+        let mut ctx = ContextManager::new(100_000);
+        assert!(inject_pending_guidance(&mut ctx, &output, Some(&queue)));
+        assert_eq!(
+            *output.0.lock().unwrap(),
+            vec![(7, "same".into()), (9, "same".into())]
+        );
+        assert!(!inject_pending_guidance(&mut ctx, &output, Some(&queue)));
     }
 
     #[tokio::test]

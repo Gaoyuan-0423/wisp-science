@@ -923,6 +923,7 @@ fn persisted_ui_events_keep_live_step_order_and_boundaries() {
         AgentEvent::User {
             frame_id: frame_id.clone(),
             text: "question".into(),
+            queue_id: None,
         },
         AgentEvent::MessageBoundary {
             frame_id: frame_id.clone(),
@@ -1134,6 +1135,7 @@ fn persisted_usage_folds_per_turn_and_floats_to_tail() {
         AgentEvent::User {
             frame_id: frame_id.clone(),
             text: "q1".into(),
+            queue_id: None,
         },
         AgentEvent::Text {
             frame_id: frame_id.clone(),
@@ -1144,6 +1146,7 @@ fn persisted_usage_folds_per_turn_and_floats_to_tail() {
         AgentEvent::User {
             frame_id: frame_id.clone(),
             text: "q2".into(),
+            queue_id: None,
         },
         AgentEvent::Text {
             frame_id: frame_id.clone(),

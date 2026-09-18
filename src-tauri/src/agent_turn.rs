@@ -16,11 +16,19 @@ pub(crate) enum TurnOrigin {
     #[default]
     Desktop,
     Im,
+    Queued(u64),
 }
 
 impl TurnOrigin {
     fn force_ask_mutations(self) -> bool {
         matches!(self, Self::Im)
+    }
+
+    fn queue_id(self) -> Option<u64> {
+        match self {
+            Self::Queued(id) => Some(id),
+            Self::Desktop | Self::Im => None,
+        }
     }
 }
 
@@ -39,7 +47,27 @@ pub(crate) async fn send_message(
     guide: Option<bool>,
     replace: Option<bool>,
 ) -> Result<String, String> {
-    send_message_inner(
+    let mut replacement_guard = None;
+    let mut workflow_guard = None;
+    if replace.unwrap_or(false) {
+        if let Some(session_id) = session_id.as_deref().filter(|id| !id.is_empty()) {
+            let runtime = state.sessions.lock().await.get(session_id).cloned();
+            if let Some(rt) = runtime {
+                replacement_guard = Some(ReplacementReservation::new(rt.clone()));
+                stop_agent(state.clone(), Some(session_id.to_string())).await?;
+                workflow_guard = Some(rt.workflow.clone().lock_owned().await);
+                for id in supersede_duplicate_queued(
+                    &rt,
+                    &message,
+                    attachments.as_deref().unwrap_or_default(),
+                    references.as_deref().unwrap_or_default(),
+                ) {
+                    emit_queued_turn_state(&app, session_id, id, "superseded");
+                }
+            }
+        }
+    }
+    let result = send_message_inner(
         state.inner(),
         app,
         window.label(),
@@ -52,10 +80,65 @@ pub(crate) async fn send_message(
         progress_observer_id,
         guide,
         replace,
-        None,
+        workflow_guard,
         TurnOrigin::Desktop,
     )
-    .await
+    .await;
+    drop(replacement_guard);
+    result
+}
+
+struct ReplacementReservation(Arc<SessionRuntime>);
+
+impl ReplacementReservation {
+    fn new(rt: Arc<SessionRuntime>) -> Self {
+        rt.replacing.fetch_add(1, Ordering::SeqCst);
+        Self(rt)
+    }
+}
+
+impl Drop for ReplacementReservation {
+    fn drop(&mut self) {
+        self.0.replacing.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+// Called while owning the workflow, after the cancelled loop has persisted.
+fn supersede_duplicate_queued(
+    rt: &SessionRuntime,
+    replacement: &str,
+    attachments: &[String],
+    references: &[ComposerReferenceArg],
+) -> Vec<u64> {
+    let matches = |item: &QueuedItem| {
+        item.message == replacement
+            && item.attachments == attachments
+            && item.references == references
+    };
+    let mut queued = rt.queued.lock().unwrap();
+    let mut ids = Vec::new();
+    queued.retain(|item| {
+        let duplicate = matches(item);
+        if duplicate {
+            ids.push(item.id);
+        }
+        !duplicate
+    });
+    let mut cutins = rt.queued_cutins.lock().unwrap();
+    let mut removed_guidance = Vec::new();
+    cutins.retain(|(guidance_id, item)| {
+        let duplicate = matches(item);
+        if duplicate {
+            ids.push(item.id);
+            removed_guidance.push(*guidance_id);
+        }
+        !duplicate
+    });
+    if !removed_guidance.is_empty() {
+        let mut pending = rt.pending_guidance.lock().unwrap();
+        pending.retain(|(guidance_id, _)| !removed_guidance.contains(guidance_id));
+    }
+    ids
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -282,6 +365,7 @@ pub(crate) async fn send_message_inner(
                 attachments.as_deref().unwrap_or_default(),
                 &injected_context,
                 &artifact_references,
+                origin.queue_id(),
             )
             .await
         };
@@ -1161,6 +1245,8 @@ pub(crate) async fn send_message_inner(
     let output = TauriOutput {
         app: app.clone(),
         frame_id: frame_id.clone(),
+        queue_id: StdMutex::new(origin.queue_id()),
+        queue_runtime: rt.clone(),
         model: model.clone(),
         project_id: ap.id.clone(),
         project_root: ap.root.clone(),
@@ -1375,6 +1461,19 @@ pub(crate) fn client_turn_error(turn_started: bool, message: &str) -> String {
 /// *current* text, so edits made while it waited take effect. The
 /// `draining` flag is cleared under the `queued` lock so a concurrent enqueue
 /// can never leave an item stranded with no driver.
+async fn queued_workflow_guard(rt: &SessionRuntime) -> tokio::sync::OwnedMutexGuard<()> {
+    loop {
+        let guard = rt.workflow.clone().lock_owned().await;
+        // A replacement reserves priority before cancelling the current
+        // workflow. Yield even if the driver was already a mutex waiter.
+        if rt.replacing.load(Ordering::SeqCst) == 0 {
+            return guard;
+        }
+        drop(guard);
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 pub(crate) fn spawn_queue_driver(
     app: AppHandle,
     rt: Arc<SessionRuntime>,
@@ -1383,10 +1482,11 @@ pub(crate) fn spawn_queue_driver(
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
-            let guard = rt.workflow.clone().lock_owned().await;
+            let guard = queued_workflow_guard(&rt).await;
             let Some(item) = take_next_queued_turn(&rt) else {
                 break;
             };
+            emit_queued_turn_state(&app, &session_id, item.id, "started");
             let state = app.state::<AppState>();
             if let Err(error) = send_message_inner(
                 state.inner(),
@@ -1402,14 +1502,29 @@ pub(crate) fn spawn_queue_driver(
                 None,
                 None,
                 Some(guard),
-                TurnOrigin::Desktop,
+                TurnOrigin::Queued(item.id),
             )
             .await
             {
+                emit_queued_turn_state(&app, &session_id, item.id, "failed");
                 tracing::warn!("queued turn failed: {error}");
             }
         }
     });
+}
+
+fn emit_queued_turn_state(app: &AppHandle, session_id: &str, id: u64, state: &str) {
+    emit_to_session_surfaces(
+        app,
+        session_id,
+        None,
+        "queued-turn-state",
+        &wisp_dto::QueuedTurnStateEvent {
+            session_id: session_id.to_string(),
+            id,
+            state: state.to_string(),
+        },
+    );
 }
 
 /// Queue (#433): park a follow-up behind the running turn instead of sending
@@ -1456,6 +1571,7 @@ pub(crate) async fn enqueue_turn(
         // `draining` while holding this same lock on an empty queue.
         !rt.draining.swap(true, Ordering::SeqCst)
     };
+    emit_queued_turn_state(&app, &session_id, id, "queued");
     if spawn {
         spawn_queue_driver(app, rt, session_id, window.label().to_string());
     }
@@ -1550,10 +1666,19 @@ pub(crate) async fn queued_turn_action(
             }
         }
         "cancel" => {
-            rt.queued.lock().unwrap().retain(|it| it.id != id);
+            let removed = {
+                let mut queued = rt.queued.lock().unwrap();
+                let before = queued.len();
+                queued.retain(|it| it.id != id);
+                queued.len() != before
+            };
+            if removed {
+                emit_queued_turn_state(&app, &session_id, id, "cancelled");
+            }
         }
         "cutin" => {
             if begin_queued_cutin(&rt, id).is_some() {
+                emit_queued_turn_state(&app, &session_id, id, "cutin_pending");
                 // A running_turns snapshot can be false during prompt setup or
                 // persistence. The loop/driver handoff works in both windows.
                 let spawn = {
@@ -1634,4 +1759,104 @@ pub(crate) async fn stop_agent(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    #[test]
+    fn replacement_only_supersedes_identical_payloads_including_cutins() {
+        let rt = SessionRuntime::new();
+        let item = QueuedItem {
+            id: 1,
+            message: "same".into(),
+            attachments: vec![],
+            references: vec![],
+        };
+        let mut attachment = item.clone();
+        attachment.id = 2;
+        attachment.attachments.push("uploads/a.png".into());
+        let mut context = item.clone();
+        context.id = 3;
+        context.message.push_str("\n\nProject context: keep");
+        let mut reference = item.clone();
+        reference.id = 4;
+        reference.references.push(ComposerReferenceArg::Artifact {
+            id: "report".into(),
+        });
+        rt.queued
+            .lock()
+            .unwrap()
+            .extend([item.clone(), attachment, context, reference]);
+        let mut cutin = item;
+        cutin.id = 5;
+        rt.queued.lock().unwrap().push(cutin);
+        begin_queued_cutin(&rt, 5).unwrap();
+        assert_eq!(
+            supersede_duplicate_queued(&rt, "same", &[], &[]),
+            vec![1, 5]
+        );
+        assert_eq!(
+            rt.queued
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|item| item.id)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4]
+        );
+        assert!(rt.pending_guidance.lock().unwrap().is_empty());
+        assert!(rt.queued_cutins.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn replacement_reservation_is_released_on_drop() {
+        let rt = Arc::new(SessionRuntime::new());
+        let first = ReplacementReservation::new(rt.clone());
+        let second = ReplacementReservation::new(rt.clone());
+        assert_eq!(rt.replacing.load(Ordering::SeqCst), 2);
+        drop(first);
+        assert_eq!(rt.replacing.load(Ordering::SeqCst), 1);
+        drop(second);
+        assert_eq!(rt.replacing.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn replacement_precedes_an_already_waiting_queue_driver() {
+        let rt = Arc::new(SessionRuntime::new());
+        let active = rt.workflow.clone().lock_owned().await;
+        let queued = queued_workflow_guard(&rt);
+        tokio::pin!(queued);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), &mut queued)
+                .await
+                .is_err()
+        );
+        let reservation = ReplacementReservation::new(rt.clone());
+        drop(active);
+        // Poll the FIFO waiter so it must explicitly yield to the replacement.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), &mut queued)
+                .await
+                .is_err()
+        );
+        let replacement = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            rt.workflow.clone().lock_owned(),
+        )
+        .await
+        .unwrap();
+        drop(reservation);
+        drop(replacement);
+        let _queued = tokio::time::timeout(std::time::Duration::from_secs(1), queued)
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn queued_turn_origin_carries_the_backend_id() {
+        assert_eq!(TurnOrigin::Queued(42).queue_id(), Some(42));
+        assert_eq!(TurnOrigin::Desktop.queue_id(), None);
+    }
 }

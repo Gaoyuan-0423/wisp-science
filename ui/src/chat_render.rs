@@ -2152,7 +2152,7 @@ pub(crate) fn render_item(
     plan_mode_active: Signal<bool>,
     plan_compat: Signal<bool>,
     on_plan_decision: Callback<PlanDecision>,
-    on_question_answer: Callback<(usize, Option<String>, String)>,
+    on_question_answer: Callback<(usize, Option<String>, String, bool)>,
     on_review_jump: Callback<usize>,
     dismissed_runs: RwSignal<HashSet<String>>,
     on_branch_merge: Callback<(String, String)>,
@@ -2578,10 +2578,19 @@ pub(crate) fn render_item(
                     {(pending && !options.is_empty()).then(|| view! {
                         <div class="plan-question-options">{options.into_iter().map(|option| {
                             let request_id = request_id.clone();
-                            let answer = option.label.clone();
+                            let answer = if request_id.is_some() || option.description.trim().is_empty() {
+                                option.label.clone()
+                            } else {
+                                format!(
+                                    "{}\n\n{}{}",
+                                    option.label,
+                                    t(locale.get(), "plan.question.description_prefix"),
+                                    option.description
+                                )
+                            };
                             view! {
                                 <button type="button"
-                                    on:click=move |_| on_question_answer.call((ui_index, request_id.clone(), answer.clone()))>
+                                    on:click=move |_| on_question_answer.call((ui_index, request_id.clone(), answer.clone(), true))>
                                     <strong>{option.label}</strong>
                                     {(!option.description.is_empty()).then(|| view! { <span>{option.description}</span> })}
                                 </button>
@@ -2596,11 +2605,11 @@ pub(crate) fn render_item(
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
                                     if event.key() == "Enter" && !event.shift_key() {
                                         event.prevent_default();
-                                        on_question_answer.call((ui_index, request_id_keydown.clone(), freeform.get()));
+                                        on_question_answer.call((ui_index, request_id_keydown.clone(), freeform.get(), false));
                                     }
                                 } />
                             <button type="button" class="primary" disabled=move || freeform.get().trim().is_empty()
-                                on:click=move |_| on_question_answer.call((ui_index, request_id_click.clone(), freeform.get()))>
+                                on:click=move |_| on_question_answer.call((ui_index, request_id_click.clone(), freeform.get(), false))>
                                 {move || t(locale.get(), "plan.question.send")}
                             </button>
                         </div>

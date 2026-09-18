@@ -1028,6 +1028,7 @@ pub(crate) async fn run_acp_turn(
     attachments: &[String],
     injected_context: &[String],
     artifact_references: &[PathBuf],
+    queue_id: Option<u64>,
 ) -> Result<String, String> {
     run_acp_turn_with_kind(
         state,
@@ -1040,6 +1041,7 @@ pub(crate) async fn run_acp_turn(
         attachments,
         injected_context,
         artifact_references,
+        queue_id,
         AcpTurnKind::User,
     )
     .await
@@ -1063,6 +1065,7 @@ pub(crate) async fn run_acp_internal_turn(
         &[],
         &[],
         &[],
+        None,
         AcpTurnKind::Internal,
     )
     .await
@@ -1178,6 +1181,7 @@ async fn run_acp_turn_with_kind(
     attachments: &[String],
     injected_context: &[String],
     artifact_references: &[PathBuf],
+    queue_id: Option<u64>,
     turn_kind: AcpTurnKind,
 ) -> Result<String, String> {
     let result = run_acp_turn_inner(
@@ -1191,6 +1195,7 @@ async fn run_acp_turn_with_kind(
         attachments,
         injected_context,
         artifact_references,
+        queue_id,
         turn_kind,
     )
     .await;
@@ -1212,6 +1217,7 @@ async fn run_acp_turn_inner(
     attachments: &[String],
     injected_context: &[String],
     artifact_references: &[PathBuf],
+    queue_id: Option<u64>,
     turn_kind: AcpTurnKind,
 ) -> Result<String, String> {
     let runtime = runtime_for(state, project, frame_id, profile_id).await?;
@@ -1254,6 +1260,7 @@ async fn run_acp_turn_inner(
             AgentEvent::User {
                 frame_id: frame_id.to_string(),
                 text: message.to_string(),
+                queue_id,
             },
             Some(project.id.as_str()),
         );
