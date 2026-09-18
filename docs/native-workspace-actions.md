@@ -707,3 +707,44 @@ trajectory closes only its inspector on the first event and its sheet callback
 on the second. Both passed. These prove the SwiftUI-to-stack wiring and avoid
 an invisible inspector consuming Escape, while real native menu tracking and
 application event-loop smoke remain pending.
+
+## Isolated toolbar fixture
+
+`cargo run -p wisp-store --example native_toolbar_fixture -- /tmp/new-toolbar-qa`
+creates a new synthetic store through the normal schema migrations. The target
+parent must exist and the target directory must not exist; an existing target,
+including a symlink, is rejected before opening SQLite. It creates two projects,
+35-turn conversations with repeated questions and a recorded Python tool result,
+named empty conversations, Markdown/CSV artifacts and real local preview files.
+It does not configure a provider, load credentials, send model requests or run
+the recorded code.
+
+For manual native QA, the backend host must use an isolated application identifier
+and its app-data directory must resolve to this fixture root. Set
+`WISP_BROWSER_DATABASE` to the fixture's `wisp.sqlite` when launching SwiftUI.
+Changing that variable alone does not redirect the backend: its descriptor must
+match the selected database. Do not point an ordinary production host at the
+fixture or copy synthetic rows into a user's research database. The isolated
+host/package wiring and live smoke results still need verification.
+
+Fixture execution passed: two projects, four frames, 142 messages and four
+artifacts were created. Re-running against that directory failed before opening
+SQLite and preserved the database hash. The real read-only `wisp-service`
+returned both projects, only the selected project's two sessions and a paginated
+long transcript. The fixture uses no model or remote environment.
+
+## Packaged resource signing correction
+
+The first complete package build failed at codesign because the legacy
+`SwiftTerm_SwiftTerm.bundle` symlink at the `.app` root was unsealed content.
+SwiftTerm 1.19's renderer already probes `Contents/Resources`, and the current
+SwiftPM accessor does too. The builder now removes that old symlink when present,
+keeps the bundle (including `default.metallib`) in `Contents/Resources`, and runs
+strict recursive signature verification after signing. Removing the stale link,
+re-signing the assembled app and `codesign --verify --deep --strict` all passed.
+A complete script rerun is underway; terminal rendering in the launched package
+is still part of live QA. This supersedes the earlier root-symlink workaround.
+
+Review is available as draft PR #1288. It explicitly retains the remaining
+functional and verification checklist; draft creation does not mark parity
+complete.
