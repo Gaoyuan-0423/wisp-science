@@ -33,6 +33,18 @@ After the UI toggle, automation returned `elementHasNoFrame` for refresh and
 then timed out reading accessibility state; the backend remained responsive.
 This intermittent automation/window interaction needs further investigation and
 is not classified as either a confirmed app hang or a passed refresh interaction.
+Reacquiring the app subsequently allowed the refresh action and accessibility
+read to succeed with the saved false value and no error. The same intermittent
+timeout recurred after HTML export; a process sample showed the main run loop,
+without establishing a root cause.
+
+Sharing two selected messages through the real macOS Save dialog produced a
+9,684-byte HTML file containing the first turn and excluding the unselected
+second turn. Live PNG Save-dialog acceptance is still pending. The latest full
+Playwright run finished with 823 passed, two skipped and one initialization
+timeout waiting for `open-session` in the 540 px completed-report test. Its
+unchanged 1280/540 px tests both passed on isolated rerun. Full Rust workspace
+tests are still running; the latest native-panel tests passed after the fix.
 
 The sections below retain the implementation and verification history; older
 pending statements are superseded by newer evidence, not acceptance of the
