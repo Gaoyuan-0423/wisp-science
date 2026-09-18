@@ -267,12 +267,14 @@ Their action slots are visible but explicitly disabled in the preview.
 The transcript renders text, tool records and basic questions; rich attachments,
 branch/review cards and interactive tool surfaces remain follow-ups.
 
-Windows now has a WinUI 3 project/session preview and in-window appearance
-settings. Shared conversation and workspace-action contracts from #1284/#1288
-are present; equivalent WinUI pages for outline, share, trajectory, archive,
-inbox, terminal and side panels remain follow-up work. Windows Markdown is
-intentionally limited to native text formatting, with no interactive HTML or
-attachment rendering.
+Windows now has a WinUI 3 project/session preview, in-window appearance
+settings, and in-window workspace actions that consume the #1284/#1288
+contracts: outline, share (HTML), trajectory, archive, inbox, a text terminal
+pane, and a right-hand panel for artifacts/files/hosts plus notebook,
+highlights and provenance projections. PNG share export, a VT terminal
+emulator, live conversation send, and remaining panel mutations remain
+follow-ups. Windows Markdown is intentionally limited to native text
+formatting, with no interactive HTML or attachment rendering.
 
 ## Native settings
 

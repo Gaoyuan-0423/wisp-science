@@ -2,6 +2,23 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 namespace Wisp.ProjectBrowser.Contracts;
 public sealed record NativeShareRow(string Role, string Text);
+public sealed record NativeShareDraftRow(int Id, NativeShareRow Row, bool Selected);
+public static class NativeShareDraft
+{
+    public static NativeShareDraftRow[] From(IEnumerable<NativeShareRow> rows) => rows.Select((row, index) => (row, index))
+        .Where(pair => pair.row.Role is "user" or "assistant" or "reasoning" && !string.IsNullOrWhiteSpace(pair.row.Text))
+        .Select(pair => new NativeShareDraftRow(pair.index, pair.row, pair.row.Role != "reasoning")).ToArray();
+    public static string[] Keywords(string raw) => raw.Split(',', '，', '\n')
+        .Select(word => word.Trim()).Where(word => word.Length > 0).Distinct().OrderByDescending(word => word.Length).ThenBy(word => word).ToArray();
+    public static string Redact(string text, IEnumerable<string> keywords) =>
+        keywords.Aggregate(text, (current, word) => current.Replace(word, "xxx", StringComparison.OrdinalIgnoreCase));
+    public static int Width(string raw) => int.TryParse(raw.Trim(), out var value) ? Math.Min(2400, Math.Max(320, value)) : 840;
+    public static NativeShareRow[] Selected(IEnumerable<NativeShareDraftRow> draft, string keywords)
+    {
+        var words = Keywords(keywords);
+        return draft.Where(row => row.Selected).Select(row => row.Row with { Text = Redact(row.Row.Text, words) }).ToArray();
+    }
+}
 /// <summary>Send only the user's selected, edited and redacted rows to HtmlAsync.
 /// PNG rendering and file dialogs belong to the native frontend.</summary>
 public interface INativeShareClient
