@@ -18,9 +18,12 @@ for (const width of [1280, 540]) {
             { role: "user", text: "Analyze the trajectory and write a report" },
             ...Array.from({ length: 6 }, (_, phase) => [
               { role: "assistant", text: `Checking phase ${phase + 1}` },
+              { role: "assistant", text: "" },
               { role: "reasoning", text: `Reasoning for phase ${phase + 1}` },
               { role: "tool", tool_name: "python", ok: true, input: "analyze()", text: `Phase ${phase + 1} results`, duration_ms: 50 },
+              { role: "file_changed", text: `results/phase_${phase + 1}.csv` },
               usage,
+              { role: "app_context", text: JSON.stringify({ contextId: "plot", appName: "plot", state: "ready", summary: "", structuredPreview: null }) },
               ...(phase === 2 ? [{ role: "compaction", text: JSON.stringify({ before: 1000, after: 500, strategy: "auto" }) }] : []),
             ]).flat(),
             { role: "tool", tool_name: "update_plan", ok: true, input: "", text: JSON.stringify({ plan: [{ step: "Write report", status: "completed" }] }) },

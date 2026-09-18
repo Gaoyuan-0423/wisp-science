@@ -6,8 +6,10 @@ import WispProjectBrowser
 public final class ProjectBrowserModel: ObservableObject {
     @Published public var searchPresented = false
     @Published public var settingsPresented = false
+    @Published public var settingsSectionID: String?
+    public func openWorkflowSettings() { projectSettingsID = nil; settingsSectionID = "workflows"; settingsPresented = true }
     @Published public var projectSettingsID: String?
-    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsPresented = true }
+    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsSectionID = nil; settingsPresented = true }
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var recentSessions: [BrowserSession] = []
     @Published private(set) var sessions: [BrowserSession] = []
@@ -25,6 +27,39 @@ public final class ProjectBrowserModel: ObservableObject {
     @Published private(set) var savingProjectID: String?
     @Published private(set) var lastLoaded: Date?
     @Published private(set) var databaseURL: URL
+    private var nativeDrafts: [String: BrowserSession] = [:]
+    private var nativeModels: [URL: NativeConversationModel] = [:]
+    private struct NativeSessionKey: Hashable { let database: URL; let project: String; let session: String }
+    private var sideChats: [NativeSessionKey: NativeSideChatModel] = [:]
+    private var terminals: [NativeSessionKey: NativeTerminalModel] = [:]
+    func nativeTerminal(projectID: String, sessionID: String) -> NativeTerminalModel {
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
+        if let existing = terminals[key] { return existing }
+        let terminal = NativeTerminalModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
+        terminals[key] = terminal
+        return terminal
+    }
+    func nativeSideChat(projectID: String, sessionID: String) -> NativeSideChatModel {
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
+        if let existing = sideChats[key] { return existing }
+        let chat = NativeSideChatModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
+        sideChats[key] = chat
+        return chat
+    }
+    func nativeConversation() -> NativeConversationModel {
+        if let existing = nativeModels[databaseURL] { return existing }
+        let model = NativeConversationModel(client: NativeConversationClient(transport: NativeSettingsClient(databaseURL: databaseURL, executableURL: nativeDesktopHostURL())))
+        nativeModels[databaseURL] = model
+        return model
+    }
+    func openNativeDraft(_ id: String, projectID: String, database: URL, sourceSession: String?) async {
+        guard database == databaseURL else { return }
+        let draft = BrowserSession(id: id, projectID: projectID, title: "新对话", ts: Int64(Date().timeIntervalSince1970), status: "idle")
+        nativeDrafts[id] = draft
+        guard activeProjectID == projectID, activeSessionID == sourceSession else { return }
+        if !sessions.contains(where: { $0.id == id }) { sessions.insert(draft, at: 0) }
+        await openSession(id)
+    }
     private let client: any ProjectBrowserQuerying
 
     public init() {
@@ -87,6 +122,8 @@ public final class ProjectBrowserModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.directoryURL = databaseURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        nativeModels[databaseURL]?.pause()
+        nativeDrafts.removeAll()
         databaseURL = url
         UserDefaults.standard.set(url.path, forKey: "projectBrowser.database")
         goHome()
@@ -123,8 +160,10 @@ public final class ProjectBrowserModel: ObservableObject {
         sessionError = nil
         sessionsLoading = true
         do {
-            let rows = try await client.listSessions(databaseURL: databaseURL, projectID: id)
+            var rows = try await client.listSessions(databaseURL: databaseURL, projectID: id)
             guard generation == navigationGeneration else { return }
+            for row in rows { nativeDrafts[row.id] = nil }
+            rows.insert(contentsOf: nativeDrafts.values.filter { $0.projectID == id }.sorted { $0.ts > $1.ts }, at: 0)
             sessions = rows
             if let sessionID, !rows.contains(where: { $0.id == sessionID }) {
                 sessionError = "这个会话已不存在，请刷新项目列表。"

@@ -48,6 +48,19 @@ test('archive review edits survive typing, confirmation locks the notebook, jour
   await expect(page.locator('#composer-input')).toBeEnabled();
 });
 
+test('prepare output-limit error is localized and leaves the notebook editable',async({page})=>{
+  await open(page,'zh');
+  await page.evaluate(()=>{(window as any).__archivePrepareError="response ended with status 'incomplete' (max_output_tokens)";});
+  await page.getByTestId('archive-topbar').click();
+  const dialog=page.getByTestId('archive-review');
+  await expect(dialog.getByRole('alert')).toContainText('输出额度');
+  await expect(dialog.getByRole('alert')).not.toContainText('incomplete');
+  await expect(dialog.getByTestId('archive-confirm')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#composer-input')).toBeEnabled();
+});
+
 test('slash archive opens review; changed-file failure keeps the draft editable',async({page})=>{
   await open(page);
   await page.locator('#composer-input').fill('/archive');

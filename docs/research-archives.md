@@ -44,7 +44,10 @@ archive metadata and workspace snapshots; unconfirmed drafts are not exported.
 中间文件立即永久删除。后续研究从节点创建关联的新会话，保留旧结论及其材料。
 
 Current limits: preparation accepts up to 4 MiB of saved source records, split
-into bounded model requests when necessary. Files must be regular local files
+into bounded model requests when necessary. Draft synthesis turns off extra
+reasoning and uses at least a 32k output budget, clamped to the model's catalog
+ceiling, and retries once at that ceiling if the first response is truncated.
+Files must be regular local files
 inside the project; links/junctions and directory deletion are excluded. Only
 recorded file identities can be offered for cleanup. Large retained data is copied
 only when the review selects a snapshot. Archive files live under

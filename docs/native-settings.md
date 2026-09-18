@@ -92,8 +92,10 @@ var memory = await client.InvokeAsync("get_memory_view", new JsonObject(), proje
 
 Windows must package the full desktop host and runtime resources with WebView2.
 The invisible document is an adapter for existing Tauri command extractors, not
-an embedded settings UI. WinUI navigation and controls remain a follow-up; the
-C# transport and fixture tests run without WinUI or a real backend process.
+an embedded settings UI. The WinUI preview now hosts categorized settings in the
+main window, with appearance editing connected; the remaining 18 sections stay
+disabled until their editors are ported. The C# transport and fixture tests run
+without WinUI or a real backend process.
 
 ## Manual smoke procedure
 

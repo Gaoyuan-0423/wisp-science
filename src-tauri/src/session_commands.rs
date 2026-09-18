@@ -1395,6 +1395,37 @@ pub(super) async fn load_session(
     })
 }
 
+/// Bounded native refresh: no full outline, branch list or window selection
+/// writes on every tick. Shares the flush and fold path with load_session.
+pub(crate) async fn native_transcript(
+    state: &AppState,
+    id: &str,
+    before_seq: Option<i64>,
+) -> Result<(Vec<UiItem>, Option<i64>, bool, usize), String> {
+    let runtime = state.sessions.lock().await.get(id).cloned();
+    let page =
+        read_session_transcript_page(&state.store, runtime.as_deref(), id, before_seq).await?;
+    let mut items = transcript_page_items(&page)?;
+    if before_seq.is_none() {
+        items.extend(ask_user_items(state, id).await);
+    }
+    let frozen = state
+        .store
+        .research_archive(id)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some_and(|a| a.frozen_at.is_some())
+        || matches!(
+            state
+                .store
+                .session_branch_state(id)
+                .await
+                .map_err(|e| e.to_string())?,
+            Some("merged" | "orphaned")
+        );
+    Ok((items, page.next_before_seq, frozen, page.user_offset))
+}
+
 /// Navigation reads must remain safe while the workflow and Agent are locked.
 async fn read_session_transcript_page(
     store: &Store,
@@ -1444,7 +1475,7 @@ async fn flush_session_events(
 /// Reload a session's persisted messages and UI events, then fold them into
 /// a trajectory snapshot. The HTML export command repeats this same store
 /// read so it never depends on the frontend's filtered inspector view.
-async fn folded_session_trajectory(
+pub(crate) async fn folded_session_trajectory(
     store: &wisp_store::Store,
     frame_id: &str,
 ) -> Result<trajectory::TrajectorySnapshot, String> {

@@ -1,0 +1,52 @@
+import AppKit
+import SwiftUI
+import XCTest
+import WispProjectBrowser
+@testable import WispProjectBrowserUI
+
+private actor RenderConversationClient: NativeConversationQuerying {
+    let value: ConversationSnapshot
+    init(_ value: ConversationSnapshot) { self.value = value }
+    func snapshot(projectID: String, sessionID: String, beforeSeq: Int64?) async throws -> ConversationSnapshot { value }
+    func invoke(_ command: String, args: [String: SettingsValue], projectID: String) async throws -> SettingsValue {
+        .array([.object(["id": .string("model-a"), "label": .string("Test chat model")])])
+    }
+}
+
+/// Opt-in, offline visual smoke. It renders the real view without launching a
+/// host, accessing a user database, or calling a model provider.
+final class NativeConversationRenderTests: XCTestCase {
+    @MainActor func testRenderConversationAtDesktopAndNarrowSizes() async throws {
+        guard let directory = ProcessInfo.processInfo.environment["WISP_NATIVE_SNAPSHOT_DIR"] else {
+            throw XCTSkip("Set WISP_NATIVE_SNAPSHOT_DIR to render native conversation fixtures")
+        }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { root.deleteLastPathComponent() }
+        let fixture = try JSONDecoder().decode(SettingsValue.self, from: Data(contentsOf: root.appendingPathComponent("contracts/native-conversations/v1/snapshot.json")))
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        for (name, width, height, scheme) in [("desktop", 859.0, 760.0, ColorScheme.light), ("narrow", 419.0, 538.0, ColorScheme.light), ("dark", 859.0, 760.0, ColorScheme.dark), ("long-preview", 419.0, 538.0, ColorScheme.light)] {
+            var payload = fixture
+            if name == "long-preview" {
+                var approvals = payload["approvals"].array
+                approvals[0]["preview"] = .string((1...30).map { "echo sample-\($0)" }.joined(separator: "\n"))
+                payload["approvals"] = .array(approvals)
+            }
+            let value = try ConversationSnapshot.decode(payload, projectID: "project-a", sessionID: "session-a")
+            let model = NativeConversationModel(client: RenderConversationClient(value))
+            await model.open(project: value.project_id, session: value.session_id)
+            model.pause(); model.draft = "请继续检查样本，并总结质量控制结果。"
+            let view = NSHostingView(rootView: NativeConversationView(conversation: model)
+                .background(WispDesign.color("bg-app", scheme))
+                .foregroundStyle(WispDesign.color("text", scheme))
+                .tint(WispDesign.color("clay", scheme))
+                .environment(\.colorScheme, scheme))
+            view.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            view.layoutSubtreeIfNeeded()
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return XCTFail("No native bitmap") }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            XCTAssertGreaterThan(data.count, 1000)
+            try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("conversation-\(name).png"))
+        }
+    }
+}

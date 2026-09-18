@@ -10,7 +10,7 @@ public struct ProjectBrowserView: View {
     public var body: some View {
         Group {
             if model.settingsPresented {
-                NativeSettingsView(databaseURL: model.databaseURL, projects: model.projects, projectID: model.projectSettingsID ?? model.activeProjectID, editProject: model.projectSettingsID != nil) { model.settingsPresented = false; model.projectSettingsID = nil; Task { await model.refresh() } }
+                NativeSettingsView(databaseURL: model.databaseURL, projects: model.projects, projectID: model.projectSettingsID ?? model.activeProjectID, editProject: model.projectSettingsID != nil, initialSection: NativeSettingsSection(rawValue: model.settingsSectionID ?? "") ?? .general) { model.settingsPresented = false; model.projectSettingsID = nil; model.settingsSectionID = nil; Task { await model.refresh() } }
             } else if let project = model.projects.first(where: { $0.id == model.activeProjectID }) {
                 ProjectWorkspace(model: model, project: project)
             } else {
@@ -176,7 +176,7 @@ private struct ProjectLanding: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
-            Text("SwiftUI 原生预览 · 支持项目收藏 · 会话只读")
+            Text("SwiftUI 原生预览 · 项目与实时会话")
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
                 if let loaded = model.lastLoaded {

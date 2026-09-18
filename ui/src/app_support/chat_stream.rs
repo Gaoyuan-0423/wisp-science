@@ -239,14 +239,14 @@ pub(crate) fn start_user_turn(items: &mut Vec<ChatItem>, text: String, model: Op
 mod start_user_turn_tests {
     use super::{
         append_assistant_delta, append_reasoning_delta, completed_activity_end,
-        composer_text_from_user_message, dismiss_follow_up_questions, is_commentary_at,
-        is_image_generation_tool, is_tool_activity, is_video_generation_tool,
+        completed_activity_groups, composer_text_from_user_message, dismiss_follow_up_questions,
+        is_commentary_at, is_image_generation_tool, is_tool_activity, is_video_generation_tool,
         message_with_attachments, message_with_composer_context, message_with_quotes,
         message_with_read_only_quotes, process_item_insert_index, runtime_object_quote,
         selection_targets_center_file, start_user_turn, trailing_queue_start, ComposerQuote,
         ComposerReferenceChip,
     };
-    use crate::dto::{ChatItem, ContextUsage};
+    use crate::dto::{AppContextNotice, ChatItem, ContextUsage, PlanCard, ReviewTransitionPhase};
     use leptos::*;
     use std::collections::HashMap;
 
@@ -579,6 +579,31 @@ mod start_user_turn_tests {
     }
 
     #[test]
+    fn commentary_skips_empty_placeholders() {
+        let assistant = |text: &str| ChatItem::Assistant {
+            text: text.into(),
+            model: None,
+            resources: Vec::new(),
+        };
+        let items = vec![
+            ChatItem::User("question".into()),
+            assistant("checking"),
+            assistant(""),
+            ChatItem::Tool {
+                name: "python".into(),
+                ok: Some(true),
+                input: String::new(),
+                output: String::new(),
+                started_at_ms: None,
+                duration_ms: Some(1),
+            },
+            assistant("final answer"),
+        ];
+        assert!(is_commentary_at(&items, 1));
+        assert!(!is_commentary_at(&items, 4));
+    }
+
+    #[test]
     fn image_generation_is_not_folded_into_tool_activity() {
         let image = ChatItem::Tool {
             name: "generate_image".into(),
@@ -681,6 +706,107 @@ mod start_user_turn_tests {
             },
         );
         assert_eq!(completed_activity_end(&recorded, 1, false), Some(4));
+    }
+
+    #[test]
+    fn completed_activity_keeps_one_summary_across_phase_glue() {
+        let assistant = |text: &str| ChatItem::Assistant {
+            text: text.into(),
+            model: None,
+            resources: Vec::new(),
+        };
+        let tool = |ok: Option<bool>| ChatItem::Tool {
+            name: "python".into(),
+            ok,
+            input: "plot()".into(),
+            output: String::new(),
+            started_at_ms: None,
+            duration_ms: Some(50),
+        };
+        let usage = ChatItem::Usage {
+            input: 100,
+            output: 10,
+            reasoning: 0,
+            cached: 0,
+            ctx_tokens: 0,
+            max_context: 0,
+            context_usage: ContextUsage::default(),
+        };
+        let notice = ChatItem::AppContextNotice(AppContextNotice {
+            context_id: "app".into(),
+            app_name: "plot".into(),
+            state: "ready".into(),
+            summary: String::new(),
+            structured_preview: None,
+        });
+        let mut items = vec![ChatItem::User("plot the heatmap".into())];
+        for phase in 0..7 {
+            items.push(assistant(&format!("phase {phase}")));
+            items.push(ChatItem::Assistant {
+                text: String::new(),
+                model: None,
+                resources: Vec::new(),
+            });
+            items.push(ChatItem::Reasoning(format!("thinking {phase}")));
+            items.push(tool(Some(true)));
+            items.push(ChatItem::FileChanged(format!("fig{phase}.png")));
+            items.push(usage.clone());
+            items.push(notice.clone());
+            items.push(ChatItem::ReviewTransition {
+                phase: ReviewTransitionPhase::Passed,
+                model: None,
+            });
+            if phase == 3 {
+                items.push(ChatItem::Compaction {
+                    before: 1000,
+                    after: 500,
+                    strategy: "auto".into(),
+                });
+            }
+        }
+        items.push(tool(None));
+        items.push(assistant("The heatmap is ready."));
+        items.push(usage);
+
+        let groups = completed_activity_groups(&items, false);
+        assert_eq!(groups.len(), 1, "{groups:?}");
+        assert_eq!(groups[0].start, 1);
+        assert_eq!(
+            completed_activity_end(&items, 1, false),
+            Some(groups[0].end)
+        );
+        assert!(matches!(
+            items[groups[0].end],
+            ChatItem::Assistant { ref text, .. } if text == "The heatmap is ready."
+        ));
+        assert!(is_commentary_at(&items, 1));
+        assert!(!is_commentary_at(&items, groups[0].end));
+    }
+
+    #[test]
+    fn propose_plan_cards_stay_outside_the_processed_summary() {
+        let items = vec![
+            ChatItem::User("Prepare the regression plan".into()),
+            ChatItem::Plan(PlanCard::default()),
+        ];
+        assert!(completed_activity_groups(&items, false).is_empty());
+        assert_eq!(completed_activity_end(&items, 1, false), None);
+
+        let items = vec![
+            ChatItem::User("Inspect then plan".into()),
+            ChatItem::Reasoning("checking".into()),
+            ChatItem::Tool {
+                name: "read".into(),
+                ok: Some(true),
+                input: String::new(),
+                output: String::new(),
+                started_at_ms: None,
+                duration_ms: Some(2),
+            },
+            ChatItem::Plan(PlanCard::default()),
+        ];
+        let groups = completed_activity_groups(&items, false);
+        assert_eq!(groups, vec![1..3]);
     }
 
     #[test]
@@ -844,23 +970,32 @@ pub(crate) fn is_tool_activity(item: &ChatItem) -> bool {
     }
 }
 
+/// Rows that can sit between tool phases without ending the process. Trailing
+/// copies stay outside the disclosure so the final report is not wrapped.
+pub(crate) fn is_activity_glue(item: &ChatItem) -> bool {
+    match item {
+        ChatItem::Usage { .. }
+        | ChatItem::Compaction { .. }
+        | ChatItem::FileChanged(_)
+        | ChatItem::AppContextNotice(_)
+        | ChatItem::ReviewTransition { .. } => true,
+        ChatItem::Assistant { text, .. } if text.trim().is_empty() => true,
+        ChatItem::Tool { name, .. } if name == "attempt_completion" => true,
+        _ => false,
+    }
+}
+
 /// Assistant text that introduces a tool is visible commentary, while the last
 /// assistant row in a turn keeps the full answer treatment.
 pub(crate) fn is_commentary_at(items: &[ChatItem], index: usize) -> bool {
-    if !matches!(&items[index], ChatItem::Assistant { text, .. } if !text.trim().is_empty()) {
-        return false;
+    match items.get(index) {
+        Some(ChatItem::Assistant { text, .. })
+            if !text.trim().is_empty() && !text.starts_with("Error: ") => {}
+        _ => return false,
     }
     items[index + 1..]
         .iter()
-        .find(|item| {
-            !matches!(
-                item,
-                ChatItem::Reasoning(_)
-                    | ChatItem::Usage { .. }
-                    | ChatItem::Compaction { .. }
-                    | ChatItem::FileChanged(_)
-            )
-        })
+        .find(|item| !is_activity_glue(item) && !matches!(item, ChatItem::Reasoning(_)))
         .is_some_and(is_tool_activity)
 }
 
@@ -896,18 +1031,35 @@ pub(crate) fn completed_activity_end(
     for index in start..turn_end {
         if is_turn_activity_at(items, index) {
             end = index + 1;
-        } else if !matches!(
-            &items[index],
-            ChatItem::Usage { .. } | ChatItem::Compaction { .. } | ChatItem::FileChanged(_)
-        ) && !matches!(&items[index], ChatItem::Assistant { text, .. } if text.trim().is_empty())
-            && !matches!(&items[index], ChatItem::Tool { name, .. } if name == "attempt_completion")
-        {
+        } else if is_activity_glue(&items[index]) {
+            continue;
+        } else {
             break;
         }
     }
     // Metadata between phases belongs inside the disclosure. Leave trailing
     // usage/compaction outside, and never cross a final answer or action card.
     Some(end)
+}
+
+/// Completed process groups in walk order. Used by tests to assert a finished
+/// turn collapses to one Processed summary instead of repeating the turn clock.
+#[cfg(test)]
+pub(crate) fn completed_activity_groups(
+    items: &[ChatItem],
+    busy: bool,
+) -> Vec<std::ops::Range<usize>> {
+    let mut groups = Vec::new();
+    let mut index = 0;
+    while index < items.len() {
+        if let Some(end) = completed_activity_end(items, index, busy) {
+            groups.push(index..end);
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    groups
 }
 
 pub(crate) fn append_reasoning_delta(items: &mut Vec<ChatItem>, delta: String) {

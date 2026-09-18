@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+pub mod native_conversations;
 pub mod native_settings;
 pub mod project_browser;
 
@@ -478,7 +479,7 @@ pub struct AppContextNotice {
     pub structured_preview: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SideChatEvidence {
     pub source_id: String,
@@ -493,9 +494,11 @@ pub struct SideChatEvidence {
     pub relevance: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SideChatResponse {
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub answer: String,
     pub snapshot_version: i64,
     #[serde(default)]
@@ -1334,7 +1337,7 @@ pub struct ArtifactInfo {
 
 /// Immutable item in the app-global library database. Source names are
 /// snapshots, so this remains useful after its project or session is deleted.
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct LibraryItem {
     pub id: String,
     pub kind: String,
@@ -4037,7 +4040,7 @@ pub struct QuickActionRun {
     pub started: bool,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflowSnapshot {
     pub workflow: AgentWorkflow,
     pub delegation_enabled: bool,
@@ -4148,7 +4151,7 @@ pub struct RunActivityProposal {
     pub max_cost_microunits: u64,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RunActivitySpec {
     pub activity: String,
     pub context_id: String,
@@ -4256,20 +4259,20 @@ pub struct WorkflowConversionProgress {
     pub stage: WorkflowConversionStage,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentExecutorSummary {
     pub kind: String,
     pub profile_id: Option<String>,
     pub model_id: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentApprovalReasonSummary {
     pub task_id: String,
     pub message: String,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentResultSummary {
     pub status: String,
     pub summary: Option<String>,
@@ -4284,7 +4287,7 @@ pub struct AgentResultSummary {
     pub full_result_available: bool,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedAgentTaskSummary {
     pub id: String,
     pub stored_step_id: String,
@@ -4315,7 +4318,7 @@ pub struct ResolvedAgentTaskSummary {
     pub result: Option<AgentResultSummary>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentSkillBinding {
     pub id: String,
     pub name: String,
@@ -4328,7 +4331,7 @@ pub struct AgentSkillBinding {
     pub package_source: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DynamicAgentWorkflowSummary {
     pub schema_version: u32,
     pub approval_policy: AgentApprovalPolicy,
@@ -4337,7 +4340,7 @@ pub struct DynamicAgentWorkflowSummary {
     pub approval_reasons: Vec<AgentApprovalReasonSummary>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflowResultDetail {
     pub workflow_id: String,
     pub step_id: String,
@@ -4346,7 +4349,7 @@ pub struct AgentWorkflowResultDetail {
     pub response: serde_json::Value,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflow {
     pub id: String,
     #[serde(default)]
@@ -4367,7 +4370,7 @@ pub struct AgentWorkflow {
     pub updated_at: i64,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ExecutionContext {
     pub id: String,
     pub kind: String,
@@ -4566,7 +4569,7 @@ pub struct TerminalSessionSummary {
     pub running: bool,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeKeyDto {
     pub project_id: String,
@@ -4578,7 +4581,7 @@ pub struct RuntimeKeyDto {
     pub session_id: String,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeInfo {
     pub runtime_id: String,
@@ -4594,7 +4597,7 @@ pub struct RuntimeInfo {
     pub last_error: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeObject {
     pub name: String,
@@ -4603,7 +4606,7 @@ pub struct RuntimeObject {
     pub size_bytes: Option<u64>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeObjectList {
     pub objects: Vec<RuntimeObject>,
@@ -4619,7 +4622,7 @@ pub struct RuntimeObjectState {
 
 /// One user-driven `execute_runtime` result: console text as the agent tools
 /// would render it, plus the plots the cell produced as base64-encoded PNGs.
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeExecutionSummary {
     pub text: String,
@@ -4643,7 +4646,7 @@ pub struct RuntimeSlot {
 /// the always-NULL `script_path`). No blanket `allow(dead_code)`: an unread
 /// field here means the UI is dropping data again, and the warning is the
 /// whole point.
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct RunRecord {
     pub id: String,
     pub frame_id: Option<String>,
@@ -4675,7 +4678,7 @@ pub struct RunRecord {
     pub cleanup_error: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct RunSummary {
     pub id: String,
     pub frame_id: Option<String>,

@@ -1,0 +1,614 @@
+{
+  "cases": [
+    {
+      "name": "duration",
+      "axis": "duration",
+      "query": "",
+      "turns": [
+        {
+          "index": 1,
+          "started_at": 1000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Question",
+              "ts": 1000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "Answer",
+              "ts": 1500,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Run",
+              "ts": 1600,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "usage",
+              "summary": "Tokens",
+              "ts": 1700,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "started_at": 2000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Next",
+              "ts": 2000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Search",
+              "ts": 2100,
+              "duration_ms": 200,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "key": "1:0",
+          "lane": "input",
+          "left_pct": 0,
+          "width_pct": 12.5
+        },
+        {
+          "key": "1:1",
+          "lane": "model",
+          "left_pct": 12.5,
+          "width_pct": 18.75
+        },
+        {
+          "key": "1:2",
+          "lane": "tools",
+          "left_pct": 31.25,
+          "width_pct": 18.75
+        },
+        {
+          "key": "4:0",
+          "lane": "input",
+          "left_pct": 50.0,
+          "width_pct": 12.5
+        },
+        {
+          "key": "4:1",
+          "lane": "tools",
+          "left_pct": 62.5,
+          "width_pct": 37.5
+        }
+      ]
+    },
+    {
+      "name": "turns",
+      "axis": "turns",
+      "query": "",
+      "turns": [
+        {
+          "index": 1,
+          "started_at": 1000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Question",
+              "ts": 1000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "Answer",
+              "ts": 1500,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Run",
+              "ts": 1600,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "usage",
+              "summary": "Tokens",
+              "ts": 1700,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "started_at": 2000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Next",
+              "ts": 2000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Search",
+              "ts": 2100,
+              "duration_ms": 200,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "key": "1:0",
+          "lane": "input",
+          "left_pct": 0,
+          "width_pct": 16.666666666666668
+        },
+        {
+          "key": "1:1",
+          "lane": "model",
+          "left_pct": 16.666666666666668,
+          "width_pct": 16.666666666666668
+        },
+        {
+          "key": "1:2",
+          "lane": "tools",
+          "left_pct": 33.333333333333336,
+          "width_pct": 16.666666666666668
+        },
+        {
+          "key": "4:0",
+          "lane": "input",
+          "left_pct": 50.0,
+          "width_pct": 25
+        },
+        {
+          "key": "4:1",
+          "lane": "tools",
+          "left_pct": 75.0,
+          "width_pct": 25
+        }
+      ]
+    },
+    {
+      "name": "calls",
+      "axis": "calls",
+      "query": "",
+      "turns": [
+        {
+          "index": 1,
+          "started_at": 1000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Question",
+              "ts": 1000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "Answer",
+              "ts": 1500,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Run",
+              "ts": 1600,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "usage",
+              "summary": "Tokens",
+              "ts": 1700,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "started_at": 2000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Next",
+              "ts": 2000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Search",
+              "ts": 2100,
+              "duration_ms": 200,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "key": "1:0",
+          "lane": "input",
+          "left_pct": 0,
+          "width_pct": 20
+        },
+        {
+          "key": "1:1",
+          "lane": "model",
+          "left_pct": 20,
+          "width_pct": 20
+        },
+        {
+          "key": "1:2",
+          "lane": "tools",
+          "left_pct": 40,
+          "width_pct": 20
+        },
+        {
+          "key": "4:0",
+          "lane": "input",
+          "left_pct": 60,
+          "width_pct": 20
+        },
+        {
+          "key": "4:1",
+          "lane": "tools",
+          "left_pct": 80,
+          "width_pct": 20
+        }
+      ]
+    },
+    {
+      "name": "filtered",
+      "axis": "duration",
+      "query": "  SEARCH  ",
+      "turns": [
+        {
+          "index": 1,
+          "started_at": 1000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Question",
+              "ts": 1000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "Answer",
+              "ts": 1500,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Run",
+              "ts": 1600,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "usage",
+              "summary": "Tokens",
+              "ts": 1700,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "started_at": 2000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Next",
+              "ts": 2000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Search",
+              "ts": 2100,
+              "duration_ms": 200,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "key": "4:1",
+          "lane": "tools",
+          "left_pct": 0,
+          "width_pct": 100
+        }
+      ]
+    },
+    {
+      "name": "missing",
+      "axis": "duration",
+      "query": "",
+      "turns": [
+        {
+          "index": 7,
+          "started_at": null,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "q",
+              "ts": null,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "t",
+              "ts": null,
+              "duration_ms": -1,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "a",
+              "ts": null,
+              "duration_ms": 0,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "key": "7:0",
+          "lane": "input",
+          "left_pct": 0.0,
+          "width_pct": 33.333333333333336
+        },
+        {
+          "key": "7:1",
+          "lane": "tools",
+          "left_pct": 33.333333333333336,
+          "width_pct": 33.333333333333336
+        },
+        {
+          "key": "7:2",
+          "lane": "model",
+          "left_pct": 66.66666666666667,
+          "width_pct": 33.333333333333336
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "axis": "calls",
+      "query": "absent",
+      "turns": [
+        {
+          "index": 1,
+          "started_at": 1000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Question",
+              "ts": 1000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "assistant",
+              "summary": "Answer",
+              "ts": 1500,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Run",
+              "ts": 1600,
+              "duration_ms": 100,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "usage",
+              "summary": "Tokens",
+              "ts": 1700,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "started_at": 2000,
+          "cells": [
+            {
+              "kind": "user",
+              "summary": "Next",
+              "ts": 2000,
+              "duration_ms": null,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            },
+            {
+              "kind": "tool",
+              "summary": "Search",
+              "ts": 2100,
+              "duration_ms": 200,
+              "is_error": false,
+              "ok": null,
+              "detail_input": null,
+              "detail_output": null,
+              "usage": null
+            }
+          ]
+        }
+      ],
+      "segments": []
+    }
+  ],
+  "timing": [
+    {
+      "turn": 1,
+      "input": 500,
+      "model": 100,
+      "tools": 100
+    },
+    {
+      "turn": 4,
+      "input": 100,
+      "model": 0,
+      "tools": 200
+    }
+  ]
+}

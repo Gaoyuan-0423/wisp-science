@@ -49,7 +49,7 @@ base64 = { workspace = true }
 ring = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-pulldown-cmark = { version = "0.12", default-features = false }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 same-file = { workspace = true }
 portable-pty = { workspace = true }
 async-trait = { workspace = true }
@@ -104,4 +104,5 @@ objc2 = "0.6"
 tao = "0.37.0"
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }

@@ -10,7 +10,10 @@
     "border": "rgba(60, 55, 45, 0.1)",
     "border-strong": "#d6d4cc",
     "clay": "#0d9488",
-    "clay-strong": "#0f766e"
+    "clay-strong": "#0f766e",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "dark": {
     "bg-app": "#171614",
@@ -23,7 +26,10 @@
     "border": "rgba(245, 240, 230, 0.08)",
     "border-strong": "#3a3732",
     "clay": "#2da898",
-    "clay-strong": "#3fbfad"
+    "clay-strong": "#3fbfad",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   },
   "light-paper": {
     "bg-app": "#faf9f6",
@@ -36,7 +42,10 @@
     "border": "rgba(60,55,45,.1)",
     "border-strong": "#d6d4cc",
     "clay": "#0d9488",
-    "clay-strong": "#0f766e"
+    "clay-strong": "#0f766e",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "light-codex": {
     "bg-app": "#f4f6f8",
@@ -49,7 +58,10 @@
     "border": "rgba(55,65,81,.12)",
     "border-strong": "#cbd3df",
     "clay": "#2563eb",
-    "clay-strong": "#1d4ed8"
+    "clay-strong": "#1d4ed8",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "light-github": {
     "bg-app": "#f6f8fa",
@@ -62,7 +74,10 @@
     "border": "#d8dee4",
     "border-strong": "#afb8c1",
     "clay": "#0969da",
-    "clay-strong": "#0550ae"
+    "clay-strong": "#0550ae",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "light-catppuccin": {
     "bg-app": "#eff1f5",
@@ -75,7 +90,10 @@
     "border": "rgba(76,79,105,.14)",
     "border-strong": "#bcc0cc",
     "clay": "#8839ef",
-    "clay-strong": "#6f2ed4"
+    "clay-strong": "#6f2ed4",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "light-everforest": {
     "bg-app": "#f4f0d9",
@@ -88,7 +106,10 @@
     "border": "rgba(74,88,80,.15)",
     "border-strong": "#c8c2aa",
     "clay": "#3a8f6b",
-    "clay-strong": "#2f7658"
+    "clay-strong": "#2f7658",
+    "traj-input-bar": "#c5c1b8",
+    "traj-model-bar": "#568ed2",
+    "traj-tool-bar": "#cc5a3e"
   },
   "dark-charcoal": {
     "bg-app": "#171614",
@@ -101,7 +122,10 @@
     "border": "rgba(245,240,230,.08)",
     "border-strong": "#3a3732",
     "clay": "#2da898",
-    "clay-strong": "#3fbfad"
+    "clay-strong": "#3fbfad",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   },
   "dark-codex": {
     "bg-app": "#202123",
@@ -114,7 +138,10 @@
     "border": "rgba(255,255,255,.09)",
     "border-strong": "#444750",
     "clay": "#7c8cff",
-    "clay-strong": "#9aa6ff"
+    "clay-strong": "#9aa6ff",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   },
   "dark-github": {
     "bg-app": "#0d1117",
@@ -127,7 +154,10 @@
     "border": "#30363d",
     "border-strong": "#484f58",
     "clay": "#58a6ff",
-    "clay-strong": "#79c0ff"
+    "clay-strong": "#79c0ff",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   },
   "dark-catppuccin": {
     "bg-app": "#1e1e2e",
@@ -140,7 +170,10 @@
     "border": "rgba(205,214,244,.1)",
     "border-strong": "#45475a",
     "clay": "#cba6f7",
-    "clay-strong": "#d8b9ff"
+    "clay-strong": "#d8b9ff",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   },
   "dark-gruvbox": {
     "bg-app": "#282828",
@@ -153,6 +186,9 @@
     "border": "rgba(235,219,178,.1)",
     "border-strong": "#504945",
     "clay": "#d79921",
-    "clay-strong": "#fabd2f"
+    "clay-strong": "#fabd2f",
+    "traj-input-bar": "#8a8680",
+    "traj-model-bar": "#719ed6",
+    "traj-tool-bar": "#d4765e"
   }
 }

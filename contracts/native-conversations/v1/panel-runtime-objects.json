@@ -1,0 +1,11 @@
+{
+  "objects": [
+    {
+      "name": "samples",
+      "typeName": "list",
+      "summary": "10 samples",
+      "sizeBytes": 240
+    }
+  ],
+  "totalCount": 1
+}

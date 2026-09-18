@@ -173,10 +173,10 @@ and an error banner; selecting a different database clears the old snapshot.
 - `wisp-service --database <path>` exposes those queries over stdin/stdout JSONL.
 - `apps/macos` contains a Foundation transport client and SwiftUI presentation.
 - `apps/windows/Wisp.ProjectBrowser.Contracts` provides `IProjectBrowserClient`
-  and C# response/project/session/transcript DTOs.
+  and C# response/project/session/transcript/command DTOs.
 - `apps/windows/Wisp.ProjectBrowser` contains the transport, testable navigation
   state and layout breakpoints; `Wisp.Science.Preview` provides the WinUI window.
-- `contracts/project-browser/v1/{projects,sessions,transcript}.json` are decoded by Rust, Swift, and
+- `contracts/project-browser/v1/{projects,sessions,transcript,set-project-starred}.json` are decoded by Rust, Swift, and
   the C# contract smoke test to detect wire-format drift.
 
 The UI never queries SQLite directly. Both adapters start one short-lived
@@ -260,20 +260,27 @@ Manual smoke steps:
 
 ## Remaining feature work
 
-The preview aligns the home/workspace shell and read-only navigation. Full
-feature parity remains separate from this layout change. Home creation/import,
-calendar/library entry points, the sidebar tools, artifact
-search, and composer/live runtime integration still require their native services.
+The preview aligns the home/workspace shell and includes native settings and the
+conversation loop described below. Home creation/import, calendar/library,
+the sidebar tools and artifact search still require their native services.
 Their action slots are visible but explicitly disabled in the preview.
-The transcript currently renders saved text and tool records, not the WebView's
-rich attachments, branch/review cards, or interactive tool surfaces. Native
-signing/distribution and capability negotiation remain follow-ups. Conversations
-remain read-only; Windows Markdown is intentionally limited to native text
-formatting, with no interactive HTML or attachment rendering.
+The transcript renders text, tool records and basic questions; rich attachments,
+branch/review cards and interactive tool surfaces remain follow-ups.
+
+Windows now has a WinUI 3 project/session preview and in-window appearance
+settings. Shared conversation and workspace-action contracts from #1284/#1288
+are present; equivalent WinUI pages for outline, share, trajectory, archive,
+inbox, terminal and side panels remain follow-up work. Windows Markdown is
+intentionally limited to native text formatting, with no interactive HTML or
+attachment rendering.
 
 ## Native settings
 
-See [native-settings.md](native-settings.md) for the shared authenticated desktop settings transport introduced by #1281. macOS provides the full native settings navigation; Windows parity is incremental.
+The macOS preview now includes SwiftUI settings (Cmd+,) backed by the full
+desktop runtime. See [native-settings.md](native-settings.md) for scope,
+architecture, native/WebView differences, smoke steps and the WinUI 3 transport
+interface. The project-browser service remains focused on project/session reads
+and project stars.
 
 ### Windows alignment after #1281
 
@@ -325,3 +332,9 @@ If an older installed Wisp is running, it may intercept the helper launch withou
 providing the native settings broker. Finish work and exit that older desktop
 before retrying, or use a desktop build containing #1281. The preview does not
 automatically terminate another desktop process.
+
+## Native conversations
+
+SwiftUI now connects HTTP-model conversations to the desktop runtime for sending,
+live snapshots, stopping and one-shot approvals. See [native-conversations.md](native-conversations.md)
+for scope, recovery guarantees and the equivalent WinUI 3 client contract.

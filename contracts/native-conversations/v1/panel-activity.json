@@ -1,0 +1,47 @@
+{
+  "runtimes": [
+    {
+      "runtimeId": "runtime-a",
+      "generation": 2,
+      "key": {
+        "projectId": "project-a",
+        "contextId": "local",
+        "language": "python",
+        "scopeKey": "mainline",
+        "sessionId": "session-a"
+      },
+      "status": "ready",
+      "interpreter": "/usr/bin/python3",
+      "version": "3.12",
+      "processId": 1234,
+      "startedAtMs": 1789687001000,
+      "lastActivityAtMs": 1789687020000,
+      "residentMemoryBytes": 104857600,
+      "lastError": null
+    }
+  ],
+  "runs": [
+    {
+      "id": "run-a",
+      "frame_id": "session-a",
+      "context_id": "local",
+      "title": "样本质量检查",
+      "kind": "shell",
+      "status": "running",
+      "created_at": 1789687000,
+      "started_at": 1789687001,
+      "ended_at": null,
+      "exit_code": null,
+      "remote_workdir": null,
+      "timeout_secs": 3600,
+      "last_polled_at": 1789687020,
+      "last_poll_error": null,
+      "progress_json": "{}",
+      "harvested_at": null,
+      "cleaned_at": null,
+      "cleanup_error": null,
+      "output_fingerprint": "tail-v1"
+    }
+  ],
+  "read_only": false
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "workflow": {
+      "id": "workflow-a",
+      "frame_id": "session-a",
+      "root_workflow_id": "workflow-a",
+      "parent_attempt_id": null,
+      "depth": 0,
+      "name": "质量检查",
+      "goal": "检查样本质量并汇总证据",
+      "mode": "manual",
+      "status": "succeeded",
+      "max_parallel": 2,
+      "requires_confirmation": true,
+      "version": 1,
+      "updated_at": 1789687000
+    },
+    "delegation_enabled": true,
+    "approval_policy": "review_all",
+    "dynamic": {
+      "schema_version": 1,
+      "approval_policy": "review_all",
+      "editable_proposal": {
+        "goal": "检查样本质量并汇总证据",
+        "context": "",
+        "approval_policy": "review_all",
+        "tasks": []
+      },
+      "tasks": [
+        {
+          "id": "review",
+          "stored_step_id": "workflow-a:review",
+          "instruction": "检查质量报告",
+          "depends_on": [],
+          "executor": {
+            "kind": "native",
+            "profile_id": null,
+            "model_id": "model-a"
+          },
+          "budget": {},
+          "tools": [
+            "read"
+          ],
+          "approval_reasons": [],
+          "result": {
+            "status": "succeeded",
+            "summary": "检查完成",
+            "error": null,
+            "run_id": null,
+            "input_tokens": 120,
+            "output_tokens": 40,
+            "tool_calls": 2,
+            "cost_microunits": 10,
+            "duration_secs": 3,
+            "full_result_available": true
+          },
+          "workspace_policy": "shared",
+          "merge_policy": "none",
+          "specialist_id": null,
+          "specialist_name": null,
+          "can_write": false,
+          "can_execute": false,
+          "can_access_network": false,
+          "timeout_secs": 30,
+          "output_schema": null
+        }
+      ],
+      "approval_reasons": []
+    }
+  }
+]

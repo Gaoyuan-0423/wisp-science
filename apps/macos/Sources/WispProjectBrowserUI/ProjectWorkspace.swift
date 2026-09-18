@@ -6,8 +6,26 @@ import WispProjectBrowser
 struct ProjectWorkspace: View {
     @ObservedObject var model: ProjectBrowserModel
     let project: ProjectSummary
+    @ObservedObject private var conversation: NativeConversationModel
+    init(model: ProjectBrowserModel, project: ProjectSummary) {
+        self.model = model; self.project = project
+        self.conversation = model.nativeConversation()
+    }
     @Environment(\.colorScheme) private var scheme
     @State private var sidebarVisible = true
+    @State private var trajectoryPresented = false
+    @State private var archivePresented = false
+    @State private var sharePresented = false
+    @State private var terminalVisible = false
+    @AppStorage("native.workspace.panel.visible") private var panelVisible = false
+    @AppStorage("native.workspace.panel.tab") private var panelTab = "artifacts"
+    @AppStorage("native.workspace.panel.tabs") private var panelTabs = ""
+    @State private var panelWidth: CGFloat = 340
+    @State private var panelDragStart: CGFloat?
+    @State private var terminalHeight: CGFloat = 300
+    @State private var terminalDragStart: CGFloat?
+    @State private var inboxPresented = false
+    @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
 
     var body: some View {
@@ -25,13 +43,34 @@ struct ProjectWorkspace: View {
                     Text(model.sessions.first(where: { $0.id == model.activeSessionID })?.title ?? project.name)
                         .font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                     Spacer()
-                    WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "运行轨迹", icon: "timeline", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "待查看", icon: "bell", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "终端", icon: "terminal", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
+                    Button { conversation.outlinePresented.toggle() } label: { WispIcon(name: "list") }
+                        .buttonStyle(.plain).help("会话大纲").accessibilityLabel("会话大纲")
+                        .disabled(model.activeSessionID == nil)
+                        .popover(isPresented: $conversation.outlinePresented, arrowEdge: .bottom) {
+                            NativeConversationOutlineView(conversation: conversation)
+                        }
+                    Button { sharePresented = true } label: { WispIcon(name: "share") }
+                        .buttonStyle(.plain).help("分享").accessibilityLabel("分享")
+                        .disabled(model.activeSessionID == nil)
+                    Button { trajectoryPresented = true } label: { WispIcon(name: "timeline") }
+                        .buttonStyle(.plain).help("运行轨迹").accessibilityLabel("运行轨迹")
+                        .disabled(model.activeSessionID == nil)
+                    Button { archivePresented = true } label: { WispIcon(name: "archive") }
+                        .buttonStyle(.plain).help("研究归档").accessibilityLabel("研究归档")
+                        .disabled(model.activeSessionID == nil || conversation.snapshot?.running == true)
+                    Button { inboxPresented.toggle(); refreshInbox() } label: {
+                        HStack(spacing: 2) { WispIcon(name: "bell"); if !inbox.entries.isEmpty { Text("\(inbox.entries.count)").font(.caption2) } }
+                    }.buttonStyle(.plain).help("待查看").accessibilityLabel("待查看")
+                        .popover(isPresented: $inboxPresented, arrowEdge: .bottom) {
+                            NativeInboxView(inbox: inbox, refresh: refreshInbox, open: { entry in
+                                inboxPresented = false
+                                Task { await model.openProject(entry.project_id, sessionID: entry.id) }
+                            }, close: { inboxPresented = false })
+                        }
+                    Button { terminalVisible.toggle() } label: { WispIcon(name: "terminal") }
+                        .buttonStyle(.plain).help("终端").accessibilityLabel("终端").disabled(model.activeSessionID == nil)
+                    Button { panelVisible.toggle() } label: { WispIcon(name: "panel") }
+                        .buttonStyle(.plain).help("切换侧面板").accessibilityLabel("切换侧面板").disabled(model.activeSessionID == nil)
                 }
                 .padding(16)
                 Rectangle().fill(color("border")).frame(height: 1)
@@ -41,57 +80,87 @@ struct ProjectWorkspace: View {
                         Button("重试") { Task { await model.openProject(project.id, sessionID: model.activeSessionID) } }
                     }.padding().foregroundStyle(.orange)
                 }
-                ScrollViewReader { scroll in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        if model.nextBeforeSeq != nil, let id = model.activeSessionID {
-                            Button("加载更早的消息") { Task { await model.openSession(id, older: true) } }
-                                .buttonStyle(WispButtonStyle()).disabled(model.transcriptLoading)
-                        }
-                        ForEach(model.messages) { message in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(message.role == "user" ? "你" : (message.role == "tool" ? (message.toolName ?? "工具") : "Wisp Science"))
-                                    .font(WispDesign.font(size: 12, weight: .semibold)).foregroundStyle(color("text-muted"))
-                                Text((try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(message.text))
-                                    .font(WispDesign.font(size: 14)).textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(16)
-                            .background(message.role == "user" ? color("bg-sunken") : .clear,
-                                        in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        if model.transcriptLoading || model.sessionsLoading {
-                            ProgressView().frame(maxWidth: .infinity).padding()
-                        } else if model.messages.isEmpty && model.sessionError == nil {
-                            Text(model.sessions.isEmpty ? "这个项目还没有会话" : "这个会话暂无消息")
-                                .foregroundStyle(color("text-faint")).padding(32)
-                        }
+                if let session = model.activeSessionID {
+                    NativeConversationView(conversation: conversation, projectID: project.id, sessionID: session) { selection in
+                        guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                        model.nativeSideChat(projectID: project.id, sessionID: session).quotes.append(.init(text: selection, source: "会话摘录"))
+                        var tabs = NativePanelTabs(saved: panelTabs, selected: panelTab, available: NativePanelTabs.all)
+                        tabs.show("sidechat"); panelTabs = tabs.saved; panelTab = tabs.selected; panelVisible = true
                     }
-                    .frame(maxWidth: 800).padding(24).frame(maxWidth: .infinity)
+                        .task(id: project.id + ":" + session) {
+                            await conversation.open(project: project.id, session: session)
+                            await conversation.loadSavedHighlights(project: project.id, session: session)
+                        }
+                        .onDisappear { conversation.pause() }
+                } else {
+                    VStack(spacing: 16) {
+                        Text("开始新的研究对话").font(WispDesign.font(size: 22, weight: .semibold))
+                        Text(conversation.operationError ?? "创建会话后即可选择模型并发送消息。").foregroundStyle(color("text-muted"))
+                        Button("新建会话") { createSession() }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .onChange(of: model.messages.last?.id) { id in
-                    if let id { scroll.scrollTo(id, anchor: .bottom) }
+                if terminalVisible, let session = model.activeSessionID {
+                    Rectangle().fill(color("border")).frame(height: 5)
+                        .gesture(DragGesture().onChanged { value in
+                            if terminalDragStart == nil { terminalDragStart = terminalHeight }
+                            terminalHeight = min(600, max(220, (terminalDragStart ?? 300) - value.translation.height))
+                        }.onEnded { _ in terminalDragStart = nil })
+                    NativeTerminalPanel(model: model.nativeTerminal(projectID: project.id, sessionID: session)) { terminalVisible = false }
+                        .frame(height: terminalHeight).id(project.id + ":" + session)
                 }
-                }
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("向 Wisp Science 提问…").foregroundStyle(color("text-faint"))
-                    HStack {
-                        WispUnavailableAction(title: "添加附件", icon: "attach", iconOnly: true)
-                        WispUnavailableAction(title: "选择模型")
-                        Spacer()
-                        WispUnavailableAction(title: "发送", primary: true)
-                    }
-                }
-                .padding(16).background(color("bg-elev"), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color("border")))
-                .padding(.horizontal, 24).frame(maxWidth: 850)
-                Text("原生预览 · 会话只读 · 发送消息与实时运行尚未接入")
-                    .font(WispDesign.font(size: 11)).foregroundStyle(color("text-faint"))
-                    .padding(18).frame(maxWidth: .infinity)
+            }
+            if panelVisible, let session = model.activeSessionID {
+                Rectangle().fill(color("border")).frame(width: 5)
+                    .gesture(DragGesture().onChanged { value in
+                        if panelDragStart == nil { panelDragStart = panelWidth }
+                        panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
+                    }.onEnded { _ in panelDragStart = nil })
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, highlightRevision: conversation.savedHighlightRevision, highlightRemoved: { id in conversation.removeSavedHighlight(id, project: project.id, session: session) }, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings, openTerminal: { context in
+                    guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                    model.nativeTerminal(projectID: project.id, sessionID: session).requestOpen(context)
+                    terminalVisible = true
+                }) { panelVisible = false }
+                    .frame(width: panelWidth).id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $sharePresented) {
+            if let session = model.activeSessionID {
+                NativeShareView(client: conversation.client, projectID: project.id, sessionID: session) { sharePresented = false }.id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $archivePresented) {
+            if let session = model.activeSessionID {
+                NativeArchiveView(client: conversation.client, projectID: project.id, sessionID: session, workspace: project.workspaceDirectory, close: {
+                    archivePresented = false
+                    Task { await conversation.refresh() }
+                }, continued: { id in
+                    archivePresented = false
+                    Task { await model.openProject(project.id, sessionID: id) }
+                }).id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $trajectoryPresented) {
+            if let session = model.activeSessionID {
+                NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session, running: conversation.snapshot?.running == true) { trajectoryPresented = false }
+                    .id(project.id + ":" + session)
+            }
+        }
+        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; archivePresented = false; sharePresented = false; inboxPresented = false }
+        .task(id: project.id) {
+            inbox.reset()
+            while !Task.isCancelled {
+                await inbox.refresh(client: conversation.client, projectID: project.id)
+                do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
             }
         }
         .background(color("bg-app")).foregroundStyle(color("text")).tint(color("clay"))
+    }
+
+    private func refreshInbox() { Task { await inbox.refresh(client: conversation.client, projectID: project.id) } }
+
+    private func createSession() {
+        let database = model.databaseURL; let sourceSession = model.activeSessionID
+        Task { if let id = await conversation.create(project: project.id) { await model.openNativeDraft(id, projectID: project.id, database: database, sourceSession: sourceSession) } }
     }
 
     private var sidebar: some View {
@@ -112,7 +181,7 @@ struct ProjectWorkspace: View {
                     .buttonStyle(.plain).help("收起侧边栏").accessibilityLabel("收起侧边栏")
             }
             VStack(spacing: 4) {
-                WispUnavailableAction(title: "新建会话", icon: "plus", primary: true, expanded: true)
+                Button { createSession() } label: { HStack { WispIcon(name: "plus", size: 16); Text("新建会话"); Spacer() } }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
                 Button { model.searchPresented = true } label: {
                     HStack { WispIcon(name: "search", size: 16); Text("搜索"); Spacer() }
                 }.buttonStyle(WispButtonStyle(compact: true))
