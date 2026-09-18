@@ -105,7 +105,7 @@ struct ProjectWorkspace: View {
                             if terminalDragStart == nil { terminalDragStart = terminalHeight }
                             terminalHeight = min(600, max(220, (terminalDragStart ?? 300) - value.translation.height))
                         }.onEnded { _ in terminalDragStart = nil })
-                    NativeTerminalPanel(client: conversation.client, projectID: project.id, sessionID: session) { terminalVisible = false }
+                    NativeTerminalPanel(model: model.nativeTerminal(projectID: project.id, sessionID: session)) { terminalVisible = false }
                         .frame(height: terminalHeight).id(project.id + ":" + session)
                 }
             }
@@ -115,7 +115,11 @@ struct ProjectWorkspace: View {
                         if panelDragStart == nil { panelDragStart = panelWidth }
                         panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
                     }.onEnded { _ in panelDragStart = nil })
-                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, highlightRevision: conversation.savedHighlightRevision, highlightRemoved: { id in conversation.removeSavedHighlight(id, project: project.id, session: session) }, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings) { panelVisible = false }
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, highlightRevision: conversation.savedHighlightRevision, highlightRemoved: { id in conversation.removeSavedHighlight(id, project: project.id, session: session) }, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings, openTerminal: { context in
+                    guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                    model.nativeTerminal(projectID: project.id, sessionID: session).requestOpen(context)
+                    terminalVisible = true
+                }) { panelVisible = false }
                     .frame(width: panelWidth).id(project.id + ":" + session)
             }
         }

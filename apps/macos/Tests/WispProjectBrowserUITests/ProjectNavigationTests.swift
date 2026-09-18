@@ -29,6 +29,15 @@ private actor NavigationClient: ProjectBrowserQuerying {
 }
 
 final class ProjectNavigationTests: XCTestCase {
+    @MainActor func testTerminalCacheSeparatesSessionsAndKeepsSelectionAcrossPanelReopen() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/terminal-scope-test.sqlite"))
+        let terminal = model.nativeTerminal(projectID: "p", sessionID: "s")
+        terminal.select("terminal-qa")
+        XCTAssertTrue(terminal === model.nativeTerminal(projectID: "p", sessionID: "s"))
+        XCTAssertEqual(model.nativeTerminal(projectID: "p", sessionID: "s").selectedID, "terminal-qa")
+        XCTAssertFalse(terminal === model.nativeTerminal(projectID: "other", sessionID: "s"))
+        XCTAssertFalse(terminal === model.nativeTerminal(projectID: "p", sessionID: "other"))
+    }
     @MainActor func testSideChatCacheSeparatesProjectAndSessionAndSurvivesPanelReopen() {
         let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/side-chat-test.sqlite"))
         let first = model.nativeSideChat(projectID: "p", sessionID: "s")

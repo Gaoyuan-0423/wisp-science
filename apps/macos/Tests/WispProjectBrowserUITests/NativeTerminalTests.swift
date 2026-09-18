@@ -50,6 +50,20 @@ final class NativeTerminalTests: XCTestCase {
         value["end"] = .integer(6)
         XCTAssertThrowsError(try decode().bytes(expectedID: "terminal-a", cursor: 0))
     }
+    @MainActor func testContextLaunchCapturesRequestedContextAndDoesNotReplayFailure() async throws {
+        let client = TerminalClient()
+        let model = NativeTerminalModel(client: client, projectID: "p", sessionID: "s")
+        model.requestOpen("ssh:qa")
+        model.requestOpen("local")
+        XCTAssertTrue(model.explicitOpenRequested, "The panel must not auto-open local while an explicit launch is pending")
+        for _ in 0..<100 { if await client.recorded().count >= 2 { break }; await Task.yield() }
+        let calls = await client.recorded()
+        XCTAssertEqual(calls.count, 2, "One open and one reconciliation list; no replay or second concurrent launch")
+        XCTAssertEqual(calls[0]["context_id"]?.string, "ssh:qa")
+        XCTAssertEqual(calls[0]["session_id"]?.string, "s")
+        XCTAssertNil(calls[1]["context_id"])
+        XCTAssertNotNil(model.error)
+    }
     @MainActor func testCoordinatorKeepsOriginWhenCallbacksCrossActorBoundary() async throws {
         let client = TerminalClient()
         let model = NativeTerminalModel(client: client, projectID: "p", sessionID: "s")

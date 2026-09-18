@@ -893,3 +893,29 @@ terminal acceptance list.
 
 Full Swift verification after the callback fix passed with offline rendering
 available: 123 UI and 14 core tests (137 total). No backend or DTO shape changed.
+
+## Execution-context terminal shortcut
+
+Attached execution-context cards now expose a Terminal action beside Runtime and
+Runs. The workspace routes that action's context ID to the existing scoped terminal
+open command and makes the terminal panel visible. The terminal model is retained
+per database/project/session, so the card action and bottom panel operate on the
+same selection; another project's or session's panel gets a different model.
+Explicit launches suppress the panel's default local-terminal creation, including
+while the requested open is pending or has failed. Concurrent duplicate clicks are
+coalesced while an open is pending, and uncertain opens are reconciled without
+replay.
+
+Regression tests cover explicit remote-context forwarding without a real SSH
+connection, duplicate suppression, no automatic fallback after failure and scoped
+model reuse. The full Swift suite passed: 125 UI and 14 core tests (139 total).
+WinUI can wire its context card to the existing typed terminal open method with the
+card's context ID; no new backend DTO or command is required.
+
+The rebuilt, strictly signed QA app passed live checks in `toolbar-qa`: clicking
+Local's Terminal action showed a working terminal in the synthetic workspace.
+`stty size` reported 15 rows by 59 columns; dragging the splitter to increase its
+height changed the result to 23 by 59. Pasting a `printf` command through the native
+paste action produced `NATIVE_PASTE_OK`. These checks establish local launch,
+vertical resize propagation and paste; remote execution and high-volume cursor
+rollover remain separate acceptance items.

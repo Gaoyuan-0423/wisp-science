@@ -29,10 +29,18 @@ public final class ProjectBrowserModel: ObservableObject {
     @Published private(set) var databaseURL: URL
     private var nativeDrafts: [String: BrowserSession] = [:]
     private var nativeModels: [URL: NativeConversationModel] = [:]
-    private struct SideChatKey: Hashable { let database: URL; let project: String; let session: String }
-    private var sideChats: [SideChatKey: NativeSideChatModel] = [:]
+    private struct NativeSessionKey: Hashable { let database: URL; let project: String; let session: String }
+    private var sideChats: [NativeSessionKey: NativeSideChatModel] = [:]
+    private var terminals: [NativeSessionKey: NativeTerminalModel] = [:]
+    func nativeTerminal(projectID: String, sessionID: String) -> NativeTerminalModel {
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
+        if let existing = terminals[key] { return existing }
+        let terminal = NativeTerminalModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
+        terminals[key] = terminal
+        return terminal
+    }
     func nativeSideChat(projectID: String, sessionID: String) -> NativeSideChatModel {
-        let key = SideChatKey(database: databaseURL, project: projectID, session: sessionID)
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
         if let existing = sideChats[key] { return existing }
         let chat = NativeSideChatModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
         sideChats[key] = chat

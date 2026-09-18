@@ -10,6 +10,16 @@ final class NativeTerminalModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var inputUncertain = false
     @Published private(set) var exitCode: UInt32?
+    private(set) var explicitOpenRequested = false
+    private var pendingOpen: Task<Void, Never>?
+    func requestOpen(_ contextID: String) {
+        guard pendingOpen == nil, !busy else { return }
+        explicitOpenRequested = true
+        pendingOpen = Task {
+            await open(contextID)
+            pendingOpen = nil
+        }
+    }
     var receive: ((Data, Bool) -> Void)?
     private var cursor: UInt64?
     private var generation = UUID()

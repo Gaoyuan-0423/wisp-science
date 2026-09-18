@@ -4,11 +4,8 @@ import SwiftTerm
 import WispProjectBrowser
 
 struct NativeTerminalPanel: View {
-    @StateObject private var model: NativeTerminalModel
+    @ObservedObject var model: NativeTerminalModel
     let hide: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, hide: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativeTerminalModel(client: client, projectID: projectID, sessionID: sessionID)); self.hide = hide
-    }
     var body: some View {
         VStack(spacing: 6) {
             HStack {
@@ -34,7 +31,7 @@ struct NativeTerminalPanel: View {
         }.padding(10).frame(minHeight: 220, idealHeight: 300)
             .task {
                 await model.load()
-                if model.terminals.isEmpty && model.error == nil { await model.open("local") }
+                if model.terminals.isEmpty && model.error == nil && !model.explicitOpenRequested { await model.open("local") }
                 var tick = 0
                 while !Task.isCancelled {
                     await model.read(); tick += 1

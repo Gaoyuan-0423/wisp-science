@@ -17,11 +17,12 @@ struct NativePanelView: View {
     let revealExcerpt: (String) -> Void
     let transcript: [ConversationItem]
     let transcriptPage: String
+    let openTerminal: (String) -> Void
     let manageWorkflows: () -> Void
     let readOnly: Bool
     let close: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, highlightRevision: Int = 0, highlightRemoved: @escaping (String) -> Void = { _ in }, sideChat: NativeSideChatModel? = nil, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.highlightRevision = highlightRevision; self.highlightRemoved = highlightRemoved; self.sideChat = sideChat; self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
+    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, highlightRevision: Int = 0, highlightRemoved: @escaping (String) -> Void = { _ in }, sideChat: NativeSideChatModel? = nil, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, openTerminal: @escaping (String) -> Void = { _ in }, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.highlightRevision = highlightRevision; self.highlightRemoved = highlightRemoved; self.sideChat = sideChat; self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.openTerminal = openTerminal; self.readOnly = readOnly; self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -67,7 +68,7 @@ struct NativePanelView: View {
                     } else if tab == "agents" {
                         NativeAgentPanelView(model: model, query: query, readOnly: readOnly, manageWorkflows: manageWorkflows)
                     } else if tab == "hosts" {
-                        NativePanelContextsView(model: model, query: query) { context, runtimes in activity = .init(context: context, runtimes: runtimes) }
+                        NativePanelContextsView(model: model, query: query, openTerminal: openTerminal) { context, runtimes in activity = .init(context: context, runtimes: runtimes) }
                     } else {
                         ForEach(model.files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
                             Button {
@@ -232,6 +233,7 @@ struct NativePanelFilePreview: View {
 struct NativePanelContextsView: View {
     @ObservedObject var model: NativePanelModel
     var query = ""
+    var openTerminal: (String) -> Void = { _ in }
     var showActivity: (String, Bool) -> Void = { _, _ in }
     @Environment(\.colorScheme) private var scheme
     @ViewBuilder var body: some View {
@@ -246,6 +248,7 @@ struct NativePanelContextsView: View {
                         if context.kind != "local" { Button("从会话移除") { Task { await model.setContext(context.id, enabled: false) } }.disabled(snapshot.read_only) }
                     }.disabled(model.contextBusy)
                     HStack {
+                        Button("终端") { openTerminal(context.id) }
                         Button("运行时") { showActivity(context.id, true) }
                         Button("任务列表") { showActivity(context.id, false) }
                     }
