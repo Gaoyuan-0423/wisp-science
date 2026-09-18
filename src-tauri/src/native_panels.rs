@@ -93,9 +93,15 @@ pub(crate) async fn dispatch(
             )
         }
         "native_conversation_panel_highlight_star" => {
-            let value = invoke_command(broker, Some(project_id.into()), "star_library_text", serde_json::json!({
-                "sessionId": session, "text": args.text.ok_or("Selected text is required")?,
-            })).await?;
+            let value = invoke_command(
+                broker,
+                Some(project_id.into()),
+                "star_library_text",
+                serde_json::json!({
+                    "sessionId": session, "text": args.text.ok_or("Selected text is required")?,
+                }),
+            )
+            .await?;
             contract::<wisp_dto::LibraryItem>(value)
         }
         "native_conversation_panel_highlight_remove" => {
