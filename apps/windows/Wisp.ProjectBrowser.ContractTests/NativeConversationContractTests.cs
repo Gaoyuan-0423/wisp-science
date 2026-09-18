@@ -25,6 +25,8 @@ static class NativeConversationContractTests
         Require(run.StdoutTail == "Processed 10 samples", "Run detail drift");
         var objects = JsonSerializer.Deserialize<NativeRuntimeObjects>(File.ReadAllText(Path.Combine(directory, "panel-runtime-objects.json")), ConversationSnapshot.JsonOptions)!;
         Require(objects.TotalCount == 1 && objects.Objects[0].TypeName == "list", "Runtime inspection drift");
+        var execution = JsonSerializer.Deserialize<NativeRuntimeExecution>(File.ReadAllText(Path.Combine(directory, "panel-runtime-execution.json")), ConversationSnapshot.JsonOptions)!;
+        Require(execution.Text == "[stdout]\n42" && execution.Plots.Length == 0, "Runtime execution fixture drift");
         var archiveNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "archive.json")));
         var archive = NativeResearchArchive.Decode(archiveNode, "project-a", "session-a")!;
         Require(archive.Confirmation().Files[0].Path == "results/qc.txt" && archive.FrozenAt is null, "Archive fixture drift");
@@ -52,6 +54,12 @@ static class NativeConversationContractTests
         fake.Fail = true;
         try { await client.SendAsync("project-a", "session-a", Guid.NewGuid(), "hello"); } catch (IOException) { }
         Require(fake.Calls == 2, "Ambiguous send was replayed");
+        var runtimeFake = new Fake(); var runtimeClient = new NativeContextActivityClient(runtimeFake);
+        await runtimeClient.StopRuntimeAsync("project-a", "session-a", "runtime-a", 2);
+        Require(runtimeFake.Args?["runtime_generation"]?.GetValue<ulong>() == 2 && runtimeFake.Args?["session_id"]?.GetValue<string>() == "session-a", "Runtime stop lost generation/scope");
+        runtimeFake.Fail = true;
+        try { await runtimeClient.ExecuteAsync("project-a", "session-a", "local", "python", "print(42)"); } catch (IOException) { }
+        Require(runtimeFake.Calls == 2 && runtimeFake.Args?["code"]?.GetValue<string>() == "print(42)", "Uncertain runtime execution replayed or code changed");
         Console.WriteLine("Native conversation fixture, ordering, restart, approval and no-replay tests passed.");
     }
     static void Require(bool value, string message) { if (!value) throw new Exception(message); }

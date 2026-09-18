@@ -45,7 +45,7 @@ pub(crate) fn runtime_visible(
 /// Pick the runtime a UI command targets: prefer the viewed conversation's
 /// runtime, fall back to an existing scope-shared one, and default new
 /// runtimes to the conversation identity when a conversation is open.
-fn resolve_runtime_key(
+pub(crate) fn resolve_runtime_key(
     manager: &wisp_runtime::RuntimeManager,
     project_id: String,
     scope_key: String,
@@ -257,7 +257,7 @@ pub(super) async fn execute_runtime_script(
 /// Drain one execution until the worker finishes, then bump the scope so the
 /// workbench refreshes. Shared by cell and whole-script runs because the only
 /// difference is how the console text is formatted.
-async fn finish_runtime_execution(
+pub(crate) async fn finish_runtime_execution(
     state: &AppState,
     scope: &wisp_store::StateScope,
     mut execution: wisp_runtime::RuntimeExecution,

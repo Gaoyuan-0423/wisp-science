@@ -24,8 +24,14 @@ public sealed record NativeRun(string Id, string? FrameId, string ContextId, str
     long? LastPolledAt, string? LastPollError, string ProgressJson, long? HarvestedAt, long? CleanedAt,
     string? CleanupError, string? OutputFingerprint, string? Command, string? StdoutTail, string? StderrTail, string? EnvSnapshotJson);
 public sealed record NativeContextActivity(NativeRuntimeInfo[] Runtimes, NativeRun[] Runs, bool ReadOnly);
+public sealed record NativeRuntimeExecution(string Text, string[] Plots);
 public interface INativeContextActivityClient
 {
+    Task<NativeRuntimeInfo> StartRuntimeAsync(string project, string session, string context, string language, CancellationToken token = default);
+    Task<NativeRuntimeInfo?> StopRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default);
+    Task<NativeRuntimeInfo> RestartRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default);
+    Task DismissRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default);
+    Task<NativeRuntimeExecution> ExecuteAsync(string project, string session, string context, string language, string code, CancellationToken token = default);
     Task<NativeContextActivity> ReadAsync(string project, string session, CancellationToken token = default);
     Task<NativeRun> ReadRunAsync(string project, string session, string runId, CancellationToken token = default);
     Task<NativeRuntimeObjects> InspectRuntimeAsync(string project, string session, string runtimeId, CancellationToken token = default);
@@ -41,6 +47,13 @@ public sealed class NativeContextActivityClient(INativeSettingsClient transport)
         return (await transport.InvokeAsync("native_conversation_panel_" + action, args, project, token).ConfigureAwait(false))?.Deserialize<T>(ConversationSnapshot.JsonOptions)
             ?? throw new InvalidDataException("Missing activity response");
     }
+    public Task<NativeRuntimeInfo> StartRuntimeAsync(string project, string session, string context, string language, CancellationToken token = default) => Call<NativeRuntimeInfo>("runtime_start", project, session, new() { ["context_id"] = context, ["language"] = language }, token);
+    public async Task<NativeRuntimeInfo?> StopRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default) =>
+        (await transport.InvokeAsync("native_conversation_panel_runtime_stop", new() { ["session_id"] = session, ["runtime_id"] = runtimeId, ["runtime_generation"] = generation }, project, token).ConfigureAwait(false))?.Deserialize<NativeRuntimeInfo>(ConversationSnapshot.JsonOptions);
+    public Task<NativeRuntimeInfo> RestartRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default) => Call<NativeRuntimeInfo>("runtime_restart", project, session, new() { ["runtime_id"] = runtimeId, ["runtime_generation"] = generation }, token);
+    public async Task DismissRuntimeAsync(string project, string session, string runtimeId, ulong generation, CancellationToken token = default) =>
+        _ = await transport.InvokeAsync("native_conversation_panel_runtime_dismiss", new() { ["session_id"] = session, ["runtime_id"] = runtimeId, ["runtime_generation"] = generation }, project, token).ConfigureAwait(false);
+    public Task<NativeRuntimeExecution> ExecuteAsync(string project, string session, string context, string language, string code, CancellationToken token = default) => Call<NativeRuntimeExecution>("runtime_execute", project, session, new() { ["context_id"] = context, ["language"] = language, ["code"] = code }, token);
     public Task<NativeContextActivity> ReadAsync(string project, string session, CancellationToken token = default) => Call<NativeContextActivity>("activity", project, session, new(), token);
     public Task<NativeRun> ReadRunAsync(string project, string session, string runId, CancellationToken token = default) => Call<NativeRun>("run_detail", project, session, new() { ["run_id"] = runId }, token);
     public Task<NativeRuntimeObjects> InspectRuntimeAsync(string project, string session, string runtimeId, CancellationToken token = default) => Call<NativeRuntimeObjects>("runtime_inspect", project, session, new() { ["runtime_id"] = runtimeId }, token);

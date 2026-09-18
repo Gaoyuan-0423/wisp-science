@@ -8,6 +8,11 @@ final class NativeContextActivityModel: ObservableObject {
     @Published private(set) var objects: NativeRuntimeObjects?
     @Published private(set) var loading = false
     @Published private(set) var busy = false
+    @Published private(set) var runtimeOperations: Set<String> = []
+    @Published private(set) var startingLanguage: String?
+    @Published private(set) var executing = false
+    @Published private(set) var execution: NativeRuntimeExecution?
+    @Published private(set) var executionError: String?
     @Published private(set) var error: String?
     private let client: any NativeConversationQuerying
     let projectID: String
@@ -74,6 +79,36 @@ final class NativeContextActivityModel: ObservableObject {
             if current == generation { self.error = error.localizedDescription }
         }
     }
+    func startRuntime(language: String) async {
+        guard startingLanguage == nil, snapshot?.read_only == false else { return }
+        let current = generation; startingLanguage = language; error = nil
+        defer { if current == generation { startingLanguage = nil } }
+        do {
+            _ = try await call("runtime_start", args: ["context_id": .string(contextID), "language": .string(language)], as: NativeRuntimeInfo.self)
+            if current == generation { await refresh() }
+        } catch { if current == generation { self.error = error.localizedDescription } }
+    }
+    func controlRuntime(_ runtime: NativeRuntimeInfo, action: NativeRuntimeAction) async {
+        guard !runtimeOperations.contains(runtime.id), action != .restart || snapshot?.read_only == false else { return }
+        let current = generation; runtimeOperations.insert(runtime.id); error = nil
+        defer { if current == generation { runtimeOperations.remove(runtime.id) } }
+        do {
+            _ = try await call("runtime_" + action.rawValue, args: ["runtime_id": .string(runtime.id), "runtime_generation": .integer(Int64(clamping: runtime.generation))], as: SettingsValue.self)
+            guard current == generation else { return }
+            if selectedRuntime == runtime.id { dismissDetail() }
+            await refresh()
+        } catch { if current == generation { self.error = error.localizedDescription } }
+    }
+    func execute(code: String, language: String) async {
+        guard !executing, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, snapshot?.read_only == false else { return }
+        let current = generation; executing = true; executionError = nil; execution = nil
+        defer { if current == generation { executing = false } }
+        do {
+            let result = try await call("runtime_execute", args: ["context_id": .string(contextID), "language": .string(language), "code": .string(code)], as: NativeRuntimeExecution.self)
+            guard current == generation else { return }; execution = result
+            await refresh()
+        } catch { if current == generation { executionError = "执行结果未确认，未自动重试。" + error.localizedDescription } }
+    }
     func dismissDetail() { detailGeneration = UUID(); selectedRun = nil; selectedRuntime = nil; detail = nil; objects = nil }
-    func close() { generation = UUID(); refreshing = false; loading = false; busy = false; dismissDetail() }
+    func close() { generation = UUID(); runtimeOperations = []; startingLanguage = nil; executing = false; refreshing = false; loading = false; busy = false; dismissDetail() }
 }

@@ -4620,7 +4620,7 @@ pub struct RuntimeObjectState {
 
 /// One user-driven `execute_runtime` result: console text as the agent tools
 /// would render it, plus the plots the cell produced as base64-encoded PNGs.
-#[derive(Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeExecutionSummary {
     pub text: String,

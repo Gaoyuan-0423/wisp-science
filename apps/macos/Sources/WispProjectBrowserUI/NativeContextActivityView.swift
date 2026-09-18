@@ -11,13 +11,18 @@ struct NativeContextActivityView: View {
     let runtimes: Bool
     let close: () -> Void
     @Environment(\.colorScheme) private var scheme
+    @State private var runtimeConfirmation: NativeRuntimeInfo?
+    @State private var runtimeAction = NativeRuntimeAction.stop
+    @State private var console = false
+    @State private var code = ""
+    @State private var language = "python"
     @State private var cancelID: String?
     init(client: any NativeConversationQuerying, projectID: String, sessionID: String, selection: NativeContextActivitySelection, close: @escaping () -> Void) {
         _model = StateObject(wrappedValue: NativeContextActivityModel(client: client, projectID: projectID, sessionID: sessionID, contextID: selection.context))
         runtimes = selection.runtimes; self.close = close
     }
-    init(model: NativeContextActivityModel, runtimes: Bool, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: model); self.runtimes = runtimes; self.close = close
+    init(model: NativeContextActivityModel, runtimes: Bool, consoleVisible: Bool = false, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: model); self.runtimes = runtimes; _console = State(initialValue: consoleVisible); self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -31,6 +36,17 @@ struct NativeContextActivityView: View {
             if model.loading { ProgressView().controlSize(.small) }
             if let error = model.error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
             if model.busy { HStack { ProgressView().controlSize(.small); Text("正在处理…") } }
+            if runtimes {
+                HStack {
+                    Menu("启动运行时") {
+                        Button("Python") { Task { await model.startRuntime(language: "python") } }
+                        Button("R") { Task { await model.startRuntime(language: "r") } }
+                    }.disabled(model.startingLanguage != nil || model.snapshot?.read_only != false)
+                    Button(console ? "收起控制台" : "控制台") { console.toggle() }
+                    if model.startingLanguage != nil { ProgressView().controlSize(.small) }
+                }
+                if console { consoleView }
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if model.selectedRun != nil || model.selectedRuntime != nil {
@@ -54,6 +70,14 @@ struct NativeContextActivityView: View {
                                 Text(runtime.key.projectId + " · " + (runtime.key.sessionId.isEmpty ? "共享运行时" : runtime.key.sessionId)).font(.caption).foregroundStyle(.secondary)
                                 Text([runtime.interpreter, runtime.version].compactMap { $0 }.joined(separator: " · ")).textSelection(.enabled)
                                 if let bytes = runtime.residentMemoryBytes { Text("内存 " + ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .memory)).font(.caption) }
+                                HStack {
+                                    if runtime.status == "dead" {
+                                        Button("移除记录") { Task { await model.controlRuntime(runtime, action: .dismiss) } }
+                                    } else {
+                                        Button("停止…") { runtimeAction = .stop; runtimeConfirmation = runtime }
+                                    }
+                                    Button("重启…") { runtimeAction = .restart; runtimeConfirmation = runtime }.disabled(model.snapshot?.read_only != false)
+                                }.disabled(model.runtimeOperations.contains(runtime.id))
                                 if let error = runtime.lastError { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
                             }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(WispDesign.color("bg-elev", scheme), in: RoundedRectangle(cornerRadius: 8))
                         }
@@ -84,13 +108,46 @@ struct NativeContextActivityView: View {
                 }
             }
             .onDisappear { model.close() }
-            .background(NativeSettingsEscape(enabled: cancelID == nil) {
-                if model.selectedRun != nil || model.selectedRuntime != nil { model.dismissDetail() } else { close() }
+            .background(NativeSettingsEscape(enabled: cancelID == nil && runtimeConfirmation == nil) {
+                if model.selectedRun != nil || model.selectedRuntime != nil { model.dismissDetail() } else if console { console = false } else { close() }
             })
+            .confirmationDialog(runtimeAction == .restart ? "重启将清空此运行时的变量和状态。" : "停止将结束此运行时并清空变量。", isPresented: Binding(get: { runtimeConfirmation != nil }, set: { if !$0 { runtimeConfirmation = nil } })) {
+                if let runtime = runtimeConfirmation {
+                    Button(runtimeAction == .restart ? "重启运行时" : "停止运行时", role: .destructive) {
+                        let action = runtimeAction; runtimeConfirmation = nil
+                        Task { await model.controlRuntime(runtime, action: action) }
+                    }
+                }
+                Button("取消", role: .cancel) { runtimeConfirmation = nil }
+            }
             .confirmationDialog("取消此任务？", isPresented: Binding(get: { cancelID != nil }, set: { if !$0 { cancelID = nil } })) {
                 if let id = cancelID { Button("取消任务", role: .destructive) { cancelID = nil; Task { await model.mutateRun(id, harvest: false) } } }
                 Button("继续运行", role: .cancel) { cancelID = nil }
             }
+    }
+    private var consoleView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("语言", selection: $language) { Text("Python").tag("python"); Text("R").tag("r") }.frame(width: 160)
+                Text("当前项目 · 当前会话").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("运行代码") { let source = code; let selectedLanguage = language; Task { await model.execute(code: source, language: selectedLanguage) } }
+                    .disabled(model.executing || model.snapshot?.read_only != false || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if model.executing { ProgressView().controlSize(.small) }
+            }
+            TextEditor(text: $code).font(.system(size: 12, design: .monospaced)).frame(height: 110).border(WispDesign.color("border", scheme))
+            if let error = model.executionError { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            if let result = model.execution {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(result.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(Array(result.plots.enumerated()), id: \.offset) { _, plot in
+                            if let data = Data(base64Encoded: plot), let image = NSImage(data: data) { Image(nsImage: image).resizable().scaledToFit() }
+                        }
+                    }
+                }.frame(maxHeight: 180)
+            }
+        }
     }
     @ViewBuilder private func runActions(_ run: NativeRun) -> some View {
         if run.cancellable { Button("取消任务…") { cancelID = run.id }.disabled(model.busy || model.snapshot?.read_only != false) }

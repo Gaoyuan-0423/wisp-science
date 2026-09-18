@@ -234,3 +234,30 @@ interpreter/storage controls, full run workspace/file review and cleanup, and
 live topmost-Escape interaction verification. These sheets are not yet full
 WebView runtime/run parity. All other outstanding toolbar acceptance items remain
 in scope.
+
+## Runtime lifecycle and console
+
+The runtime sheet now starts Python/R, stops or restarts an exact displayed
+runtime, dismisses dead runtime records and runs code in the current
+project/conversation/context. Stop/restart require explicit confirmation because
+they discard interpreter state. Lifecycle requests include the displayed runtime
+generation; the host rejects a stale generation at dispatch. Native stop targets
+one runtime ID rather than accidentally stopping every conversation in a foreign
+project. Read-only sessions cannot start/restart/execute, but can still stop an
+existing runtime and release its resources.
+
+Console execution reuses RuntimeManager, the code-size limit, local exploration
+source checks, existing output formatting, plot output and scope-generation
+updates. It never auto-replays an uncertain execution. Execution and stop have
+independent in-flight state so the user can stop a busy interpreter. Runtime
+requests and execution results have matching Swift/C# APIs; the execution fixture
+uses the existing shared RuntimeExecutionSummary DTO. No new execution engine,
+WebView dependency or real remote-host test was introduced.
+
+All 66 native tests passed with render tests enabled before the final console
+render harness addition; the focused suite is being rerun with the console
+included. C# contracts passed. The previous three runtime visibility tests passed;
+three native panel tests passed before the shared execution-result validation
+addition. The latest Rust rerun is pending. Live keyboard/Escape checks,
+interpreter/storage controls, script binding, task file review/cleanup and the
+remaining right-panel tabs still need completion and end-to-end verification.

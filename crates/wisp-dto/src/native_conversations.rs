@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_runtime_start",
+    "native_conversation_panel_runtime_stop",
+    "native_conversation_panel_runtime_restart",
+    "native_conversation_panel_runtime_dismiss",
+    "native_conversation_panel_runtime_execute",
     "native_conversation_panel_activity",
     "native_conversation_panel_runtime_inspect",
     "native_conversation_panel_run_detail",
@@ -57,6 +62,12 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub runtime_generation: Option<u64>,
     #[serde(default)]
     pub run_id: Option<String>,
     #[serde(default)]
@@ -332,6 +343,9 @@ mod tests {
         .unwrap();
         assert_eq!(objects.objects[0].name, "samples");
         assert_eq!(objects.total_count, 1);
+        let execution: crate::RuntimeExecutionSummary = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-runtime-execution.json")).unwrap();
+        assert_eq!(execution.text, "[stdout]\n42");
+        assert!(execution.plots.is_empty());
     }
     #[test]
     fn panel_context_fixture_preserves_session_membership() {

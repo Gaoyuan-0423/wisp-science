@@ -66,3 +66,11 @@ public struct NativeContextActivity: Codable, Sendable {
     public let runs: [NativeRun]
     public let read_only: Bool
 }
+
+public struct NativeRuntimeExecution: Codable, Sendable {
+    public let text: String
+    public let plots: [String]
+}
+public enum NativeRuntimeAction: String, Sendable {
+    case stop, restart, dismiss
+}
