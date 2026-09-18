@@ -43,3 +43,11 @@ public sealed class NativeSideChatClient(INativeSettingsClient transport) : INat
         return response;
     }
 }
+
+public enum NativeSideChatReturnAction { Send, Newline, Composition }
+public static class NativeSideChatKeyboard
+{
+    /// Use the WinUI input method's composition state before deciding whether Return sends.
+    public static NativeSideChatReturnAction ResolveReturn(bool shift, bool composing) =>
+        composing ? NativeSideChatReturnAction.Composition : shift ? NativeSideChatReturnAction.Newline : NativeSideChatReturnAction.Send;
+}

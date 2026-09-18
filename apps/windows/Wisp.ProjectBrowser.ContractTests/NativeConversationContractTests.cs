@@ -36,6 +36,9 @@ static class NativeConversationContractTests
         notebookFake.Fail = true;
         try { await notebookClient.UnstarAsync("project-a", "session-a", "code-a"); } catch (IOException) { }
         Require(notebookFake.Calls == 4 && notebookFake.Args?["library_item_id"]?.GetValue<string>() == "code-a", "Notebook mutation replayed or lost identity");
+        Require(NativeSideChatKeyboard.ResolveReturn(false, false) == NativeSideChatReturnAction.Send, "Side-chat Return must send");
+        Require(NativeSideChatKeyboard.ResolveReturn(true, false) == NativeSideChatReturnAction.Newline, "Side-chat Shift-Return must insert a newline");
+        Require(NativeSideChatKeyboard.ResolveReturn(false, true) == NativeSideChatReturnAction.Composition && NativeSideChatKeyboard.ResolveReturn(true, true) == NativeSideChatReturnAction.Composition, "IME confirmation must not send");
         var sideFake = new Fake { Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-side-chat.json"))) };
         var sideClient = new NativeSideChatClient(sideFake);
         var sideReply = await sideClient.AskAsync("project-a", "session-a", "进展如何", "agent-a");

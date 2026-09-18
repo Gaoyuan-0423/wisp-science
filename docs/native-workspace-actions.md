@@ -522,13 +522,33 @@ All 99 Swift tests passed with rendering enabled before the final model-selectio
 guard; focused side-chat/navigation tests cover that guard. C# contracts, seventeen shared DTO tests, the wasm32 frontend check and
 sixteen existing backend evidence/classification tests passed with fake providers.
 Narrow light/dark renders were inspected. No real provider or ACP agent was
-contacted. The native composer currently uses Command-Enter to send; WebView's
-Enter/Shift-Enter behavior, direct text-selection quote integration, expanded
-source rendering and immediate Escape on the model menu still require live UI
-verification/alignment. Full repository gates and the overall toolbar acceptance
+contacted. Return/Shift-Return handling is implemented in the following increment. Direct
+text-selection quote integration, expanded source rendering and immediate Escape
+on the model menu still require live UI verification/alignment. Full repository gates and the overall toolbar acceptance
 audit remain open; exposing all eight tabs does not establish complete parity.
 
 Manual smoke: ask about the current conversation, inspect source evidence, add and
 remove a quote, choose HTTP and ACP models, switch sessions while a reply is
 pending, reopen the panel, and verify the answer remains with its original
 session. A failed request should expose an error without making a second call.
+
+
+## Side-chat keyboard and input methods
+
+The native side-chat composer now uses an AppKit text view hosted in SwiftUI.
+Return sends, Shift-Return inserts a newline, and Return during marked-text
+composition stays with the input method. Busy/empty Return is consumed without
+adding a newline or submitting again. Command-Return is handled locally when this
+editor owns focus; the side-chat send button no longer registers a competing
+window-wide shortcut. An unchanged draft preserves the user's selected range,
+and external updates do not replace marked text mid-composition. Native callbacks
+are removed when the editor is dismantled.
+
+Swift and C# expose the same return-key decision for WinUI integration. All 106
+Swift tests (including rendering) and the C# contract executable passed. Six new
+AppKit tests directly dispatch key events to a text view in a test window, covering
+Return, Shift-Return, marked-text confirmation, busy/keypad Return, local
+Command-Return and selection preservation. A focused render with a multiline
+draft passed afterward, and its narrow dark layout was inspected. The complete
+application's shortcut routing with a real IME still belongs to final live smoke
+verification; these tests do not replace the window-level Escape audit.

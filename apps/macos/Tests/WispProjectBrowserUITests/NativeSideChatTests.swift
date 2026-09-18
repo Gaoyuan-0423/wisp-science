@@ -92,6 +92,7 @@ final class NativeSideChatTests: XCTestCase {
         let model = NativeSideChatModel(client: try client(), projectID: "project-a", sessionID: "session-a")
         await model.loadOptions(); model.draft = "样本检查进展如何？"; await model.send()
         model.quotes = [.init(text: "质量检查通过。", source: "会话摘录")]
+        model.draft = "请解释质量检查结果。\n需要补充哪些数据？"
         for (name, scheme) in [("sidechat-light", ColorScheme.light), ("sidechat-dark", ColorScheme.dark)] {
             let content = NativeSideChatView(model: model).padding(12).background(WispDesign.color("bg-sunken", scheme)).environment(\.colorScheme, scheme)
             let view = NSHostingView(rootView: content)

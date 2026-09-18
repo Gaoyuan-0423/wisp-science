@@ -65,7 +65,8 @@ struct NativeSideChatView: View {
                     quoteText = ""; quoteSource = ""; quoteEditor = false
                 }.disabled(quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }.font(.caption)
-            TextEditor(text: $model.draft).font(.system(size: 13)).frame(minHeight: 55, maxHeight: 95).accessibilityLabel("侧聊问题")
+            NativeSideChatInput(text: $model.draft, canSubmit: { model.canSend }, submit: { Task { await model.send() } })
+                .frame(minHeight: 55, maxHeight: 95)
             HStack {
                 Menu {
                     ForEach(model.options, id: \.key) { option in
@@ -73,9 +74,9 @@ struct NativeSideChatView: View {
                     }
                 } label: { Text(model.selected?.label ?? "选择模型").lineLimit(1) }.disabled(model.busy || model.changingModel)
                 Spacer()
-                Button("发送") { Task { await model.send() } }.disabled(!model.canSend).keyboardShortcut(.return, modifiers: .command)
+                Button("发送") { Task { await model.send() } }.disabled(!model.canSend)
             }
-            Text("⌘Enter 发送 · Enter 换行").font(.caption2).foregroundStyle(.secondary)
+            Text("Enter 发送 · Shift+Enter 换行").font(.caption2).foregroundStyle(.secondary)
         }.task { await model.loadOptions() }
     }
 }

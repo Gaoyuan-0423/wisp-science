@@ -40,3 +40,11 @@ public struct NativeSideChatQuote: Equatable, Identifiable, Sendable {
         return parts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+/// Called only for Return/Enter. A composition confirmation always belongs to the IME.
+public enum NativeSideChatReturnAction: String, Sendable {
+    case send, newline, composition
+    public static func resolve(shift: Bool, composing: Bool) -> Self {
+        composing ? .composition : shift ? .newline : .send
+    }
+}
