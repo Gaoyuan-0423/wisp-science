@@ -370,7 +370,10 @@ mod tests {
     }
     #[test]
     fn side_chat_fixture_preserves_evidence_and_session_identity() {
-        let response: crate::SideChatResponse = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-side-chat.json")).unwrap();
+        let response: crate::SideChatResponse = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-side-chat.json"
+        ))
+        .unwrap();
         assert_eq!(response.session_id.as_deref(), Some("session-a"));
         assert_eq!(response.snapshot_version, 42);
         assert_eq!(response.evidence[0].event_seq, Some(40));
@@ -378,7 +381,10 @@ mod tests {
         let value = serde_json::to_value(response).unwrap();
         assert_eq!(value["sessionId"], "session-a");
         assert_eq!(value["noEvidence"], false);
-        let options: Vec<SideChatModelOption> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-side-chat-options.json")).unwrap();
+        let options: Vec<SideChatModelOption> = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-side-chat-options.json"
+        ))
+        .unwrap();
         assert_eq!(options[1].kind, "acp");
     }
     #[test]

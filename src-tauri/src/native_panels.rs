@@ -21,22 +21,55 @@ pub(crate) async fn dispatch(
     }
     match request.command.as_str() {
         "native_conversation_panel_side_chat_options" => {
-            let models = invoke_command(broker, Some(project_id.into()), "list_models", serde_json::json!({})).await?;
-            let models: Vec<wisp_dto::ModelProfile> = serde_json::from_value(models).map_err(|e| e.to_string())?;
-            let agents = invoke_command(broker, Some(project_id.into()), "list_acp_agents", serde_json::json!({})).await?;
-            let agents: Vec<wisp_dto::AcpAgentProfile> = serde_json::from_value(agents).map_err(|e| e.to_string())?;
-            let mut options: Vec<_> = models.into_iter().filter(|model| model.is_chat_model()).map(|model| wisp_dto::native_conversations::SideChatModelOption {
-                id: model.id, label: model.label, kind: "http".into(), active: model.active,
-            }).collect();
-            options.extend(agents.into_iter().map(|agent| wisp_dto::native_conversations::SideChatModelOption { id: agent.id, label: agent.label, kind: "acp".into(), active: false }));
+            let models = invoke_command(
+                broker,
+                Some(project_id.into()),
+                "list_models",
+                serde_json::json!({}),
+            )
+            .await?;
+            let models: Vec<wisp_dto::ModelProfile> =
+                serde_json::from_value(models).map_err(|e| e.to_string())?;
+            let agents = invoke_command(
+                broker,
+                Some(project_id.into()),
+                "list_acp_agents",
+                serde_json::json!({}),
+            )
+            .await?;
+            let agents: Vec<wisp_dto::AcpAgentProfile> =
+                serde_json::from_value(agents).map_err(|e| e.to_string())?;
+            let mut options: Vec<_> = models
+                .into_iter()
+                .filter(|model| model.is_chat_model())
+                .map(
+                    |model| wisp_dto::native_conversations::SideChatModelOption {
+                        id: model.id,
+                        label: model.label,
+                        kind: "http".into(),
+                        active: model.active,
+                    },
+                )
+                .collect();
+            options.extend(agents.into_iter().map(|agent| {
+                wisp_dto::native_conversations::SideChatModelOption {
+                    id: agent.id,
+                    label: agent.label,
+                    kind: "acp".into(),
+                    active: false,
+                }
+            }));
             serde_json::to_value(options).map_err(|e| e.to_string())
         }
         "native_conversation_panel_side_chat" => {
             let value = invoke_command(broker, Some(project_id.into()), "side_chat", serde_json::json!({
                 "sessionId": session, "question": args.question.ok_or("Question is required")?, "acpAgentId": args.acp_agent_id,
             })).await?;
-            let reply: wisp_dto::SideChatResponse = serde_json::from_value(value).map_err(|e| e.to_string())?;
-            if reply.session_id.as_deref() != Some(session) { return Err("Side-chat reply scope mismatch".into()); }
+            let reply: wisp_dto::SideChatResponse =
+                serde_json::from_value(value).map_err(|e| e.to_string())?;
+            if reply.session_id.as_deref() != Some(session) {
+                return Err("Side-chat reply scope mismatch".into());
+            }
             serde_json::to_value(reply).map_err(|e| e.to_string())
         }
 
