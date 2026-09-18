@@ -3,15 +3,26 @@
 //! agent loop may call `compact` before that boundary when automatic
 //! compaction is enabled; `/compact` uses the same archive-first pipeline.
 //!
-//! `/compact` (`ContextManager::compact`) first archives the full history to a
-//! file — every tombstone it leaves behind names that file, so the model can
-//! read/grep it to retrieve anything folded away — then:
-//! 1. safely prune old tool output, reasoning, and images without deleting
-//!    user or visible assistant text;
+//! Every budget is computed against the *usable* window — the configured
+//! context window minus the output reservation (`max_tokens`). Providers
+//! enforce `input + max_tokens <= window`, so a model with a 1M window and a
+//! 384K output ceiling only accepts ~616K input tokens; budgeting against the
+//! full window lets the gateway reject requests Wisp still considers safe.
+//!
+//! Compaction first archives the full history to a file — every tombstone it
+//! leaves behind names that file, so the model can read/grep it to retrieve
+//! anything folded away — then:
+//! 1. safely prune old tool output, oversized tool-call arguments, reasoning,
+//!    and images without deleting user or visible assistant text;
 //! 2. bound a still-oversized recent tool result;
-//! 3. if semantic turns must be removed, summarize a sanitized projection of
-//!    the original history and install one checkpoint plus a token-budgeted
-//!    recent tail. A later compaction explicitly updates that checkpoint.
+//! 3. summarize a sanitized projection of the original history and install one
+//!    checkpoint plus a token-budgeted recent tail. A later compaction
+//!    explicitly updates that checkpoint.
+//!
+//! Step 3 is conditional on the [`CompactionGoal`]: automatic boundary
+//! compaction (`Threshold`) skips it when pruning alone lands under the
+//! target, while manual `/compact` and context-overflow recovery
+//! (`WorkingSet`) always fold whatever lies outside the retained tail.
 
 use crate::output::Output;
 use serde::{Deserialize, Serialize};
@@ -106,6 +117,20 @@ const RECENT_TOOL_EXCERPT_BYTES: usize = 4 * 1024;
 /// Old reasoning larger than this (estimated tokens) is head/tail-cut.
 const OLD_REASONING_MAX_TOKENS: usize = 500;
 const OLD_REASONING_KEEP: (usize, usize) = (125, 125);
+/// Tool-call arguments outside the protected tail larger than this are
+/// replaced by a JSON tombstone. Small `read`/`grep` calls stay verbatim: a
+/// tombstone would not be shorter and the path is useful context. Long tool
+/// loops carry most of their weight here (`python` code, `write` payloads,
+/// browser scripts), not in the results that earlier passes already folded.
+const OLD_TOOL_ARGUMENTS_MAX_BYTES: usize = 512;
+/// JSON key carrying the tombstone inside folded tool-call arguments. The
+/// value must stay valid JSON: strict gateways re-parse `arguments`, and the
+/// Anthropic adapter converts it into the `tool_use.input` object.
+const ARGUMENTS_TOMBSTONE_KEY: &str = "compacted";
+/// A reservation of more than half the window is a misconfiguration (or a
+/// catalog output ceiling meant for one-shot generation); cap it so a usable
+/// window always remains and compaction cannot be made impossible.
+const MAX_OUTPUT_RESERVE_PERCENT: usize = 50;
 /// At most this many complete recent turns are carried alongside a summary.
 const RECENT_TAIL_MAX_TURNS: usize = 2;
 /// A fixed token budget, rather than a fraction of a million-token window,
@@ -139,6 +164,20 @@ const SUMMARY_UPDATE_PROMPT: &str = "Return only the updated checkpoint using th
 /// Stands in for an image part when the target model cannot read images.
 pub const IMAGE_UNSUPPORTED_NOTE: &str =
     "[image omitted: the active model does not accept image input]";
+
+/// How far a compaction must go once the archive is written and the cheap
+/// pruning passes have run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionGoal {
+    /// Automatic boundary compaction: land under the trigger with headroom
+    /// and skip the LLM summary when pruning alone gets there.
+    Threshold,
+    /// Manual `/compact` and context-overflow recovery: fold everything
+    /// outside the retained recent tail into a summary checkpoint, so the
+    /// request shrinks to the post-summary working set. A compaction the user
+    /// or the gateway asked for must never report success with no reduction.
+    WorkingSet,
+}
 
 /// Estimated composition of the next native-agent request. The buckets are
 /// mutually exclusive and always add up to the same total used by compaction
@@ -282,7 +321,11 @@ fn ceil_char_boundary(s: &str, mut i: usize) -> usize {
 pub struct ContextManager {
     pub messages: Vec<Message>,
     pub max_context: usize,
-    /// 80% of `max_context`; crossing it fires a one-time `context_warning`.
+    /// Output tokens (`max_tokens`) the provider reserves out of the window.
+    /// Every budget below is computed against `max_context - output_reserve`.
+    output_reserve: usize,
+    /// 80% of the usable window; crossing it fires a one-time
+    /// `context_warning` and arms automatic compaction.
     warn_threshold: usize,
     /// Set once the warning fired; reset when back under the threshold.
     warned: bool,
@@ -334,7 +377,8 @@ impl ContextManager {
         Self {
             messages: vec![],
             max_context,
-            warn_threshold: (max_context as f64 * 0.8) as usize,
+            output_reserve: 0,
+            warn_threshold: Self::warn_threshold_for(max_context),
             warned: false,
             auto_compact: true,
             auto_continue: false,
@@ -353,6 +397,36 @@ impl ContextManager {
             last_boundary_tokens: None,
             auto_compact_retry_floor: None,
         }
+    }
+
+    fn warn_threshold_for(usable_context: usize) -> usize {
+        (usable_context as f64 * 0.8) as usize
+    }
+
+    /// Reserve the provider's output budget (`max_tokens`) out of the window.
+    /// Gateways enforce `input + max_tokens <= window`, so the warning,
+    /// automatic trigger, and compaction targets all move to 80% of what the
+    /// provider will actually accept as input. Reservations above half the
+    /// window are capped so a usable budget always remains.
+    pub fn set_output_reserve(&mut self, max_output_tokens: usize) {
+        self.output_reserve = max_output_tokens
+            .min(self.max_context.saturating_mul(MAX_OUTPUT_RESERVE_PERCENT) / 100);
+        self.warn_threshold = Self::warn_threshold_for(self.usable_context());
+    }
+
+    pub fn output_reserve(&self) -> usize {
+        self.output_reserve
+    }
+
+    /// Input tokens the provider accepts alongside the reserved output.
+    pub fn usable_context(&self) -> usize {
+        self.max_context.saturating_sub(self.output_reserve)
+    }
+
+    /// Request estimate at which the warning fires and automatic compaction
+    /// arms: 80% of the usable window.
+    pub fn warn_threshold(&self) -> usize {
+        self.warn_threshold
     }
 
     pub fn len(&self) -> usize {
@@ -863,12 +937,12 @@ impl ContextManager {
     /// Post-compaction target: the 80% trigger minus an adaptive headroom.
     /// The headroom is twice the measured per-boundary growth EMA, floored at
     /// [`COMPACTION_MIN_HEADROOM_TOKENS`] so the first compaction buys real
-    /// room, capped at [`COMPACTION_MAX_HEADROOM_PERCENT`] of the window (the
-    /// historical fixed 60% target), and never pushes the target below half
-    /// the trigger on tiny windows.
+    /// room, capped at [`COMPACTION_MAX_HEADROOM_PERCENT`] of the usable
+    /// window (the historical fixed 60% target), and never pushes the target
+    /// below half the trigger on tiny windows.
     fn compaction_target(&self) -> usize {
         let max_headroom = self
-            .max_context
+            .usable_context()
             .saturating_mul(COMPACTION_MAX_HEADROOM_PERCENT)
             / 100;
         let growth_headroom = (self.request_growth_ema * 2.0).ceil() as usize;
@@ -884,6 +958,12 @@ impl ContextManager {
     /// Rough token estimate (~JSON length / 4) from field lengths directly.
     /// The old serialize-to-measure version dominated the compaction hot path:
     /// it re-encoded every message to JSON on every `total_tokens()` call.
+    ///
+    /// Hidden `reasoning` is deliberately excluded: no provider adapter
+    /// replays chain-of-thought (Chat Completions, Responses, and Anthropic
+    /// all drop it on the wire), so counting it inflates the request estimate
+    /// — by ~170K tokens in a 2,000-call session — and delays compaction
+    /// relative to what the gateway actually measures.
     pub fn estimated_tokens(msg: &Message) -> usize {
         let mut n = 32; // role + envelope punctuation
         n += match &msg.content {
@@ -904,7 +984,6 @@ impl ContextManager {
         }
         n += msg.tool_call_id.as_deref().map_or(0, |s| s.len() + 20);
         n += msg.tool_name.as_deref().map_or(0, |s| s.len() + 16);
-        n += msg.reasoning.as_deref().map_or(0, |s| s.len() + 16);
         n += msg.model_name.as_deref().map_or(0, |s| s.len() + 18);
         n / 4 + 4
     }
@@ -952,12 +1031,43 @@ impl ContextManager {
         0
     }
 
+    /// JSON tombstone that replaces oversized tool-call arguments. Short by
+    /// design: thousands of folded calls each carry one, and the neighbouring
+    /// result tombstone already spells out the retrieval guidance.
+    fn arguments_tombstone(archive_reference: &str) -> String {
+        serde_json::json!({
+            ARGUMENTS_TOMBSTONE_KEY: format!("{TOMBSTONE_PREFIX} arguments archived at {archive_reference}]")
+        })
+        .to_string()
+    }
+
+    /// Whether `arguments` were already folded by an earlier compaction. Like
+    /// result tombstones, they must never be repointed at a newer archive
+    /// that itself only contains tombstones.
+    fn arguments_are_tombstoned(arguments: &str) -> bool {
+        serde_json::from_str::<serde_json::Value>(arguments)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get(ARGUMENTS_TOMBSTONE_KEY)
+                    .and_then(|marker| marker.as_str())
+                    .map(|marker| marker.starts_with(TOMBSTONE_PREFIX))
+            })
+            .unwrap_or(false)
+    }
+
     /// Safely prune rounds older than the protected tail. Tool outputs and
-    /// images become archive-backed tombstones and hidden reasoning is
-    /// bounded, but user and visible assistant text are never shortened here.
-    /// If this pass is insufficient, the untouched original history is what
-    /// the semantic summary pass sees.
-    fn prune_old_noise(&mut self, protect_rounds: usize, tombstone: &str) -> bool {
+    /// images become archive-backed tombstones, oversized tool-call arguments
+    /// become JSON tombstones (id and name stay so pairing survives), and
+    /// hidden reasoning is bounded — but user and visible assistant text are
+    /// never shortened here. If this pass is insufficient, the untouched
+    /// original history is what the semantic summary pass sees.
+    fn prune_old_noise(
+        &mut self,
+        protect_rounds: usize,
+        tombstone: &str,
+        arguments_tombstone: &str,
+    ) -> bool {
         let cut = Self::prune_cut_index(&self.messages, protect_rounds);
         if cut == 0 {
             return false;
@@ -981,6 +1091,16 @@ impl ContextManager {
                             OLD_REASONING_KEEP.0,
                             OLD_REASONING_KEEP.1,
                         ));
+                        changed = true;
+                    }
+                }
+                for call in &mut m.tool_calls {
+                    let arguments = &call.function.arguments;
+                    if arguments.len() > OLD_TOOL_ARGUMENTS_MAX_BYTES
+                        && arguments.len() > arguments_tombstone.len()
+                        && !Self::arguments_are_tombstoned(arguments)
+                    {
+                        call.function.arguments = arguments_tombstone.to_string();
                         changed = true;
                     }
                 }
@@ -1224,7 +1344,7 @@ impl ContextManager {
         original_messages: &[Message],
         archive_note: &str,
     ) -> Result<String, String> {
-        let input_budget = self.max_context.saturating_mul(SUMMARY_INPUT_PERCENT) / 100;
+        let input_budget = self.usable_context().saturating_mul(SUMMARY_INPUT_PERCENT) / 100;
         let block_max_bytes = SUMMARY_TRANSCRIPT_TEXT_MAX_BYTES
             .min(input_budget.saturating_mul(4).saturating_div(3).max(2_000));
         let (previous, blocks) =
@@ -1559,12 +1679,33 @@ impl ContextManager {
         Ok(())
     }
 
-    /// User-triggered `/compact`. Archives the FULL history to `archive_path`
-    /// first — the tombstones and the summary all name that file, so anything
-    /// folded away stays retrievable via read/grep. Safe tool/media pruning may
-    /// finish without an LLM call. If semantic turns must be removed, Wisp
-    /// summarizes the sanitized original history before installing a bounded
-    /// checkpoint and recent tail. Returns (before, after) estimated tokens.
+    /// Whether semantic history exists beyond what a post-summary recent tail
+    /// would retain. False for a fresh session, a tiny conversation, or the
+    /// `system + checkpoint + tail` shape a previous compaction left behind —
+    /// summarizing those again would only fold the tail into the checkpoint.
+    fn has_foldable_history(&self) -> bool {
+        let turns = Self::split_turns_from(&self.messages)
+            .into_iter()
+            .filter(|turn| !turn.iter().any(Self::is_summary_checkpoint))
+            .collect::<Vec<_>>();
+        if turns.len() > RECENT_TAIL_MAX_TURNS {
+            return true;
+        }
+        turns
+            .iter()
+            .flatten()
+            .map(Self::estimated_tokens)
+            .sum::<usize>()
+            > RECENT_TAIL_MAX_TOKENS
+    }
+
+    /// Threshold-goal compaction (see [`CompactionGoal::Threshold`]). Archives
+    /// the FULL history to `archive_path` first — the tombstones and the
+    /// summary all name that file, so anything folded away stays retrievable
+    /// via read/grep. Safe tool/media pruning may finish without an LLM call.
+    /// If semantic turns must be removed, Wisp summarizes the sanitized
+    /// original history before installing a bounded checkpoint and recent
+    /// tail. Returns (before, after) estimated tokens.
     pub async fn compact(
         &mut self,
         provider: &dyn Provider,
@@ -1600,6 +1741,46 @@ impl ContextManager {
         fixed_tokens: usize,
         archive_reference: &str,
     ) -> Result<(usize, usize), String> {
+        self.compact_with_goal(
+            provider,
+            archive_path,
+            fixed_tokens,
+            archive_reference,
+            CompactionGoal::Threshold,
+        )
+        .await
+    }
+
+    /// Working-set compaction for manual `/compact` and overflow recovery
+    /// (see [`CompactionGoal::WorkingSet`]): after the cheap passes, the
+    /// semantic summary runs whenever history exists beyond the retained
+    /// tail, regardless of the automatic trigger. A long tool loop whose
+    /// results were already tombstoned no longer reports `702K → 702K`.
+    pub async fn compact_working_set_with_reserve_reference(
+        &mut self,
+        provider: &dyn Provider,
+        archive_path: &Path,
+        fixed_tokens: usize,
+        archive_reference: &str,
+    ) -> Result<(usize, usize), String> {
+        self.compact_with_goal(
+            provider,
+            archive_path,
+            fixed_tokens,
+            archive_reference,
+            CompactionGoal::WorkingSet,
+        )
+        .await
+    }
+
+    pub async fn compact_with_goal(
+        &mut self,
+        provider: &dyn Provider,
+        archive_path: &Path,
+        fixed_tokens: usize,
+        archive_reference: &str,
+        goal: CompactionGoal,
+    ) -> Result<(usize, usize), String> {
         if archive_reference.trim().is_empty() {
             return Err("compact archive reference cannot be empty".into());
         }
@@ -1618,6 +1799,7 @@ impl ContextManager {
             "{TOMBSTONE_PREFIX} full content archived at {} — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]",
             archive_reference
         );
+        let arguments_tombstone = Self::arguments_tombstone(archive_reference);
         let archive_note = format!(
             "[The pre-compact conversation history is archived at {} — retrieve only narrow ranges with read/grep; do not load the whole archive back into context.]",
             archive_reference
@@ -1636,11 +1818,18 @@ impl ContextManager {
         let raw_target = ((target as f64) / self.token_estimate_factor).floor() as usize;
         let durable_target =
             raw_target.saturating_sub(injection_tokens.saturating_add(fixed_tokens));
-        self.prune_old_noise(PRUNE_PROTECT_ROUNDS, &tombstone);
+        self.prune_old_noise(PRUNE_PROTECT_ROUNDS, &tombstone, &arguments_tombstone);
         if self.request_tokens_with_reserve(fixed_tokens) > target {
             self.fold_oversized_tool_results(target, fixed_tokens, &tombstone);
         }
-        if self.request_tokens_with_reserve(fixed_tokens) > target {
+        let needs_summary = match goal {
+            CompactionGoal::Threshold => self.request_tokens_with_reserve(fixed_tokens) > target,
+            CompactionGoal::WorkingSet => {
+                self.request_tokens_with_reserve(fixed_tokens) > target
+                    || self.has_foldable_history()
+            }
+        };
+        if needs_summary {
             let pruned_tokens = self.request_tokens_with_reserve(fixed_tokens);
             let summary = match self
                 .summarize_original_history(provider, &original_messages, &archive_note)
@@ -2233,6 +2422,284 @@ mod tests {
         assert_eq!(tool_text(29), "result-29", "newest round verbatim");
     }
 
+    fn tool_loop_round(ctx: &mut ContextManager, round: usize, name: &str, arguments: String) {
+        let call = ToolCall {
+            id: format!("call{round}"),
+            kind: "function".into(),
+            function: wisp_llm::FunctionCall {
+                name: name.into(),
+                arguments,
+            },
+        };
+        ctx.append_assistant(format!("step {round}"), vec![call], None);
+        ctx.append_tool(
+            format!("call{round}"),
+            name,
+            Content::text(format!("result-{round}")),
+        );
+    }
+
+    fn call_arguments(ctx: &ContextManager, round: usize) -> String {
+        let id = format!("call{round}");
+        ctx.messages
+            .iter()
+            .flat_map(|m| m.tool_calls.iter())
+            .find(|call| call.id == id)
+            .unwrap_or_else(|| panic!("tool call {id}"))
+            .function
+            .arguments
+            .clone()
+    }
+
+    // #1253: after results are tombstoned, a long tool loop keeps almost all
+    // of its weight in historical `tool_calls.arguments` (python code, write
+    // payloads, browser scripts). The cheap pass must fold those too, keeping
+    // id and name so the call/result pairing survives.
+    #[tokio::test]
+    async fn compact_folds_old_tool_call_arguments_into_json_tombstones() {
+        let mut ctx = ContextManager::new(1_000_000);
+        ctx.append_user("download the papers".to_string());
+        for round in 0..30 {
+            let arguments = if round % 2 == 0 {
+                format!(r#"{{"code":"PAYLOAD_{round} {}"}}"#, "p".repeat(3_000))
+            } else {
+                r#"{"path":"notes.md"}"#.to_string()
+            };
+            tool_loop_round(&mut ctx, round, "python", arguments);
+        }
+        let archive = archive_path("argument-tombstones.json");
+        let provider = StubProvider {
+            allow_summary: false,
+        };
+
+        let (before, after) = ctx
+            .compact_with_reserve_reference(&provider, &archive, 0, "wisp-history:ARGS")
+            .await
+            .unwrap();
+
+        assert!(before > after, "folding arguments must shrink the estimate");
+        let folded = call_arguments(&ctx, 0);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&folded).expect("tombstone must remain valid JSON");
+        let marker = parsed[ARGUMENTS_TOMBSTONE_KEY].as_str().unwrap();
+        assert!(marker.starts_with(TOMBSTONE_PREFIX));
+        assert!(marker.contains("wisp-history:ARGS"));
+        assert!(
+            folded.len() < 200,
+            "argument tombstones are repeated thousands of times and must stay short"
+        );
+        assert!(!folded.contains("PAYLOAD_0"));
+        assert_eq!(
+            call_arguments(&ctx, 1),
+            r#"{"path":"notes.md"}"#,
+            "small arguments stay verbatim"
+        );
+        assert!(
+            !call_arguments(&ctx, 18).contains("PAYLOAD_18"),
+            "round 18 is older than the protected tail"
+        );
+        assert!(
+            call_arguments(&ctx, 20).contains("PAYLOAD_20"),
+            "the ten most recent rounds keep their arguments verbatim"
+        );
+        assert!(call_arguments(&ctx, 28).contains("PAYLOAD_28"));
+        let pairing = unpaired_tool_call_ids(&ctx.messages);
+        assert!(pairing.is_empty(), "folding must keep every call paired");
+        let names: Vec<_> = ctx
+            .messages
+            .iter()
+            .flat_map(|m| m.tool_calls.iter())
+            .map(|call| call.function.name.as_str())
+            .collect();
+        assert!(names.iter().all(|name| *name == "python"));
+        assert!(
+            std::fs::read_to_string(&archive)
+                .unwrap()
+                .contains("PAYLOAD_0"),
+            "the archive keeps the original arguments"
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_never_repoints_argument_tombstones() {
+        let mut ctx = ContextManager::new(1_000_000);
+        ctx.append_user("loop".to_string());
+        // Padded past the fold threshold so the old tombstone would be
+        // rewritten if the "already folded" check were missing.
+        let padded_first = format!(
+            r#"{{"{ARGUMENTS_TOMBSTONE_KEY}":"{TOMBSTONE_PREFIX} arguments archived at wisp-history:FIRST]","note":"{}"}}"#,
+            "n".repeat(1_000)
+        );
+        assert!(ContextManager::arguments_are_tombstoned(&padded_first));
+        tool_loop_round(&mut ctx, 0, "python", padded_first.clone());
+        for round in 1..30 {
+            tool_loop_round(
+                &mut ctx,
+                round,
+                "python",
+                format!(r#"{{"x":"{}"}}"#, "y".repeat(1_000)),
+            );
+        }
+        let provider = StubProvider {
+            allow_summary: false,
+        };
+
+        ctx.compact_with_reserve_reference(
+            &provider,
+            &archive_path("argument-repoint.json"),
+            0,
+            "wisp-history:SECOND",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(call_arguments(&ctx, 0), padded_first);
+        assert!(call_arguments(&ctx, 1).contains("wisp-history:SECOND"));
+    }
+
+    // #1253: `/compact` reported `702.4k → 702.4k`. The results were already
+    // tombstoned, the arguments were small enough to survive pruning, and the
+    // estimate sat under the automatic target, so the threshold goal skipped
+    // the summary. An explicit compaction must fold to the working set.
+    #[tokio::test]
+    async fn working_set_compaction_summarizes_when_pruning_cannot_shrink_the_loop() {
+        let seed = |ctx: &mut ContextManager| {
+            ctx.append_system("system");
+            ctx.append_user("download every paper in the list".to_string());
+            for round in 0..200 {
+                tool_loop_round(
+                    ctx,
+                    round,
+                    "python",
+                    format!(r#"{{"code":"fetch({round}) {}"}}"#, "c".repeat(300)),
+                );
+            }
+            for message in &mut ctx.messages {
+                if message.role == Role::Tool {
+                    message.content =
+                        Content::text(format!("{TOMBSTONE_PREFIX} full content archived at OLD]"));
+                }
+            }
+        };
+
+        let mut threshold = ContextManager::new(1_000_000);
+        seed(&mut threshold);
+        let (before, after) = threshold
+            .compact_with_reserve_reference(
+                &StubProvider {
+                    allow_summary: false,
+                },
+                &archive_path("loop-threshold.json"),
+                0,
+                "wisp-history:T",
+            )
+            .await
+            .unwrap();
+        assert_eq!(before, after, "premise: the threshold goal is a no-op here");
+
+        let mut working_set = ContextManager::new(1_000_000);
+        seed(&mut working_set);
+        let provider = RecordingSummaryProvider::new(
+            "Objective\nPapers 1-150 downloaded; resume from paper 151.",
+        );
+        let (before, after) = working_set
+            .compact_working_set_with_reserve_reference(
+                &provider,
+                &archive_path("loop-working-set.json"),
+                0,
+                "wisp-history:W",
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            after < before / 4,
+            "working-set compaction must fold the loop ({before} -> {after})"
+        );
+        assert!(!provider.requests.lock().unwrap().is_empty());
+        let checkpoint = working_set
+            .messages
+            .iter()
+            .find(|message| ContextManager::is_summary_checkpoint(message))
+            .expect("summary checkpoint");
+        assert!(checkpoint
+            .content
+            .as_text()
+            .contains("resume from paper 151"));
+        assert!(checkpoint.content.as_text().contains("wisp-history:W"));
+        assert_eq!(working_set.messages[0].content.as_text(), "system");
+        assert!(unpaired_tool_call_ids(&working_set.messages).is_empty());
+        assert_eq!(working_set.compaction_revision(), 1);
+    }
+
+    // The explicit goal still never pays for a summary that cannot fold
+    // anything: a short conversation, and the `system + checkpoint + tail`
+    // shape a previous compaction left behind, both stay untouched.
+    #[tokio::test]
+    async fn working_set_compaction_skips_the_summary_without_foldable_history() {
+        let mut ctx = ContextManager::new(100_000);
+        ctx.append_system("system");
+        ctx.append_user("short question");
+        ctx.append_assistant("short answer".into(), vec![], None);
+        ctx.append_user("follow-up");
+        ctx.append_assistant("done".into(), vec![], None);
+        let provider = StubProvider {
+            allow_summary: false,
+        };
+
+        let (before, after) = ctx
+            .compact_working_set_with_reserve_reference(
+                &provider,
+                &archive_path("working-set-short.json"),
+                0,
+                "wisp-history:S",
+            )
+            .await
+            .unwrap();
+        assert_eq!(before, after);
+        assert!(!ctx
+            .messages
+            .iter()
+            .any(ContextManager::is_summary_checkpoint));
+
+        // Grow past the tail, compact for real, then compact again.
+        for turn in 0..6 {
+            ctx.append_user(format!("phase {turn} {}", "u".repeat(4_000)));
+            ctx.append_assistant(format!("answer {turn} {}", "a".repeat(4_000)), vec![], None);
+        }
+        let summarizer = RecordingSummaryProvider::new("Objective\nContinue phase 6.");
+        let (before, after) = ctx
+            .compact_working_set_with_reserve_reference(
+                &summarizer,
+                &archive_path("working-set-first.json"),
+                0,
+                "wisp-history:S1",
+            )
+            .await
+            .unwrap();
+        assert!(after < before);
+        assert_eq!(
+            ctx.messages
+                .iter()
+                .filter(|m| ContextManager::is_summary_checkpoint(m))
+                .count(),
+            1
+        );
+        let shape = serde_json::to_string(&ctx.messages).unwrap();
+
+        let (before, after) = ctx
+            .compact_working_set_with_reserve_reference(
+                &provider,
+                &archive_path("working-set-second.json"),
+                0,
+                "wisp-history:S2",
+            )
+            .await
+            .unwrap();
+        assert_eq!(before, after, "nothing outside the tail is left to fold");
+        assert_eq!(serde_json::to_string(&ctx.messages).unwrap(), shape);
+    }
+
     #[test]
     fn compaction_target_tracks_measured_growth_between_boundaries() {
         let mut ctx = ContextManager::new(1_000_000);
@@ -2254,6 +2721,71 @@ mod tests {
         ctx.append_assistant("a".repeat(800_000), vec![], None);
         ctx.note_request_boundary(0);
         assert_eq!(ctx.compaction_target(), 600_000);
+    }
+
+    // #1253: the gateway enforces `input + max_tokens <= window`. A 1M model
+    // with a 384K output ceiling only accepts ~616K input tokens, so an 80%
+    // trigger on the full window (800K) let a 665K request be rejected while
+    // Wisp still considered it 66% full.
+    #[test]
+    fn output_reserve_moves_every_budget_to_the_usable_window() {
+        let mut ctx = ContextManager::new(1_000_000);
+        assert_eq!(ctx.warn_threshold(), 800_000);
+
+        ctx.set_output_reserve(384_000);
+        assert_eq!(ctx.output_reserve(), 384_000);
+        assert_eq!(ctx.usable_context(), 616_000);
+        assert_eq!(ctx.warn_threshold(), 492_800);
+        assert_eq!(ctx.compaction_target(), 492_800 - 16_000);
+
+        // ~665K estimated tokens: over the gateway line, under the old trigger.
+        ctx.append_user("u".repeat(2_660_000));
+        assert!(ctx.request_tokens() > 616_000);
+        assert!(ctx.request_tokens() < 800_000);
+        assert!(
+            ctx.needs_auto_compact(),
+            "automatic compaction must arm before the provider rejects the request"
+        );
+
+        // The headroom cap follows the usable window, not the nominal one.
+        ctx.note_request_boundary(0);
+        ctx.append_assistant("a".repeat(2_000_000), vec![], None);
+        ctx.note_request_boundary(0);
+        assert_eq!(ctx.compaction_target(), 492_800 - 616_000 * 20 / 100);
+    }
+
+    #[test]
+    fn output_reserve_is_capped_at_half_the_window() {
+        let mut ctx = ContextManager::new(100_000);
+        ctx.set_output_reserve(90_000);
+        assert_eq!(ctx.output_reserve(), 50_000);
+        assert_eq!(ctx.usable_context(), 50_000);
+        assert_eq!(ctx.warn_threshold(), 40_000);
+
+        ctx.set_output_reserve(0);
+        assert_eq!(ctx.usable_context(), 100_000);
+        assert_eq!(ctx.warn_threshold(), 80_000);
+    }
+
+    // No provider adapter replays chain-of-thought, so hidden reasoning must
+    // not count toward the next request. In the #1253 session ~170K of the
+    // 742K estimate was reasoning the gateway never saw.
+    #[test]
+    fn estimated_tokens_exclude_hidden_reasoning() {
+        let mut with_reasoning = Message::assistant("visible answer");
+        with_reasoning.reasoning = Some("r".repeat(400_000));
+        let without_reasoning = Message::assistant("visible answer");
+        assert_eq!(
+            ContextManager::estimated_tokens(&with_reasoning),
+            ContextManager::estimated_tokens(&without_reasoning)
+        );
+
+        let mut ctx = ContextManager::new(100_000);
+        ctx.append_assistant("visible".into(), vec![], Some("r".repeat(400_000)));
+        assert!(
+            !ctx.needs_auto_compact(),
+            "reasoning alone must not push the request over the trigger"
+        );
     }
 
     #[test]

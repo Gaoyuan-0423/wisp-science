@@ -21,8 +21,8 @@ pub use agent::{
     agent_loop, agent_loop_continue, bound_tool_results_in_history, AgentLoopOutcome, GuidanceQueue,
 };
 pub use context::{
-    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, ContextManager,
-    ContextToolDetail, ContextUsage, ContextUsageDetails, UNPAIRED_ON_LOAD_RESULT,
+    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, CompactionGoal,
+    ContextManager, ContextToolDetail, ContextUsage, ContextUsageDetails, UNPAIRED_ON_LOAD_RESULT,
 };
 pub use delegation::{
     degraded_delivery_marker, is_degraded_delivery, AgentArtifact, AgentAuthorizationSnapshot,
@@ -137,6 +137,10 @@ impl Agent {
         let vision_provider = vision_cfg
             .map(|vision| wisp_llm::build(vision.with_session_id(cfg.session_id.clone())));
         let mut tools = build_registry(skills, memory, memory_enabled);
+        let mut ctx = ContextManager::new(max_context);
+        // Providers enforce `input + max_tokens <= window`; budget against
+        // what they will actually accept as input.
+        ctx.set_output_reserve(usize::try_from(cfg.max_tokens).unwrap_or(usize::MAX));
         // The explore subagent shares the primary model but runs in its own
         // context; only its anchor (stats + conclusion + trace path) lands in
         // the main context.
@@ -149,7 +153,7 @@ impl Agent {
             provider,
             vision_provider,
             tools,
-            ctx: ContextManager::new(max_context),
+            ctx,
             root,
             max_iter,
             session_path,
@@ -287,9 +291,12 @@ impl Agent {
     }
 
     /// User-triggered `/compact`: archive the full history under
-    /// `.wisp/history/`, then safely prune noise or install a semantic summary
-    /// checkpoint plus a bounded recent tail (see `ContextManager::compact`).
-    /// Returns (before, after) estimated tokens and the archive path.
+    /// `.wisp/history/`, safely prune noise, then fold everything outside the
+    /// retained recent tail into a semantic summary checkpoint
+    /// (`CompactionGoal::WorkingSet`). Unlike automatic boundary compaction,
+    /// an explicit request always produces the post-summary working set when
+    /// there is history to fold. Returns (before, after) estimated tokens and
+    /// the archive path.
     pub async fn compact(&mut self) -> Result<(usize, usize, PathBuf), String> {
         let archive_id = uuid::Uuid::new_v4().simple().to_string();
         let archive = self
@@ -302,7 +309,7 @@ impl Agent {
         let fixed_tokens = ContextManager::estimated_tool_tokens(&schemas);
         let (before, after) = self
             .ctx
-            .compact_with_reserve_reference(
+            .compact_working_set_with_reserve_reference(
                 self.provider.as_ref(),
                 &archive,
                 fixed_tokens,

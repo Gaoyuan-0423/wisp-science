@@ -418,8 +418,12 @@ async fn agent_loop_inner(
                     overflow_recovery_used = true;
                     let (archive, archive_reference) = context_archive(root);
                     output.compaction_started("overflow");
+                    // The gateway just rejected this request, so the estimate
+                    // that said it was fine cannot be trusted to pick the
+                    // target: fold down to the working set instead of merely
+                    // landing under the automatic trigger.
                     match ctx
-                        .compact_with_reserve_reference(
+                        .compact_working_set_with_reserve_reference(
                             provider,
                             &archive,
                             fixed_request_tokens,
@@ -806,7 +810,7 @@ async fn summarize_at_iteration_limit(
                     let (archive, archive_reference) = context_archive(root);
                     output.compaction_started("overflow");
                     match ctx
-                        .compact_with_reserve_reference(
+                        .compact_working_set_with_reserve_reference(
                             provider,
                             &archive,
                             fixed_tokens,
@@ -1878,6 +1882,86 @@ mod tests {
                 .contains("continued after overflow recovery")
         }));
         assert!(ctx.compaction_revision() >= 1);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // #1253: the gateway rejected a request the local estimate placed well
+    // under the automatic trigger, and the recovery compaction only removed a
+    // few hundred tokens before failing identically. Overflow recovery must
+    // fold to the working set even when the threshold goal would be a no-op.
+    #[tokio::test]
+    async fn context_overflow_recovery_folds_a_loop_the_estimate_considered_safe() {
+        let root = std::env::temp_dir().join(format!(
+            "wisp_overflow_working_set_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let provider = OverflowRecoverProvider {
+            stream_calls: AtomicUsize::new(0),
+            complete_calls: AtomicUsize::new(0),
+        };
+        let mut ctx = ContextManager::new(1_000_000);
+        ctx.append_system("system");
+        ctx.append_user("download every paper in the list");
+        for round in 0..120 {
+            let call = wisp_llm::ToolCall {
+                id: format!("call{round}"),
+                kind: "function".into(),
+                function: wisp_llm::FunctionCall {
+                    name: "python".into(),
+                    arguments: format!(r#"{{"code":"fetch({round}) {}"}}"#, "c".repeat(300)),
+                },
+            };
+            ctx.append_assistant(format!("step {round}"), vec![call], None);
+            ctx.append_tool(
+                format!("call{round}"),
+                "python",
+                Content::text(format!(
+                    "{} full content archived at OLD]",
+                    crate::context::TOMBSTONE_PREFIX
+                )),
+            );
+        }
+        let before = ctx.request_tokens();
+        assert!(!ctx.needs_auto_compact(), "premise: under the trigger");
+        let tools = Registry::builtins().filtered(&[]);
+
+        agent_loop_continue(
+            &mut ctx,
+            &provider,
+            None,
+            &tools,
+            &root,
+            &NullOutput,
+            0,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(provider.stream_calls.load(Ordering::SeqCst), 2);
+        assert!(
+            provider.complete_calls.load(Ordering::SeqCst) >= 1,
+            "recovery must run the semantic summary"
+        );
+        assert!(ctx.messages.iter().any(|message| {
+            message
+                .content
+                .as_text()
+                .starts_with(crate::context::COMPACTION_SUMMARY_PREFIX)
+        }));
+        let after = ctx
+            .messages
+            .iter()
+            .filter(|message| !message.content.as_text().contains("continued after"))
+            .map(ContextManager::estimated_tokens)
+            .sum::<usize>();
+        assert!(
+            after < before / 4,
+            "recovery must fold the loop ({before} -> {after})"
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

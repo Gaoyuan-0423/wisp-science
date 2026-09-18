@@ -106,6 +106,9 @@ impl Tool for ExploreTool {
         let allowed: Vec<String> = EXPLORE_TOOLS.iter().map(|s| s.to_string()).collect();
         let tools = Registry::builtins().filtered(&allowed);
         let mut ctx = ContextManager::new(self.max_context);
+        if let Some(config) = &self.config {
+            ctx.set_output_reserve(usize::try_from(config.max_tokens).unwrap_or(usize::MAX));
+        }
         ctx.append_system(EXPLORE_SYSTEM_PROMPT);
         let user_prompt = match focus {
             Some(focus) => format!("Question: {question}\nFocus: {focus}"),
