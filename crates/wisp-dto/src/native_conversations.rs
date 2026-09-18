@@ -349,8 +349,10 @@ mod tests {
     }
     #[test]
     fn delegation_read_and_disabled_write_remain_distinct() {
-        let read: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s"})).unwrap();
-        let write: PanelRequest = serde_json::from_value(serde_json::json!({"session_id":"s", "enabled":false})).unwrap();
+        let read: PanelRequest =
+            serde_json::from_value(serde_json::json!({"session_id":"s"})).unwrap();
+        let write: PanelRequest =
+            serde_json::from_value(serde_json::json!({"session_id":"s", "enabled":false})).unwrap();
         assert_eq!(read.enabled, None);
         assert_eq!(write.enabled, Some(false));
     }
