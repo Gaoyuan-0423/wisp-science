@@ -132,10 +132,15 @@ public sealed class NativeSettingsClient : INativeSettingsClient, IDisposable
         using var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(hostExecutable)) {
             UseShellExecute = false, CreateNoWindow = true, ArgumentList = { "--native-settings-host" }
         }) ?? throw new InvalidOperationException("Unable to launch native settings host.");
+        var exitedChecks = 0;
         for (var attempt = 0; attempt < 60; attempt++) {
             cancellationToken.ThrowIfCancellationRequested();
             connected = await Discover().ConfigureAwait(false);
             if (connected is not null) return connected;
+            // A compatible running desktop may take a moment to publish its descriptor.
+            // Older desktops intercept the launch but never start the broker.
+            if (process.HasExited && ++exitedChecks >= 6)
+                throw new InvalidOperationException("设置宿主已退出，未提供可用接口。若旧版 Wisp 正在运行，请先完成工作并退出旧版，再点击重试；无需关闭此设置窗口。");
             await Task.Delay(500, cancellationToken).ConfigureAwait(false);
         }
         throw new TimeoutException("Settings host did not become ready for the selected database.");

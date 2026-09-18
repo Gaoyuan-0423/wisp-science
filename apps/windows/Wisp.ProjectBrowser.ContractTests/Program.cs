@@ -1,6 +1,15 @@
 using System.Text.Json;
 using Wisp.ProjectBrowser.Contracts;
 
+// Stand in for an incompatible desktop intercepting the settings-host launch.
+if (args.SequenceEqual(new[] { "--native-settings-host" })) return;
+
+if (args.Length is 2 or 3 && args[0] == "--database")
+{
+    await BrowserTests.FakeServiceAsync(args[1]);
+    return;
+}
+
 if (args.Length != 1)
     throw new ArgumentException("Pass contracts/project-browser/v1/projects.json");
 
@@ -28,6 +37,7 @@ if (transcript.Type != "transcript" || transcript.Messages?.Count != 2
     || transcript.Messages[0].Sequence != 6 || transcript.NextBeforeSeq != 6)
     throw new InvalidOperationException("Transcript DTO drift");
 
+await BrowserTests.RunAsync(fixtureDirectory);
 var star = JsonSerializer.Deserialize<SetProjectStarredRequest>(File.ReadAllText(Path.Combine(fixtureDirectory, "set-project-starred.json")))!;
 if (star.Schema != ProjectBrowserProtocol.Schema || star.Id != "projects-1"
     || star.Type != "set_project_starred" || star.ProjectId != "research-1" || !star.Starred)
@@ -40,3 +50,4 @@ await NativeSettingsContractTests.Run(Path.GetFullPath(Path.Combine(fixtureDirec
 await NativeConversationContractTests.Run(args[0]);
 
 NativePanelTabsTests.Run();
+await AppearanceSettingsTests.RunAsync();

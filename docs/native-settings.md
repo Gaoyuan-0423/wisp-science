@@ -92,8 +92,10 @@ var memory = await client.InvokeAsync("get_memory_view", new JsonObject(), proje
 
 Windows must package the full desktop host and runtime resources with WebView2.
 The invisible document is an adapter for existing Tauri command extractors, not
-an embedded settings UI. WinUI navigation and controls remain a follow-up; the
-C# transport and fixture tests run without WinUI or a real backend process.
+an embedded settings UI. The WinUI preview now hosts categorized settings in the
+main window, with appearance editing connected; the remaining 18 sections stay
+disabled until their editors are ported. The C# transport and fixture tests run
+without WinUI or a real backend process.
 
 ## Manual smoke procedure
 
@@ -128,3 +130,15 @@ C# transport and fixture tests run without WinUI or a real backend process.
   user's configured services; automated tests never require credentials.
 - A host supports up to 32 project settings contexts during its lifetime; closing
   a settings page does not terminate the shared runtime or active operations.
+
+## Windows incremental implementation
+
+The WinUI preview now connects the shared transport to native appearance editing
+(theme, light/dark palettes and font-size preferences) and packages the full
+settings host. It retains unknown preference fields, preserves dirty drafts on
+refresh and errors, and never retries writes automatically. Only theme and
+palette currently apply to the WinUI browser itself. The other 18 SwiftUI
+settings sections, font-family/CSS editors and complete native font styling are
+still follow-ups; this is not full #1281 UI parity. See
+[native-project-browser.md](native-project-browser.md#windows-alignment-after-1281)
+for build prerequisites, host/database boundaries and manual smoke steps.
