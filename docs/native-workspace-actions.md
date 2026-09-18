@@ -919,3 +919,19 @@ height changed the result to 23 by 59. Pasting a `printf` command through the na
 paste action produced `NATIVE_PASTE_OK`. These checks establish local launch,
 vertical resize propagation and paste; remote execution and high-volume cursor
 rollover remain separate acceptance items.
+
+## Packaged terminal scrollback rollover
+
+Live QA now covers output exceeding the backend's 4 MiB retention limit. In the
+synthetic `toolbar-qa` terminal, a delayed Python command emitted 70,000 ASCII
+lines followed by `NATIVE_ROLLOVER_END` while the panel was hidden. After reopening,
+SwiftTerm displayed the final marker and shell prompt. A new `printf` then produced
+`AFTER_ROLLOVER_OK`, establishing that input and incremental output still worked.
+
+An authenticated read against the same isolated host (after validating its
+canonical database identity) confirmed actual rollover rather than merely a large
+render: `start=1551747`, `end=5746051`, `retained_bytes=4194304`, `reset=true`, and the
+end marker present. No credentials were printed. The probe was read-only and used
+the existing scoped terminal API. This satisfies the local large-output/reconnect
+smoke case; it does not establish remote SSH/WSL behavior or all terminal emulation
+sequences. Earlier notes that local rollover was unverified are superseded.
