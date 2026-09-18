@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_terminal_list",
+    "native_conversation_terminal_open",
+    "native_conversation_terminal_read",
+    "native_conversation_terminal_write",
+    "native_conversation_terminal_resize",
+    "native_conversation_terminal_close",
     "native_conversation_share",
     "native_conversation_share_html",
     "native_conversation_archive_get",
@@ -22,6 +28,43 @@ pub const COMMANDS: &[&str] = &[
     "native_conversation_approve",
     "native_conversation_model",
 ];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalInfo {
+    pub id: String,
+    pub project_id: String,
+    pub context_id: String,
+    pub title: String,
+    pub kind: String,
+    pub display_cwd: String,
+    pub running: bool,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalOutput {
+    pub terminal_id: String,
+    pub start: u64,
+    pub end: u64,
+    pub base64: String,
+    pub reset: bool,
+    pub exit_code: Option<u32>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub context_id: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<u64>,
+    #[serde(default)]
+    pub base64: Option<String>,
+    #[serde(default)]
+    pub rows: Option<u16>,
+    #[serde(default)]
+    pub cols: Option<u16>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -119,6 +162,14 @@ pub struct Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn terminal_fixture_has_explicit_raw_byte_cursor() {
+        let output: TerminalOutput = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/terminal-output.json")).unwrap();
+        assert_eq!(output.start, 0);
+        assert_eq!(output.end, 5);
+        assert!(output.reset);
+        assert_eq!(output.terminal_id, "terminal-a");
+    }
     #[test]
     fn share_fixture_excludes_tool_machinery() {
         let rows: Vec<ShareRow> = serde_json::from_str(include_str!(

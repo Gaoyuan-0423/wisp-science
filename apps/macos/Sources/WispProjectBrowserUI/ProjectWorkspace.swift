@@ -16,6 +16,9 @@ struct ProjectWorkspace: View {
     @State private var trajectoryPresented = false
     @State private var archivePresented = false
     @State private var sharePresented = false
+    @State private var terminalVisible = false
+    @State private var terminalHeight: CGFloat = 300
+    @State private var terminalDragStart: CGFloat?
     @State private var inboxPresented = false
     @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
@@ -59,7 +62,8 @@ struct ProjectWorkspace: View {
                                 Task { await model.openProject(entry.project_id, sessionID: entry.id) }
                             }, close: { inboxPresented = false })
                         }
-                    WispUnavailableAction(title: "终端", icon: "terminal", iconOnly: true, compact: true)
+                    Button { terminalVisible.toggle() } label: { WispIcon(name: "terminal") }
+                        .buttonStyle(.plain).help("终端").accessibilityLabel("终端").disabled(model.activeSessionID == nil)
                     WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
                 }
                 .padding(16)
@@ -80,6 +84,15 @@ struct ProjectWorkspace: View {
                         Text(conversation.operationError ?? "创建会话后即可选择模型并发送消息。").foregroundStyle(color("text-muted"))
                         Button("新建会话") { createSession() }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                if terminalVisible, let session = model.activeSessionID {
+                    Rectangle().fill(color("border")).frame(height: 5)
+                        .gesture(DragGesture().onChanged { value in
+                            if terminalDragStart == nil { terminalDragStart = terminalHeight }
+                            terminalHeight = min(600, max(220, (terminalDragStart ?? 300) - value.translation.height))
+                        }.onEnded { _ in terminalDragStart = nil })
+                    NativeTerminalPanel(client: conversation.client, projectID: project.id, sessionID: session) { terminalVisible = false }
+                        .frame(height: terminalHeight).id(project.id + ":" + session)
                 }
             }
         }

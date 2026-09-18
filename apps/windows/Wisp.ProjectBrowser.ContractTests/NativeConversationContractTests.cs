@@ -7,6 +7,10 @@ static class NativeConversationContractTests
     public static async Task Run(string projectFixture)
     {
         var directory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projectFixture)!, "../../native-conversations/v1"));
+        var terminal = JsonSerializer.Deserialize<NativeTerminalOutput>(File.ReadAllText(Path.Combine(directory, "terminal-output.json")), ConversationSnapshot.JsonOptions)!;
+        Require(System.Text.Encoding.UTF8.GetString(terminal.Bytes("terminal-a", null)) == "hello", "Terminal byte fixture drift");
+        try { terminal.Bytes("other", null); throw new Exception("Expected terminal scope rejection"); } catch (InvalidDataException) { }
+        try { (terminal with { Reset = false }).Bytes("terminal-a", 5); throw new Exception("Expected terminal replay rejection"); } catch (InvalidDataException) { }
         var share = JsonSerializer.Deserialize<NativeShareRow[]>(File.ReadAllText(Path.Combine(directory, "share.json")), ConversationSnapshot.JsonOptions)!;
         Require(share.Length == 3 && share[1].Role == "reasoning", "Share fixture drift");
         var archiveNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "archive.json")));

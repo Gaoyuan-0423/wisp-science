@@ -155,6 +155,9 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
         session,
     )
     .await?;
+    if request.command.starts_with("native_conversation_terminal_") {
+        return crate::native_terminals::dispatch(broker, request, project, session).await;
+    }
     let record = broker.conversations.session(session).await?;
     match request.command.as_str() {
         "native_conversation_share" => {

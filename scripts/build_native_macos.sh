@@ -29,6 +29,10 @@ install -m 755 "$SWIFT_BIN/WispSciencePreview" "$APP/Contents/MacOS/WispScienceP
 install -m 755 "$ROOT/target/debug/wisp-service" "$APP/Contents/MacOS/wisp-service"
 cp "$ROOT/src-tauri/icons/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp -R "$SWIFT_BIN/WispSciencePreview_WispProjectBrowserUI.bundle" "$APP/Contents/Resources/"
+cp -R "$SWIFT_BIN/SwiftTerm_SwiftTerm.bundle" "$APP/Contents/Resources/"
+# SwiftPM's generated dependency accessor looks beside the app bundle root.
+# Keep one resource copy, reachable by both SwiftPM and standard app lookup.
+ln -sfn "Contents/Resources/SwiftTerm_SwiftTerm.bundle" "$APP/SwiftTerm_SwiftTerm.bundle"
 HOST_APP="$APP/Contents/Helpers/Wisp Desktop Host.app"
 mkdir -p "$HOST_APP/Contents/MacOS" "$HOST_APP/Contents/Resources"
 install -m 755 "$ROOT/target/debug/wisp-tauri" "$HOST_APP/Contents/MacOS/wisp-tauri"

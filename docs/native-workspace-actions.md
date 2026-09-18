@@ -72,7 +72,7 @@ Latest focused Swift run: 15 passed, one opt-in render test skipped. Coverage
 includes repeated prompt history positioning, trajectory scope/search/export,
 inbox failure preservation and marking only successfully read sessions seen.
 Rust compilation remains running; it must be rerun for the final changed tree.
-Terminal and right-side panel are still disabled placeholders.
+The right-side panel is still a disabled placeholder.
 
 
 ## Research archive implementation
@@ -120,3 +120,35 @@ paragraphs, headings, bullets, quotes and fenced code; tables and complex nested
 Markdown layout still need alignment and must not be considered complete.
 Rust share-render tests are running. Full runtime/Escape smoke and all-suite
 verification remain outstanding.
+
+
+## Terminal implementation
+
+The terminal button now opens a resizable native dock. An empty dock opens the
+local execution context once; existing PTYs reappear on reopening. Additional
+terminals use registered execution contexts (local/WSL/OpenSSH through the
+existing launch implementation). Hide detaches the view without closing the
+process. Closing a terminal tab terminates and unregisters it.
+
+The authenticated native commands validate project and frame scope on every
+operation, exclude ACP authentication terminals, and require writable scope for
+open/write/resize. Reads return base64 raw bytes with absolute start/end cursors;
+bounded scrollback resets are explicit. The frontend uses SwiftTerm 1.19.0's
+AppKit control for VT/ANSI, selection, keyboard and alternate-screen behavior.
+Input is serialized, never automatically replayed, and uncertain input pauses
+queued bytes until the user explicitly resumes. C# INativeTerminalClient exposes
+the same raw-byte boundary for a future WinUI terminal control.
+
+SwiftTerm is pinned by Package.resolved and its MIT notice is included in the UI
+resource bundle. Packaging copies its resource bundle and adds the SwiftPM lookup
+symlink. Xcode's Metal Toolchain component is required by its packaged shaders;
+install via `xcodebuild -downloadComponent MetalToolchain` when absent. The local
+component was installed and the default Swift build then passed; the temporary
+native-build-system workaround is not required by project scripts.
+
+Three focused Swift tests passed: byte cursor validation, no replay of uncertain
+queued input, and real native emulator cursor/alternate-screen handling. The ANSI
+output bitmap was inspected. C# fixture/client verification passed. A scoped
+native PTY lifecycle Rust test is running. Reconnect under high-volume rollover,
+live app keyboard/resize, cross-platform runtime smoke and full-suite checks are
+still pending; SSH/WSL tests must continue to use mocks, not real hosts.

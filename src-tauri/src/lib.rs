@@ -91,6 +91,7 @@ mod workflow_approval;
 mod workflow_artifacts;
 pub(crate) use wisp_runs as run_context;
 mod native_share;
+mod native_terminals;
 mod network;
 mod runtime_commands;
 mod runtime_config_tool;
