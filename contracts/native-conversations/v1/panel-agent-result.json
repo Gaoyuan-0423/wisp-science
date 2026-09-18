@@ -1,0 +1,37 @@
+{
+  "workflow_id": "workflow-a",
+  "step_id": "workflow-a:review",
+  "attempt": 1,
+  "status": "succeeded",
+  "response": {
+    "output": {
+      "summary": "**检查完成**",
+      "artifacts": [
+        {
+          "name": "report",
+          "content": "报告正文"
+        }
+      ],
+      "evidence": [
+        "temporary"
+      ]
+    },
+    "artifacts": [
+      {
+        "name": "report",
+        "path": "report.md"
+      },
+      {
+        "name": "table",
+        "path": "results.tsv"
+      }
+    ],
+    "evidence": [
+      {
+        "kind": "file",
+        "reference": "report.md",
+        "summary": "质量合格"
+      }
+    ]
+  }
+}

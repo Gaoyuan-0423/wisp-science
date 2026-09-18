@@ -10,6 +10,9 @@ final class NativePanelModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var contexts: NativePanelContexts?
     @Published private(set) var contextBusy = false
+    @Published private(set) var agents: [NativeAgentSnapshot] = []
+    @Published var agentResult: NativeAgentResult?
+    @Published private(set) var agentResultLoading = false
     @Published var preview: NativePanelFileContent?
     let client: any NativeConversationQuerying
     let projectID: String
@@ -26,14 +29,18 @@ final class NativePanelModel: ObservableObject {
     private func decode<T: Decodable>(_ value: SettingsValue, as: T.Type) throws -> T {
         try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
     }
-    func refresh(_ tab: String, directory: String? = nil) async {
-        let current = UUID(); generation = current; loading = true; error = nil
+    func refresh(_ tab: String, directory: String? = nil, quiet: Bool = false) async {
+        let current = UUID(); generation = current; loading = !quiet
+        if !quiet { error = nil }
         let requestedPath = directory ?? path
         defer { if generation == current { loading = false } }
         do {
             if tab == "artifacts" {
                 let rows = try decode(await call("artifacts"), as: [NativePanelArtifact].self)
                 guard generation == current, !Task.isCancelled else { return }; artifacts = rows
+            } else if tab == "agents" {
+                let result = try decode(await call("agents"), as: [NativeAgentSnapshot].self)
+                guard generation == current, !Task.isCancelled else { return }; agents = result
             } else if tab == "hosts" {
                 let result = try decode(await call("contexts"), as: NativePanelContexts.self)
                 guard generation == current, !Task.isCancelled else { return }; contexts = result
@@ -63,6 +70,16 @@ final class NativePanelModel: ObservableObject {
             if generation == current, !Task.isCancelled { await refresh("hosts") }
         } catch { if generation == current { self.error = error.localizedDescription } }
     }
+    func readAgentResult(workflow: String, step: String) async {
+        let current = UUID(); previewGeneration = current; agentResultLoading = true; error = nil
+        defer { if previewGeneration == current { agentResultLoading = false } }
+        do {
+            let result = try decode(await call("agent_result", ["workflow_id": .string(workflow), "step_id": .string(step)]), as: NativeAgentResult.self)
+            guard current == previewGeneration, !Task.isCancelled else { return }
+            guard result.workflow_id == workflow, result.step_id == step else { throw ProjectBrowserError.invalidResponse }
+            agentResult = result
+        } catch { if current == previewGeneration { self.error = error.localizedDescription } }
+    }
     func child(_ file: NativePanelFile) -> String { path == "." ? file.name : path + "/" + file.name }
     var parent: String {
         let parent = (path as NSString).deletingLastPathComponent
@@ -78,6 +95,6 @@ final class NativePanelModel: ObservableObject {
             preview = content
         } catch { if previewGeneration == current { self.error = error.localizedDescription } }
     }
-    func dismissPreview() { previewGeneration = UUID(); preview = nil }
+    func dismissPreview() { previewGeneration = UUID(); preview = nil; agentResult = nil; agentResultLoading = false }
     func close() { generation = UUID(); dismissPreview() }
 }

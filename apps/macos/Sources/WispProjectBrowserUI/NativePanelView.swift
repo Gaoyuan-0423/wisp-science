@@ -14,7 +14,7 @@ struct NativePanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Picker("面板", selection: $tab) { Text("产物").tag("artifacts"); Text("文件").tag("files"); Text("执行环境").tag("hosts") }.labelsHidden()
+                Picker("面板", selection: $tab) { Text("产物").tag("artifacts"); Text("代理").tag("agents"); Text("文件").tag("files"); Text("执行环境").tag("hosts") }.labelsHidden()
                 Button { Task { await model.refresh(tab) } } label: { WispIcon(name: "refresh") }.buttonStyle(.plain).help("刷新")
                 Button("关闭", action: close)
             }
@@ -36,6 +36,8 @@ struct NativePanelView: View {
                             }.buttonStyle(.plain)
                         }
                         if model.artifacts.isEmpty && !model.loading { Text("这个会话暂无产物").foregroundStyle(.secondary).padding() }
+                    } else if tab == "agents" {
+                        NativeAgentPanelView(model: model, query: query)
                     } else if tab == "hosts" {
                         NativePanelContextsView(model: model, query: query) { context, runtimes in activity = .init(context: context, runtimes: runtimes) }
                     } else {
@@ -50,9 +52,19 @@ struct NativePanelView: View {
                 }
             }
         }.padding(12).frame(maxHeight: .infinity).background(WispDesign.color("bg-sunken", scheme))
-            .task(id: tab) { if !["artifacts", "files", "hosts"].contains(tab) { tab = "artifacts" }; await model.refresh(tab) }
+            .task(id: tab) {
+                if !["artifacts", "agents", "files", "hosts"].contains(tab) { tab = "artifacts" }
+                await model.refresh(tab)
+                while tab == "agents" && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if !Task.isCancelled { await model.refresh("agents", quiet: true) }
+                }
+            }
             .sheet(isPresented: Binding(get: { model.preview != nil }, set: { if !$0 { model.dismissPreview() } })) {
                 if let content = model.preview { NativePanelFilePreview(content: content, close: model.dismissPreview) }
+            }
+            .sheet(item: $model.agentResult, onDismiss: model.dismissPreview) { result in
+                NativeAgentResultView(result: result, close: model.dismissPreview)
             }
             .sheet(item: $activity) { selection in
                 NativeContextActivityView(client: model.client, projectID: model.projectID, sessionID: model.sessionID, selection: selection) { activity = nil }

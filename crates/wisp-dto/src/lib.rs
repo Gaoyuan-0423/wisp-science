@@ -4038,7 +4038,7 @@ pub struct QuickActionRun {
     pub started: bool,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflowSnapshot {
     pub workflow: AgentWorkflow,
     pub delegation_enabled: bool,
@@ -4149,7 +4149,7 @@ pub struct RunActivityProposal {
     pub max_cost_microunits: u64,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RunActivitySpec {
     pub activity: String,
     pub context_id: String,
@@ -4257,20 +4257,20 @@ pub struct WorkflowConversionProgress {
     pub stage: WorkflowConversionStage,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentExecutorSummary {
     pub kind: String,
     pub profile_id: Option<String>,
     pub model_id: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentApprovalReasonSummary {
     pub task_id: String,
     pub message: String,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentResultSummary {
     pub status: String,
     pub summary: Option<String>,
@@ -4285,7 +4285,7 @@ pub struct AgentResultSummary {
     pub full_result_available: bool,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedAgentTaskSummary {
     pub id: String,
     pub stored_step_id: String,
@@ -4316,7 +4316,7 @@ pub struct ResolvedAgentTaskSummary {
     pub result: Option<AgentResultSummary>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentSkillBinding {
     pub id: String,
     pub name: String,
@@ -4329,7 +4329,7 @@ pub struct AgentSkillBinding {
     pub package_source: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DynamicAgentWorkflowSummary {
     pub schema_version: u32,
     pub approval_policy: AgentApprovalPolicy,
@@ -4338,7 +4338,7 @@ pub struct DynamicAgentWorkflowSummary {
     pub approval_reasons: Vec<AgentApprovalReasonSummary>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflowResultDetail {
     pub workflow_id: String,
     pub step_id: String,
@@ -4347,7 +4347,7 @@ pub struct AgentWorkflowResultDetail {
     pub response: serde_json::Value,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentWorkflow {
     pub id: String,
     #[serde(default)]

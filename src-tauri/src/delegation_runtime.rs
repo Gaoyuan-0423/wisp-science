@@ -191,7 +191,7 @@ pub(crate) async fn list_agent_workflows(
     load_agent_workflow_snapshots(&state.store, &project.id, Some(&session_id)).await
 }
 
-async fn load_agent_workflow_snapshots(
+pub(crate) async fn load_agent_workflow_snapshots(
     store: &Store,
     project_id: &str,
     session_id: Option<&str>,

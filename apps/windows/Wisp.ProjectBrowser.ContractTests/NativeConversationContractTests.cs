@@ -27,6 +27,9 @@ static class NativeConversationContractTests
         Require(objects.TotalCount == 1 && objects.Objects[0].TypeName == "list", "Runtime inspection drift");
         var execution = JsonSerializer.Deserialize<NativeRuntimeExecution>(File.ReadAllText(Path.Combine(directory, "panel-runtime-execution.json")), ConversationSnapshot.JsonOptions)!;
         Require(execution.Text == "[stdout]\n42" && execution.Plots.Length == 0, "Runtime execution fixture drift");
+        var agents = JsonSerializer.Deserialize<NativeAgentSnapshot[]>(File.ReadAllText(Path.Combine(directory, "panel-agents.json")), ConversationSnapshot.JsonOptions)!;
+        var agentResult = JsonSerializer.Deserialize<NativeAgentResult>(File.ReadAllText(Path.Combine(directory, "panel-agent-result.json")), ConversationSnapshot.JsonOptions)!;
+        Require(agents[0].Workflow.FrameId == "session-a" && agents[0].Dynamic.Tasks[0].StoredStepId == agentResult.StepId, "Agent workflow/result identity drift");
         var archiveNode = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "archive.json")));
         var archive = NativeResearchArchive.Decode(archiveNode, "project-a", "session-a")!;
         Require(archive.Confirmation().Files[0].Path == "results/qc.txt" && archive.FrozenAt is null, "Archive fixture drift");
@@ -54,6 +57,11 @@ static class NativeConversationContractTests
         fake.Fail = true;
         try { await client.SendAsync("project-a", "session-a", Guid.NewGuid(), "hello"); } catch (IOException) { }
         Require(fake.Calls == 2, "Ambiguous send was replayed");
+        var agentFake = new Fake { Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-agent-result.json"))) };
+        var agentClient = new NativeAgentPanelClient(agentFake);
+        await agentClient.ResultAsync("project-a", "session-a", "workflow-a", "workflow-a:review");
+        Require(agentFake.Args?["session_id"]?.GetValue<string>() == "session-a" && agentFake.Project == "project-a", "Agent request lost scope");
+        try { await agentClient.ResultAsync("project-a", "session-a", "wrong", "workflow-a:review"); throw new Exception("Expected result mismatch"); } catch (InvalidDataException) { }
         var runtimeFake = new Fake(); var runtimeClient = new NativeContextActivityClient(runtimeFake);
         await runtimeClient.StopRuntimeAsync("project-a", "session-a", "runtime-a", 2);
         Require(runtimeFake.Args?["runtime_generation"]?.GetValue<ulong>() == 2 && runtimeFake.Args?["session_id"]?.GetValue<string>() == "session-a", "Runtime stop lost generation/scope");
@@ -65,12 +73,12 @@ static class NativeConversationContractTests
     static void Require(bool value, string message) { if (!value) throw new Exception(message); }
     sealed class Fake : INativeSettingsClient
     {
-        public JsonObject? Args; public string? Project; public int Calls; public bool Fail;
+        public JsonObject? Args; public string? Project; public int Calls; public bool Fail; public JsonNode? Reply;
         public Task<JsonNode?> InvokeAsync(string command, JsonObject arguments, string? projectId = null, CancellationToken cancellationToken = default)
         {
             Calls++; Args = arguments; Project = projectId;
             if (Fail) throw new IOException("Lost response");
-            return Task.FromResult<JsonNode?>(null);
+            return Task.FromResult<JsonNode?>(Reply);
         }
     }
 }

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_agents",
+    "native_conversation_panel_agent_result",
     "native_conversation_panel_runtime_start",
     "native_conversation_panel_runtime_stop",
     "native_conversation_panel_runtime_restart",
@@ -62,6 +64,10 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    #[serde(default)]
+    pub step_id: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
     #[serde(default)]
@@ -322,6 +328,15 @@ mod tests {
         assert_eq!(approval.approval_id, snapshot.approvals[0].approval_id);
         let encoded = serde_json::to_value(snapshot).unwrap();
         assert_eq!(encoded["items"][0]["tool_name"], serde_json::Value::Null);
+    }
+    #[test]
+    fn agent_panel_fixtures_preserve_workflow_and_step_identity() {
+        let rows: Vec<crate::AgentWorkflowSnapshot> = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agents.json")).unwrap();
+        assert_eq!(rows[0].workflow.frame_id.as_deref(), Some("session-a"));
+        assert_eq!(rows[0].dynamic.tasks[0].stored_step_id, "workflow-a:review");
+        let result: crate::AgentWorkflowResultDetail = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-agent-result.json")).unwrap();
+        assert_eq!(result.step_id, rows[0].dynamic.tasks[0].stored_step_id);
+        assert_eq!(result.attempt, 1);
     }
     #[test]
     fn panel_activity_fixtures_use_existing_runtime_and_run_shapes() {

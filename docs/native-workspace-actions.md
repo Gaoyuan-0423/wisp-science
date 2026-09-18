@@ -259,3 +259,32 @@ render. C# contracts, 11 shared DTO tests, three runtime visibility tests and
 three native panel tests passed. Formatting checks passed. Live keyboard/Escape checks,
 interpreter/storage controls, script binding, task file review/cleanup and the
 remaining right-panel tabs still need completion and end-to-end verification.
+
+## Agent workflow inspection
+
+The default Agents panel now lists the current conversation's persisted workflows,
+including nested workflow ownership and the root conversation when viewing a
+taken-over child. It uses the existing delegation snapshot loader rather than a
+new workflow store. Lists refresh while visible. Tasks show dependencies, executor,
+tools, approval reasons, summary/error and token/tool usage; persisted results are
+loaded on demand using workflow and stored-step identities.
+
+Result sheets match WebView's response-envelope handling: structured summary and
+diff, files, artifacts, persisted evidence, tests, risks, extra fields and errors.
+Artifacts are deduplicated by identity, persisted evidence takes precedence, and
+raw JSON remains available as a secondary disclosure. Markdown content is rendered
+natively. Result requests validate conversation membership before reading; Swift
+and C# also reject mismatched workflow/step replies. Closing the surface drops
+late responses. Background polling does not clear a result error.
+
+Swift/C# interfaces and shared fixtures preserve workflow version, root/parent
+identity, editable proposal, task metadata and full result data for subsequent
+native editing/launch integration. Seventy native tests passed before the final
+result-card styling pass; focused agent tests cover that pass. C# contract tests
+and twelve shared DTO tests passed. Rust conversation/root-frame snapshot checks
+passed. Light/dark result sheets and a 300-point panel were rendered and inspected.
+
+Agent creation, plan editing, delegation enablement, approve/run/cancel/discard,
+retry budgets, specialist controls and workflow-template operations remain to be
+connected. This is inspection parity only; it does not complete the Agents panel
+or the overall toolbar acceptance checklist.
