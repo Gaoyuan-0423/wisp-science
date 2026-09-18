@@ -525,14 +525,25 @@ pub(crate) async fn dispatch(
         }
         "native_conversation_panel_savefile" => {
             crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
-            state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            state
+                .store
+                .require_unarchived_session(session)
+                .await
+                .map_err(|e| e.to_string())?;
             let _activity = state.begin_project_activity(project_id)?;
             let path = args.path.ok_or("File path is required")?;
             let original = args.original_text.ok_or("Original file text is required")?;
             let text = args.text.ok_or("File text is required")?;
-            tokio::task::spawn_blocking(move || crate::file_browser::save_file_preview_at(&project.root, &path, &original, &text))
-                .await.map_err(|e| e.to_string())??;
-            state.store.bump_state_generation(&scope).await.map_err(|e| e.to_string())?;
+            tokio::task::spawn_blocking(move || {
+                crate::file_browser::save_file_preview_at(&project.root, &path, &original, &text)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            state
+                .store
+                .bump_state_generation(&scope)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(Value::Bool(true))
         }
         "native_conversation_panel_readfile" => {
@@ -648,15 +659,38 @@ mod tests {
         let root = temp.path().join("workspace");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("analysis.py"), "print(1)\n").unwrap();
-        crate::file_browser::save_file_preview_at(&root, "analysis.py", "print(1)\n", "print(2)\n").unwrap();
-        assert_eq!(std::fs::read_to_string(root.join("analysis.py")).unwrap(), "print(2)\n");
-        assert!(crate::file_browser::save_file_preview_at(&root, "analysis.py", "print(1)\n", "stale").is_err());
-        assert!(crate::file_browser::save_file_preview_at(&root, "missing.txt", "", "new").is_err());
+        crate::file_browser::save_file_preview_at(&root, "analysis.py", "print(1)\n", "print(2)\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("analysis.py")).unwrap(),
+            "print(2)\n"
+        );
+        assert!(crate::file_browser::save_file_preview_at(
+            &root,
+            "analysis.py",
+            "print(1)\n",
+            "stale"
+        )
+        .is_err());
+        assert!(
+            crate::file_browser::save_file_preview_at(&root, "missing.txt", "", "new").is_err()
+        );
         std::fs::write(temp.path().join("outside.txt"), "outside").unwrap();
-        assert!(crate::file_browser::save_file_preview_at(&root, "../outside.txt", "outside", "changed").is_err());
-        assert_eq!(std::fs::read_to_string(temp.path().join("outside.txt")).unwrap(), "outside");
+        assert!(crate::file_browser::save_file_preview_at(
+            &root,
+            "../outside.txt",
+            "outside",
+            "changed"
+        )
+        .is_err());
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("outside.txt")).unwrap(),
+            "outside"
+        );
         std::fs::write(root.join("large.txt"), "x".repeat(9 * 1024 * 1024)).unwrap();
-        assert!(crate::file_browser::save_file_preview_at(&root, "large.txt", "x", "short").is_err());
+        assert!(
+            crate::file_browser::save_file_preview_at(&root, "large.txt", "x", "short").is_err()
+        );
     }
     #[tokio::test]
     async fn highlights_reject_foreign_sources_and_non_text_deletions() {
