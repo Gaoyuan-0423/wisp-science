@@ -225,8 +225,9 @@ late replies. Refresh does not flash a full loading indicator on every poll.
 camelCase wire format and the run snake_case format. Swift and WinUI-facing C#
 clients share activity, run-detail and variable fixtures. All 63 native tests
 passed with opt-in rendering enabled; C# contract checks and 11 native DTO tests
-passed. Runtime/list/detail screenshots were inspected. The added Rust scope test
-is still being checked after correcting a test-only private-field access.
+passed. Runtime/list/detail screenshots were inspected. Both Rust panel tests
+passed, including rejection of foreign-project and missing run IDs for reads and
+mutations. A separate run of the reused runtime-visibility tests is in progress.
 
 Remaining within this area: runtime start/stop/restart, console execution,
 interpreter/storage controls, full run workspace/file review and cleanup, and
