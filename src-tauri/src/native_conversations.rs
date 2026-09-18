@@ -118,6 +118,26 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
         .as_deref()
         .filter(|v| !v.is_empty())
         .ok_or("A project is required")?;
+    if request.command == "native_conversation_inbox" {
+        if !request.args.as_object().is_some_and(|v| v.is_empty()) {
+            return Err("Inbox takes no arguments".into());
+        }
+        let rows = call(
+            broker,
+            project,
+            "search_sessions",
+            json!({"query":"", "limit":50}),
+        )
+        .await?;
+        let rows = rows
+            .as_array()
+            .ok_or("Invalid inbox response")?
+            .iter()
+            .filter(|row| row.get("status").and_then(Value::as_str) == Some("needs_you"))
+            .cloned()
+            .collect::<Vec<_>>();
+        return Ok(Value::Array(rows));
+    }
     if request.command == "native_conversation_create" {
         if !request.args.as_object().is_some_and(|v| v.is_empty()) {
             return Err("Create takes no arguments".into());
@@ -135,13 +155,138 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
         session,
     )
     .await?;
+    if request.command.starts_with("native_conversation_terminal_") {
+        return crate::native_terminals::dispatch(broker, request, project, session).await;
+    }
+    if request.command.starts_with("native_conversation_panel_") {
+        return crate::native_panels::dispatch(broker, request, project, session).await;
+    }
     let record = broker.conversations.session(session).await?;
     match request.command.as_str() {
+        "native_conversation_share" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            let state = broker.app.state::<crate::AppState>();
+            let mut cursor = None;
+            let mut pages = Vec::new();
+            let mut bytes = 0usize;
+            loop {
+                let (items, next, _, _) =
+                    crate::session_commands::native_transcript(&state, session, cursor).await?;
+                let rows = items
+                    .into_iter()
+                    .filter(|item| {
+                        matches!(item.role.as_str(), "user" | "assistant" | "reasoning")
+                            && !item.text.trim().is_empty()
+                    })
+                    .map(|item| dto::ShareRow {
+                        role: item.role,
+                        text: item.text,
+                    })
+                    .collect::<Vec<_>>();
+                bytes += rows.iter().map(|row| row.text.len()).sum::<usize>();
+                if bytes > 16 * 1024 * 1024 {
+                    return Err("Conversation exceeds the 16 MiB share limit".into());
+                }
+                pages.push(rows);
+                if next.is_none() {
+                    break;
+                }
+                if cursor.is_some_and(|old| next.unwrap() >= old) {
+                    return Err("Transcript cursor did not advance".into());
+                }
+                cursor = next;
+            }
+            let rows = pages.into_iter().rev().flatten().collect::<Vec<_>>();
+            serde_json::to_value(rows).map_err(|e| e.to_string())
+        }
+        "native_conversation_share_html" => {
+            let args: dto::ShareExportRequest = decode(&request.args)?;
+            crate::native_share::html(&args.rows, args.dark).map(Value::String)
+        }
+
+        "native_conversation_archive_get"
+        | "native_conversation_archive_prepare"
+        | "native_conversation_archive_retry"
+        | "native_conversation_archive_continue" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            let command = match request.command.as_str() {
+                "native_conversation_archive_get" => "get_research_archive",
+                "native_conversation_archive_prepare" => "prepare_research_archive",
+                "native_conversation_archive_retry" => "retry_research_archive_cleanup",
+                _ => "continue_research_archive",
+            };
+            call(broker, project, command, json!({"frameId": session})).await
+        }
+        "native_conversation_archive_confirm" => {
+            let args: dto::ArchiveConfirmRequest = decode(&request.args)?;
+            call(
+                broker,
+                project,
+                "confirm_research_archive",
+                json!({"frameId": session, "input": args.input}),
+            )
+            .await
+        }
+
+        "native_conversation_seen" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            broker
+                .app
+                .state::<crate::AppState>()
+                .store
+                .mark_frame_seen(session)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Value::Null)
+        }
+        "native_conversation_trajectory" | "native_conversation_trajectory_html" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            let state = broker.app.state::<crate::AppState>();
+            crate::session_commands::native_transcript(&state, session, None).await?;
+            let snapshot =
+                crate::session_commands::folded_session_trajectory(&state.store, session).await?;
+            if request.command == "native_conversation_trajectory_html" {
+                let exported_at = chrono::Utc::now().to_rfc3339();
+                return Ok(Value::String(
+                    crate::trajectory_export::render_trajectory_html(&snapshot, "zh", &exported_at),
+                ));
+            }
+            let value = serde_json::to_value(snapshot).map_err(|e| e.to_string())?;
+            let snapshot: wisp_dto::TrajectorySnapshotDto =
+                serde_json::from_value(value).map_err(|e| e.to_string())?;
+            serde_json::to_value(snapshot).map_err(|e| e.to_string())
+        }
+        "native_conversation_outline" => {
+            let _: dto::SessionRequest = decode(&request.args)?;
+            let state = broker.app.state::<crate::AppState>();
+            // Flush pending persisted events before indexing, using the same
+            // barrier as a transcript refresh.
+            crate::session_commands::native_transcript(&state, session, None).await?;
+            let rows = state
+                .store
+                .load_session_user_messages(session)
+                .await
+                .map_err(|e| e.to_string())?;
+            let entries: Vec<dto::OutlineEntry> = rows
+                .iter()
+                .enumerate()
+                .map(
+                    |(index, (_, text, sent_at, response_at))| dto::OutlineEntry {
+                        user_index: index,
+                        text: text.clone(),
+                        before_seq: rows.get(index + 1).map(|row| row.0),
+                        sent_at: Some(*sent_at),
+                        response_at: *response_at,
+                    },
+                )
+                .collect();
+            serde_json::to_value(entries).map_err(|e| e.to_string())
+        }
         "native_conversation_snapshot" => {
             let args: dto::SessionRequest = decode(&request.args)?;
             let mut record = record.lock().await;
             let state = broker.app.state::<crate::AppState>();
-            let (items, next_before_seq, frozen) =
+            let (items, next_before_seq, frozen, user_offset) =
                 crate::session_commands::native_transcript(&state, session, args.before_seq)
                     .await?;
             let model = call(
@@ -171,6 +316,7 @@ pub(crate) async fn dispatch(broker: &Broker, request: &Request) -> Result<Value
                     })
                     .collect(),
                 next_before_seq,
+                user_offset,
                 running: record.running || running(broker, session).await,
                 stopping: record.stopping,
                 read_only,

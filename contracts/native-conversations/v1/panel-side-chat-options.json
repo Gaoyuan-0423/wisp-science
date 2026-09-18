@@ -1,0 +1,4 @@
+[
+  {"id":"model-a","label":"Analysis model","kind":"http","active":true},
+  {"id":"agent-a","label":"Local ACP agent","kind":"acp","active":false}
+]

@@ -8,9 +8,10 @@ let package = Package(
         .executable(name: "WispSciencePreview", targets: ["WispSciencePreview"]),
         .library(name: "WispProjectBrowser", targets: ["WispProjectBrowser"]),
     ],
+    dependencies: [.package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.19.0")],
     targets: [
         .target(name: "WispProjectBrowser"),
-        .target(name: "WispProjectBrowserUI", dependencies: ["WispProjectBrowser"], resources: [.process("Resources")]),
+        .target(name: "WispProjectBrowserUI", dependencies: ["WispProjectBrowser", .product(name: "SwiftTerm", package: "SwiftTerm")], resources: [.process("Resources")]),
         .executableTarget(name: "WispSciencePreview", dependencies: ["WispProjectBrowserUI"]),
         .testTarget(name: "WispProjectBrowserTests", dependencies: ["WispProjectBrowser"]),
         .testTarget(name: "WispProjectBrowserUITests", dependencies: ["WispProjectBrowserUI"]),

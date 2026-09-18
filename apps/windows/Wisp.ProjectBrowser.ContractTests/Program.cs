@@ -38,3 +38,5 @@ if (!encodedStar.GetProperty("starred").GetBoolean() || encodedStar.GetProperty(
 
 await NativeSettingsContractTests.Run(Path.GetFullPath(Path.Combine(fixtureDirectory, "../../native-settings/v1")));
 await NativeConversationContractTests.Run(args[0]);
+
+NativePanelTabsTests.Run();

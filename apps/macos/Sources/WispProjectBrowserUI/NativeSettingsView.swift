@@ -15,9 +15,11 @@ struct NativeSettingsView: View {
     @Environment(\.colorScheme) private var scheme
     @AppStorage("projectBrowser.appearance") private var appearance = "system"
 
-    init(databaseURL: URL, projects: [ProjectSummary], projectID: String?, editProject: Bool = false, close: @escaping () -> Void) {
+    init(databaseURL: URL, projects: [ProjectSummary], projectID: String?, editProject: Bool = false, initialSection: NativeSettingsSection = .general, close: @escaping () -> Void) {
         self.projects = projects; self.close = close; self.editProject = editProject
-        _state = StateObject(wrappedValue: NativeSettingsModel(client: NativeSettingsClient(databaseURL: databaseURL, executableURL: nativeDesktopHostURL()), projectID: projectID ?? projects.first?.id))
+        let model = NativeSettingsModel(client: NativeSettingsClient(databaseURL: databaseURL, executableURL: nativeDesktopHostURL()), projectID: projectID ?? projects.first?.id)
+        model.section = initialSection
+        _state = StateObject(wrappedValue: model)
     }
 
     var body: some View {

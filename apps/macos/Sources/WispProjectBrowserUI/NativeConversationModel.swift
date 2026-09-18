@@ -5,6 +5,17 @@ import WispProjectBrowser
 @MainActor
 final class NativeConversationModel: ObservableObject {
     @Published var draft = ""
+    @Published var outlinePresented = false
+    @Published private(set) var outline: [ConversationOutlineEntry] = []
+    @Published private(set) var outlineLoading = false
+    @Published private(set) var outlineError: String?
+    @Published private(set) var savedHighlights: [NativeHighlight] = []
+    @Published private(set) var savedHighlightRevision = 0
+    @Published private(set) var savingSelections: Set<String> = []
+    private var highlightsReadGeneration = UUID()
+    @Published private(set) var revealedExcerpt: String?
+    @Published private(set) var scrollTarget: Int?
+    @Published private(set) var scrollRevision = 0
     @Published private(set) var snapshot: ConversationSnapshot?
     @Published private(set) var models: [SettingsValue] = []
     @Published private(set) var loading = false
@@ -30,6 +41,8 @@ final class NativeConversationModel: ObservableObject {
 
     func open(project: String, session: String) async {
         pause()
+        outlinePresented = false; outline = []; outlineError = nil; outlineLoading = false; scrollTarget = nil; revealedExcerpt = nil
+        savedHighlights = []; savingSelections = []; highlightsReadGeneration = UUID()
         projectID = project; sessionID = session; draft = drafts[session] ?? ""
         snapshot = nil; history = nil; showingHistory = false; pending = pendingSends[session]; uncertainSend = pending != nil; retiredEpochs = []
         operationError = pending == nil ? nil : "上次发送结果尚未确认。请核对最新消息；不会自动重发。"
@@ -38,6 +51,11 @@ final class NativeConversationModel: ObservableObject {
         await refresh()
         guard generation == current else { return }
         loading = false
+        if snapshot != nil {
+            do { _ = try await client.invoke("native_conversation_seen", args: ["session_id": .string(session)], projectID: project) }
+            catch { if generation == current { operationError = "未能标记已查看：\(error.localizedDescription)" } }
+        }
+        guard generation == current else { return }
         do {
             let rows = try await client.invoke("list_models", args: [:], projectID: project).array.filter { !$0["use_for_image_generation"].bool && !$0["use_for_video_generation"].bool }
             if generation == current { models = rows }
@@ -127,6 +145,7 @@ final class NativeConversationModel: ObservableObject {
         if current == generation { busy = false; await refresh() }
     }
     func older() async {
+        revealedExcerpt = nil
         guard let project = projectID, let session = sessionID,
               let cursor = (showingHistory ? history : snapshot)?.next_before_seq else { return }
         let current = generation
@@ -136,7 +155,89 @@ final class NativeConversationModel: ObservableObject {
             history = page; showingHistory = true
         } catch { if current == generation { operationError = error.localizedDescription } }
     }
-    func latest() { showingHistory = false; history = nil }
+    func loadOutline() async {
+        guard let project = projectID, let session = sessionID else { return }
+        let current = generation
+        outlineLoading = true; outlineError = nil
+        defer { if current == generation { outlineLoading = false } }
+        do {
+            let value = try await client.invoke("native_conversation_outline", args: ["session_id": .string(session)], projectID: project)
+            let entries = try JSONDecoder().decode([ConversationOutlineEntry].self, from: JSONEncoder().encode(value))
+            guard current == generation else { return }
+            outline = entries
+        } catch { if current == generation { outlineError = error.localizedDescription } }
+    }
+    func navigateToQuestion(_ entry: ConversationOutlineEntry) async {
+        revealedExcerpt = nil
+        guard let project = projectID, let session = sessionID else { return }
+        let current = generation
+        do {
+            let page = try await client.snapshot(projectID: project, sessionID: session, beforeSeq: entry.before_seq)
+            guard current == generation else { return }
+            // Global indexes disambiguate repeated prompts and newly appended turns.
+            guard let offset = page.user_offset,
+                  let target = Self.questionItemIndex(entry.user_index, offset: offset, items: page.items) else {
+                throw ProjectBrowserError.unavailable("问题位置已变化，请刷新大纲后重试。")
+            }
+            history = page; showingHistory = true
+            scrollTarget = target
+            scrollRevision += 1
+            outlinePresented = false
+        } catch { if current == generation { outlineError = error.localizedDescription } }
+    }
+    func loadSavedHighlights(project: String, session: String) async {
+        guard projectID == project, sessionID == session else { return }
+        let current = generation; let read = UUID(); highlightsReadGeneration = read
+        do {
+            let value = try await client.invoke("native_conversation_panel_highlights", args: ["session_id": .string(session)], projectID: project)
+            let rows = try JSONDecoder().decode([NativeHighlight].self, from: JSONEncoder().encode(value))
+            guard current == generation, read == highlightsReadGeneration else { return }
+            guard rows.allSatisfy({ $0.belongs(project: project, session: session) }) else { throw ProjectBrowserError.invalidResponse }
+            savedHighlights = rows
+        } catch { if current == generation, read == highlightsReadGeneration { operationError = error.localizedDescription } }
+    }
+    func removeSavedHighlight(_ id: String, project: String, session: String) {
+        guard projectID == project, sessionID == session else { return }
+        highlightsReadGeneration = UUID(); savedHighlights.removeAll { $0.id == id }
+    }
+    func saveSelection(_ text: String, project: String, session: String) async {
+        guard projectID == project, sessionID == session, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !savingSelections.contains(text) else { return }
+        let current = generation; savingSelections.insert(text); operationError = nil
+        defer { if current == generation { savingSelections.remove(text) } }
+        do {
+            let value = try await client.invoke("native_conversation_panel_highlight_star", args: ["session_id": .string(session), "text": .string(text)], projectID: project)
+            let row = try JSONDecoder().decode(NativeHighlight.self, from: JSONEncoder().encode(value))
+            guard current == generation else { return }
+            guard row.belongs(project: project, session: session), row.code == text else { throw ProjectBrowserError.invalidResponse }
+            highlightsReadGeneration = UUID(); savedHighlights.removeAll { $0.id == row.id }; savedHighlights.append(row)
+            savedHighlightRevision += 1
+        } catch { if current == generation { operationError = error.localizedDescription } }
+    }
+    func revealExcerpt(_ text: String) {
+        guard let index = visibleItems.firstIndex(where: { item in
+            NativeSavedExcerpt.range(in: Self.renderedText(item), excerpt: text) != nil
+                || (item.role == "tool" && item.input.map { NativeSavedExcerpt.range(in: $0, excerpt: text) != nil } == true)
+        }) else {
+            operationError = "未在当前已加载的消息中找到原文；请打开对应历史记录后重试。"
+            return
+        }
+        operationError = nil; revealedExcerpt = text; scrollTarget = index; scrollRevision += 1
+    }
+    static func renderedText(_ item: ConversationItem) -> String {
+        if item.role == "tool" { return item.text }
+        let attributed = (try? AttributedString(markdown: item.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(item.text)
+        return String(attributed.characters)
+    }
+    func clearExcerpt(revision: Int) { if scrollRevision == revision { revealedExcerpt = nil } }
+    static func questionItemIndex(_ target: Int, offset: Int, items: [ConversationItem]) -> Int? {
+        var index = offset
+        for (position, item) in items.enumerated() where item.role == "user" {
+            if index == target { return position }
+            index += 1
+        }
+        return nil
+    }
+    func latest() { revealedExcerpt = nil; showingHistory = false; history = nil }
 }
 
 func nativeDesktopHostURL() -> URL? {

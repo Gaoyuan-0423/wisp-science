@@ -13,6 +13,19 @@ struct ProjectWorkspace: View {
     }
     @Environment(\.colorScheme) private var scheme
     @State private var sidebarVisible = true
+    @State private var trajectoryPresented = false
+    @State private var archivePresented = false
+    @State private var sharePresented = false
+    @State private var terminalVisible = false
+    @AppStorage("native.workspace.panel.visible") private var panelVisible = false
+    @AppStorage("native.workspace.panel.tab") private var panelTab = "artifacts"
+    @AppStorage("native.workspace.panel.tabs") private var panelTabs = ""
+    @State private var panelWidth: CGFloat = 340
+    @State private var panelDragStart: CGFloat?
+    @State private var terminalHeight: CGFloat = 300
+    @State private var terminalDragStart: CGFloat?
+    @State private var inboxPresented = false
+    @StateObject private var inbox = NativeInboxModel()
     private func color(_ token: String) -> Color { WispDesign.color(token, scheme) }
 
     var body: some View {
@@ -30,13 +43,34 @@ struct ProjectWorkspace: View {
                     Text(model.sessions.first(where: { $0.id == model.activeSessionID })?.title ?? project.name)
                         .font(WispDesign.font(size: 14, weight: .semibold)).lineLimit(1)
                     Spacer()
-                    WispUnavailableAction(title: "会话大纲", icon: "list", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "分享", icon: "share", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "运行轨迹", icon: "timeline", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "研究归档", icon: "archive", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "待查看", icon: "bell", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "终端", icon: "terminal", iconOnly: true, compact: true)
-                    WispUnavailableAction(title: "切换侧面板", icon: "panel", iconOnly: true, compact: true)
+                    Button { conversation.outlinePresented.toggle() } label: { WispIcon(name: "list") }
+                        .buttonStyle(.plain).help("会话大纲").accessibilityLabel("会话大纲")
+                        .disabled(model.activeSessionID == nil)
+                        .popover(isPresented: $conversation.outlinePresented, arrowEdge: .bottom) {
+                            NativeConversationOutlineView(conversation: conversation)
+                        }
+                    Button { sharePresented = true } label: { WispIcon(name: "share") }
+                        .buttonStyle(.plain).help("分享").accessibilityLabel("分享")
+                        .disabled(model.activeSessionID == nil)
+                    Button { trajectoryPresented = true } label: { WispIcon(name: "timeline") }
+                        .buttonStyle(.plain).help("运行轨迹").accessibilityLabel("运行轨迹")
+                        .disabled(model.activeSessionID == nil)
+                    Button { archivePresented = true } label: { WispIcon(name: "archive") }
+                        .buttonStyle(.plain).help("研究归档").accessibilityLabel("研究归档")
+                        .disabled(model.activeSessionID == nil || conversation.snapshot?.running == true)
+                    Button { inboxPresented.toggle(); refreshInbox() } label: {
+                        HStack(spacing: 2) { WispIcon(name: "bell"); if !inbox.entries.isEmpty { Text("\(inbox.entries.count)").font(.caption2) } }
+                    }.buttonStyle(.plain).help("待查看").accessibilityLabel("待查看")
+                        .popover(isPresented: $inboxPresented, arrowEdge: .bottom) {
+                            NativeInboxView(inbox: inbox, refresh: refreshInbox, open: { entry in
+                                inboxPresented = false
+                                Task { await model.openProject(entry.project_id, sessionID: entry.id) }
+                            }, close: { inboxPresented = false })
+                        }
+                    Button { terminalVisible.toggle() } label: { WispIcon(name: "terminal") }
+                        .buttonStyle(.plain).help("终端").accessibilityLabel("终端").disabled(model.activeSessionID == nil)
+                    Button { panelVisible.toggle() } label: { WispIcon(name: "panel") }
+                        .buttonStyle(.plain).help("切换侧面板").accessibilityLabel("切换侧面板").disabled(model.activeSessionID == nil)
                 }
                 .padding(16)
                 Rectangle().fill(color("border")).frame(height: 1)
@@ -47,8 +81,16 @@ struct ProjectWorkspace: View {
                     }.padding().foregroundStyle(.orange)
                 }
                 if let session = model.activeSessionID {
-                    NativeConversationView(conversation: conversation)
-                        .task(id: project.id + ":" + session) { await conversation.open(project: project.id, session: session) }
+                    NativeConversationView(conversation: conversation, projectID: project.id, sessionID: session) { selection in
+                        guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                        model.nativeSideChat(projectID: project.id, sessionID: session).quotes.append(.init(text: selection, source: "会话摘录"))
+                        var tabs = NativePanelTabs(saved: panelTabs, selected: panelTab, available: NativePanelTabs.all)
+                        tabs.show("sidechat"); panelTabs = tabs.saved; panelTab = tabs.selected; panelVisible = true
+                    }
+                        .task(id: project.id + ":" + session) {
+                            await conversation.open(project: project.id, session: session)
+                            await conversation.loadSavedHighlights(project: project.id, session: session)
+                        }
                         .onDisappear { conversation.pause() }
                 } else {
                     VStack(spacing: 16) {
@@ -57,10 +99,64 @@ struct ProjectWorkspace: View {
                         Button("新建会话") { createSession() }.buttonStyle(WispButtonStyle(primary: true)).disabled(conversation.busy)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                if terminalVisible, let session = model.activeSessionID {
+                    Rectangle().fill(color("border")).frame(height: 5)
+                        .gesture(DragGesture().onChanged { value in
+                            if terminalDragStart == nil { terminalDragStart = terminalHeight }
+                            terminalHeight = min(600, max(220, (terminalDragStart ?? 300) - value.translation.height))
+                        }.onEnded { _ in terminalDragStart = nil })
+                    NativeTerminalPanel(model: model.nativeTerminal(projectID: project.id, sessionID: session)) { terminalVisible = false }
+                        .frame(height: terminalHeight).id(project.id + ":" + session)
+                }
+            }
+            if panelVisible, let session = model.activeSessionID {
+                Rectangle().fill(color("border")).frame(width: 5)
+                    .gesture(DragGesture().onChanged { value in
+                        if panelDragStart == nil { panelDragStart = panelWidth }
+                        panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
+                    }.onEnded { _ in panelDragStart = nil })
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, highlightRevision: conversation.savedHighlightRevision, highlightRemoved: { id in conversation.removeSavedHighlight(id, project: project.id, session: session) }, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings, openTerminal: { context in
+                    guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                    model.nativeTerminal(projectID: project.id, sessionID: session).requestOpen(context)
+                    terminalVisible = true
+                }) { panelVisible = false }
+                    .frame(width: panelWidth).id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $sharePresented) {
+            if let session = model.activeSessionID {
+                NativeShareView(client: conversation.client, projectID: project.id, sessionID: session) { sharePresented = false }.id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $archivePresented) {
+            if let session = model.activeSessionID {
+                NativeArchiveView(client: conversation.client, projectID: project.id, sessionID: session, workspace: project.workspaceDirectory, close: {
+                    archivePresented = false
+                    Task { await conversation.refresh() }
+                }, continued: { id in
+                    archivePresented = false
+                    Task { await model.openProject(project.id, sessionID: id) }
+                }).id(project.id + ":" + session)
+            }
+        }
+        .sheet(isPresented: $trajectoryPresented) {
+            if let session = model.activeSessionID {
+                NativeTrajectoryView(client: conversation.client, projectID: project.id, sessionID: session, running: conversation.snapshot?.running == true) { trajectoryPresented = false }
+                    .id(project.id + ":" + session)
+            }
+        }
+        .onChange(of: model.activeSessionID) { _ in trajectoryPresented = false; archivePresented = false; sharePresented = false; inboxPresented = false }
+        .task(id: project.id) {
+            inbox.reset()
+            while !Task.isCancelled {
+                await inbox.refresh(client: conversation.client, projectID: project.id)
+                do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
             }
         }
         .background(color("bg-app")).foregroundStyle(color("text")).tint(color("clay"))
     }
+
+    private func refreshInbox() { Task { await inbox.refresh(client: conversation.client, projectID: project.id) } }
 
     private func createSession() {
         let database = model.databaseURL; let sourceSession = model.activeSessionID

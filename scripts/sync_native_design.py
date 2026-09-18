@@ -5,13 +5,14 @@ No rasterizer or third-party dependencies. Run --check in CI to detect drift.
 WinUI can use the same SVGs and semantic color JSON when its view is added.
 """
 import argparse
+import colorsys
 import json
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "apps/macos/Sources/WispProjectBrowserUI/Resources"
-ICONS = ("search", "refresh", "database", "folder", "star", "star-filled", "chat", "doc", "sync", "clock", "arrow-left", "chevron-left", "chevron-right", "chevron-down", "gear", "calendar", "upload", "plus", "folder-plus", "research-trail", "book", "grid", "list", "share", "timeline", "archive", "bell", "attach", "terminal", "panel", "adjustments")
+ICONS = ("search", "refresh", "database", "folder", "star", "star-filled", "chat", "doc", "sync", "clock", "arrow-left", "chevron-left", "chevron-right", "chevron-down", "gear", "calendar", "upload", "plus", "folder-plus", "research-trail", "book", "grid", "list", "share", "timeline", "archive", "bell", "attach", "terminal", "panel", "adjustments", "close", "user", "sparkles", "wrench", "gauge")
 COLORS = ("bg-app", "bg-elev", "bg-sunken", "surface-hover", "text", "text-muted", "text-faint", "border", "border-strong", "clay", "clay-strong")
 
 
@@ -63,6 +64,17 @@ def exports():
         prefix = "lp" if theme == "light" else "dp"
         values = dict(re.findall(r"--([\w-]+):\s*([^;]+);", block))
         palettes[f"{theme}-{name}"] = {token: values[f"{prefix}-{alias}"] for token, alias in aliases.items()}
+    trajectory = (ROOT / "ui/src/styles/chat.css").read_text()
+    for theme, selector in (("light", ".trajectory"), ("dark", ':root[data-theme="dark"] .trajectory')):
+        block = re.search(re.escape(selector) + r"\s*\{(.*?)\n\}", trajectory, re.S)[1]
+        colors = dict(re.findall(r"--(traj-(?:input|model|tool)-bar):\s*([^;]+);", block))
+        for key, value in colors.items():
+            if value.startswith("hsl("):
+                h, saturation, lightness = map(float, re.findall(r"[\d.]+", value))
+                colors[key] = "#" + "".join(f"{round(v * 255):02x}" for v in colorsys.hls_to_rgb(h / 360, lightness / 100, saturation / 100))
+        for name, palette in palettes.items():
+            if name == theme or name.startswith(theme + "-"):
+                palette.update(colors)
     yield "palette.json", (json.dumps(palettes, indent=2) + "\n").encode()
 
 

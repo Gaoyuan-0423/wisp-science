@@ -90,6 +90,9 @@ mod review;
 mod workflow_approval;
 mod workflow_artifacts;
 pub(crate) use wisp_runs as run_context;
+mod native_panels;
+mod native_share;
+mod native_terminals;
 mod network;
 mod runtime_commands;
 mod runtime_config_tool;
@@ -6518,8 +6521,9 @@ async fn side_chat(
     // ACP side chat: one-shot, read-only answer from the selected ACP Agent,
     // running in the active project root. Never touches the main thread.
     let answer = if let Some(agent_id) = acp_agent_id.as_deref().filter(|id| !id.is_empty()) {
-        let cwd = state.require_active(window.label())?.root;
-        acp::acp_side_chat_once(&state, &cwd, agent_id, &prompt).await?
+        let (project, _) =
+            exploration_commands::working_project_for_frame(&state, frame_id).await?;
+        acp::acp_side_chat_once(&state, &project.root, agent_id, &prompt).await?
     } else {
         http_llm?
             .complete(

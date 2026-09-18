@@ -29,6 +29,36 @@ private actor NavigationClient: ProjectBrowserQuerying {
 }
 
 final class ProjectNavigationTests: XCTestCase {
+    @MainActor func testTerminalCacheSeparatesSessionsAndKeepsSelectionAcrossPanelReopen() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/terminal-scope-test.sqlite"))
+        let terminal = model.nativeTerminal(projectID: "p", sessionID: "s")
+        terminal.select("terminal-qa")
+        XCTAssertTrue(terminal === model.nativeTerminal(projectID: "p", sessionID: "s"))
+        XCTAssertEqual(model.nativeTerminal(projectID: "p", sessionID: "s").selectedID, "terminal-qa")
+        XCTAssertFalse(terminal === model.nativeTerminal(projectID: "other", sessionID: "s"))
+        XCTAssertFalse(terminal === model.nativeTerminal(projectID: "p", sessionID: "other"))
+    }
+    @MainActor func testSideChatCacheSeparatesProjectAndSessionAndSurvivesPanelReopen() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/side-chat-test.sqlite"))
+        let first = model.nativeSideChat(projectID: "p", sessionID: "s")
+        first.draft = "keep this draft"
+        XCTAssertTrue(first === model.nativeSideChat(projectID: "p", sessionID: "s"))
+        XCTAssertFalse(first === model.nativeSideChat(projectID: "p", sessionID: "other"))
+        XCTAssertFalse(first === model.nativeSideChat(projectID: "other", sessionID: "s"))
+        XCTAssertEqual(model.nativeSideChat(projectID: "p", sessionID: "s").draft, "keep this draft")
+    }
+
+    @MainActor func testWorkflowSettingsRouteDoesNotOpenProjectEditor() {
+        let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/tmp/unused.sqlite"))
+        model.openProjectSettings("p")
+        model.openWorkflowSettings()
+        XCTAssertTrue(model.settingsPresented)
+        XCTAssertEqual(model.settingsSectionID, "workflows")
+        XCTAssertNil(model.projectSettingsID)
+        model.openProjectSettings("p")
+        XCTAssertNil(model.settingsSectionID)
+        XCTAssertEqual(model.projectSettingsID, "p")
+    }
     @MainActor
     func testRecentSessionOpensExactConversationAndBackClearsWorkspace() async {
         let model = ProjectBrowserModel(client: NavigationClient(), databaseURL: URL(fileURLWithPath: "/unused"))

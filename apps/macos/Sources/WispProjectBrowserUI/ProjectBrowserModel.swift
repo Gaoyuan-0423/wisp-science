@@ -6,8 +6,10 @@ import WispProjectBrowser
 public final class ProjectBrowserModel: ObservableObject {
     @Published public var searchPresented = false
     @Published public var settingsPresented = false
+    @Published public var settingsSectionID: String?
+    public func openWorkflowSettings() { projectSettingsID = nil; settingsSectionID = "workflows"; settingsPresented = true }
     @Published public var projectSettingsID: String?
-    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsPresented = true }
+    public func openProjectSettings(_ id: String) { projectSettingsID = id; settingsSectionID = nil; settingsPresented = true }
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var recentSessions: [BrowserSession] = []
     @Published private(set) var sessions: [BrowserSession] = []
@@ -27,6 +29,23 @@ public final class ProjectBrowserModel: ObservableObject {
     @Published private(set) var databaseURL: URL
     private var nativeDrafts: [String: BrowserSession] = [:]
     private var nativeModels: [URL: NativeConversationModel] = [:]
+    private struct NativeSessionKey: Hashable { let database: URL; let project: String; let session: String }
+    private var sideChats: [NativeSessionKey: NativeSideChatModel] = [:]
+    private var terminals: [NativeSessionKey: NativeTerminalModel] = [:]
+    func nativeTerminal(projectID: String, sessionID: String) -> NativeTerminalModel {
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
+        if let existing = terminals[key] { return existing }
+        let terminal = NativeTerminalModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
+        terminals[key] = terminal
+        return terminal
+    }
+    func nativeSideChat(projectID: String, sessionID: String) -> NativeSideChatModel {
+        let key = NativeSessionKey(database: databaseURL, project: projectID, session: sessionID)
+        if let existing = sideChats[key] { return existing }
+        let chat = NativeSideChatModel(client: nativeConversation().client, projectID: projectID, sessionID: sessionID)
+        sideChats[key] = chat
+        return chat
+    }
     func nativeConversation() -> NativeConversationModel {
         if let existing = nativeModels[databaseURL] { return existing }
         let model = NativeConversationModel(client: NativeConversationClient(transport: NativeSettingsClient(databaseURL: databaseURL, executableURL: nativeDesktopHostURL())))

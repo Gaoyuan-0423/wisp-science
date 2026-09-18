@@ -1,0 +1,8 @@
+[
+  {"role":"user","text":"检查样本","tool_name":null,"input":null,"ok":null,"status":null},
+  {"role":"tool","text":"42\n","tool_name":"python","input":"print(42)","ok":true,"status":null},
+  {"role":"assistant","text":"工具仍在运行","tool_name":null,"input":null,"ok":null,"status":null},
+  {"role":"tool","text":"File not found: 样本.csv","tool_name":"read","input":"样本.csv","ok":false,"status":null},
+  {"role":"tool","text":"Starting…","tool_name":"shell","input":"ls","ok":null,"status":null},
+  {"role":"tool","text":"","tool_name":"empty","input":null,"ok":true,"status":null}
+]

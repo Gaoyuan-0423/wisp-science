@@ -211,24 +211,9 @@ struct NativeSettingsEscape: NSViewRepresentable {
         weak var view: NSView?
         var close: () -> Void
         var enabled: Bool
-        var monitor: Any?
-        var observers: [NSObjectProtocol] = []
-        var menuDepth = 0
         init(enabled: Bool, close: @escaping () -> Void) { self.enabled = enabled; self.close = close }
-        func install() {
-            observers = [
-                NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in self?.menuDepth += 1 },
-                NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in if let self { self.menuDepth = max(0, self.menuDepth - 1) } }
-            ]
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, self.enabled, event.keyCode == 53, let window = self.view?.window,
-                      window === NSApp.keyWindow, window.attachedSheet == nil, NSApp.modalWindow == nil,
-                      self.menuDepth == 0 else { return event }
-                if let editor = window.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
-                self.close(); return nil
-            }
-        }
-        func remove() { if let monitor { NSEvent.removeMonitor(monitor) }; observers.forEach(NotificationCenter.default.removeObserver); monitor = nil; observers = [] }
+        func install() { NativeEscapeStack.shared.register(self) }
+        func remove() { NativeEscapeStack.shared.remove(self) }
         deinit { remove() }
     }
 }

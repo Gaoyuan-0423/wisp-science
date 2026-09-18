@@ -25,6 +25,7 @@ public struct ConversationSnapshot: Codable, Sendable {
     public let session_id: String
     public let items: [ConversationItem]
     public let next_before_seq: Int64?
+    public let user_offset: Int?
     public let running: Bool
     public let stopping: Bool
     public let read_only: Bool
@@ -62,4 +63,24 @@ public struct NativeConversationClient: NativeConversationQuerying {
             throw error
         }
     }
+}
+
+public struct ConversationOutlineEntry: Codable, Equatable, Identifiable, Sendable {
+    public var id: Int { user_index }
+    public let user_index: Int
+    public let text: String
+    public let before_seq: Int64?
+    public let sent_at: Int64?
+    public let response_at: Int64?
+}
+
+/// Existing wisp-dto SessionSearchInfo shape used by the cross-project inbox.
+public struct NativeInboxEntry: Codable, Identifiable, Sendable {
+    public let id: String
+    public let project_id: String
+    public let project_name: String
+    public let title: String
+    public let ts: Int64
+    public let activity_at: Int64
+    public let status: String
 }

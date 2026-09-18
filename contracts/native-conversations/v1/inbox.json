@@ -1,0 +1,1 @@
+[{"id":"session-a","project_id":"project-a","project_name":"研究 A","title":"等待审阅","ts":1000,"activity_at":2000,"status":"needs_you"},{"id":"session-b","project_id":"project-b","project_name":"研究 B","title":"分析完成","ts":1100,"activity_at":2200,"status":"needs_you"}]

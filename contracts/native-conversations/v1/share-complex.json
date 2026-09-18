@@ -1,0 +1,6 @@
+[
+  {
+    "role": "assistant",
+    "text": "# Quality report\n\n1. Inspect samples\n   - Check **read depth**\n2. Report results\n\n| Sample | Status |\n| --- | --- |\n| 样本 A | **Passed** |\n| Sample B | Review |\n\n```python\nprint('quality checks')\n```"
+  }
+]
