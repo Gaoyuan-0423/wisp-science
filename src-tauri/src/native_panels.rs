@@ -21,7 +21,11 @@ pub(crate) async fn dispatch(
     }
     match request.command.as_str() {
         "native_conversation_panel_highlights" | "native_conversation_panel_notebook_stars" => {
-            let kind = if request.command.ends_with("highlights") { "text" } else { "code" };
+            let kind = if request.command.ends_with("highlights") {
+                "text"
+            } else {
+                "code"
+            };
             let rows = state
                 .library
                 .list_for_session(session)
@@ -44,16 +48,24 @@ pub(crate) async fn dispatch(
         }
 
         "native_conversation_panel_notebook_star" => {
-            let value = invoke_command(broker, Some(project_id.into()), "star_library_code", serde_json::json!({
-                "sessionId": session,
-                "language": args.language.ok_or("Code language is required")?,
-                "code": args.code.ok_or("Code is required")?,
-            })).await?;
+            let value = invoke_command(
+                broker,
+                Some(project_id.into()),
+                "star_library_code",
+                serde_json::json!({
+                    "sessionId": session,
+                    "language": args.language.ok_or("Code language is required")?,
+                    "code": args.code.ok_or("Code is required")?,
+                }),
+            )
+            .await?;
             contract::<wisp_dto::LibraryItem>(value)
         }
         "native_conversation_panel_notebook_unstar" => {
             let id = args.library_item_id.ok_or("Library item ID is required")?;
-            Ok(Value::Bool(remove_panel_library_item(&state.library, project_id, session, &id, "code").await?))
+            Ok(Value::Bool(
+                remove_panel_library_item(&state.library, project_id, session, &id, "code").await?,
+            ))
         }
         "native_conversation_panel_agent_delegation" => {
             if let enabled = args.enabled {
@@ -471,7 +483,12 @@ pub(crate) async fn dispatch(
         _ => Err("Unknown native panel command".into()),
     }
 }
-fn library_item_in_scope(row: &wisp_store::LibraryItem, project: &str, session: &str, kind: &str) -> bool {
+fn library_item_in_scope(
+    row: &wisp_store::LibraryItem,
+    project: &str,
+    session: &str,
+    kind: &str,
+) -> bool {
     row.kind == kind && row.source_project_id == project && row.source_session_id == session
 }
 async fn remove_highlight(
@@ -483,7 +500,11 @@ async fn remove_highlight(
     remove_panel_library_item(library, project, session, id, "text").await
 }
 async fn remove_panel_library_item(
-    library: &wisp_store::LibraryStore, project: &str, session: &str, id: &str, kind: &str,
+    library: &wisp_store::LibraryStore,
+    project: &str,
+    session: &str,
+    id: &str,
+    kind: &str,
 ) -> Result<bool, String> {
     let row = library
         .get(id)
@@ -575,13 +596,21 @@ mod tests {
                 .is_err());
             assert!(library.get(&row.id).await.unwrap().is_some());
             if kind == "text" {
-                assert!(remove_panel_library_item(&library, "p", "s", &row.id, "code").await.is_err());
+                assert!(
+                    remove_panel_library_item(&library, "p", "s", &row.id, "code")
+                        .await
+                        .is_err()
+                );
                 assert!(remove_highlight(&library, "p", "s", &row.id).await.unwrap());
                 assert!(remove_highlight(&library, "p", "s", &row.id).await.is_err());
             } else {
                 assert!(remove_highlight(&library, "p", "s", &row.id).await.is_err());
                 assert!(library.get(&row.id).await.unwrap().is_some());
-                assert!(remove_panel_library_item(&library, "p", "s", &row.id, "code").await.unwrap());
+                assert!(
+                    remove_panel_library_item(&library, "p", "s", &row.id, "code")
+                        .await
+                        .unwrap()
+                );
             }
         }
     }
