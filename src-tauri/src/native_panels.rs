@@ -22,48 +22,112 @@ pub(crate) async fn dispatch(
     match request.command.as_str() {
         "native_conversation_panel_runtime_start" | "native_conversation_panel_runtime_execute" => {
             crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
-            state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            state
+                .store
+                .require_unarchived_session(session)
+                .await
+                .map_err(|e| e.to_string())?;
             let context = args.context_id.ok_or("Execution context is required")?;
-            let language: wisp_runtime::RuntimeLanguage = serde_json::from_value(serde_json::json!(args.language.ok_or("Runtime language is required")?)).map_err(|e| e.to_string())?;
-            let key = crate::runtime_commands::resolve_runtime_key(&state.runtime_manager, project_id.into(), scope.scope_key().into(), session, context.clone(), language);
+            let language: wisp_runtime::RuntimeLanguage =
+                serde_json::from_value(serde_json::json!(args
+                    .language
+                    .ok_or("Runtime language is required")?))
+                .map_err(|e| e.to_string())?;
+            let key = crate::runtime_commands::resolve_runtime_key(
+                &state.runtime_manager,
+                project_id.into(),
+                scope.scope_key().into(),
+                session,
+                context.clone(),
+                language,
+            );
             let _activity = state.begin_project_activity(project_id)?;
             if request.command == "native_conversation_panel_runtime_start" {
-                let info = state.runtime_manager.start(key, project.root).await.map_err(|e| e.to_string())?;
+                let info = state
+                    .runtime_manager
+                    .start(key, project.root)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 return serde_json::to_value(info).map_err(|e| e.to_string());
             }
             let code = args.code.ok_or("Code is required")?;
-            if code.len() > wisp_runtime::MAX_CODE_BYTES { return Err("Code exceeds the runtime size limit".into()); }
+            if code.len() > wisp_runtime::MAX_CODE_BYTES {
+                return Err("Code exceeds the runtime size limit".into());
+            }
             if crate::exploration_isolation::is_host_local_context(&context) {
-                if let Some(boundary) = crate::exploration_isolation::boundary_for_scope(&state.store, &scope).await? {
+                if let Some(boundary) =
+                    crate::exploration_isolation::boundary_for_scope(&state.store, &scope).await?
+                {
                     boundary.check_local_source(&code)?;
                 }
             }
-            let execution = state.runtime_manager.execute(&key, &project.root, code).await.map_err(|e| e.to_string())?;
-            let result = crate::runtime_commands::finish_runtime_execution(&state, &scope, execution, |response, _| wisp_runtime::format_response(response)).await?;
-            contract::<wisp_dto::RuntimeExecutionSummary>(serde_json::to_value(result).map_err(|e| e.to_string())?)
+            let execution = state
+                .runtime_manager
+                .execute(&key, &project.root, code)
+                .await
+                .map_err(|e| e.to_string())?;
+            let result = crate::runtime_commands::finish_runtime_execution(
+                &state,
+                &scope,
+                execution,
+                |response, _| wisp_runtime::format_response(response),
+            )
+            .await?;
+            contract::<wisp_dto::RuntimeExecutionSummary>(
+                serde_json::to_value(result).map_err(|e| e.to_string())?,
+            )
         }
-        "native_conversation_panel_runtime_stop" | "native_conversation_panel_runtime_restart" | "native_conversation_panel_runtime_dismiss" => {
+        "native_conversation_panel_runtime_stop"
+        | "native_conversation_panel_runtime_restart"
+        | "native_conversation_panel_runtime_dismiss" => {
             let id = args.runtime_id.ok_or("Runtime ID is required")?;
-            let runtime = state.runtime_manager.list().into_iter().find(|r| r.runtime_id == id
-                && crate::runtime_commands::runtime_visible(&r.key, &scope, session)).ok_or("Runtime is outside this conversation scope")?;
+            let runtime = state
+                .runtime_manager
+                .list()
+                .into_iter()
+                .find(|r| {
+                    r.runtime_id == id
+                        && crate::runtime_commands::runtime_visible(&r.key, &scope, session)
+                })
+                .ok_or("Runtime is outside this conversation scope")?;
             require_runtime_generation(runtime.generation, args.runtime_generation)?;
             if request.command == "native_conversation_panel_runtime_dismiss" {
-                state.runtime_manager.dismiss_dead(&id).map_err(|e| e.to_string())?;
+                state
+                    .runtime_manager
+                    .dismiss_dead(&id)
+                    .map_err(|e| e.to_string())?;
                 return Ok(Value::Null);
             }
             let _activity = state.begin_project_activity(&runtime.key.project_id)?;
             if request.command == "native_conversation_panel_runtime_stop" {
-                return serde_json::to_value(state.runtime_manager.stop(&runtime.key).await).map_err(|e| e.to_string());
+                return serde_json::to_value(state.runtime_manager.stop(&runtime.key).await)
+                    .map_err(|e| e.to_string());
             }
-            state.store.require_unarchived_session(session).await.map_err(|e| e.to_string())?;
+            state
+                .store
+                .require_unarchived_session(session)
+                .await
+                .map_err(|e| e.to_string())?;
             let root = if runtime.key.project_id == project_id {
                 crate::exploration_commands::require_writable_scope(&state.store, &scope).await?;
                 project.root
             } else {
-                let (_, workspace) = state.store.get_project(&runtime.key.project_id).await.map_err(|e| e.to_string())?.ok_or("Project not found")?;
+                let (_, workspace) = state
+                    .store
+                    .get_project(&runtime.key.project_id)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .ok_or("Project not found")?;
                 crate::ensure_writable(std::path::PathBuf::from(workspace), &state.app_data)
             };
-            serde_json::to_value(state.runtime_manager.restart(runtime.key, root).await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+            serde_json::to_value(
+                state
+                    .runtime_manager
+                    .restart(runtime.key, root)
+                    .await
+                    .map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())
         }
         "native_conversation_panel_activity" => {
             let runtimes = state
@@ -242,7 +306,9 @@ pub(crate) async fn dispatch(
     }
 }
 fn require_runtime_generation(current: u64, expected: Option<u64>) -> Result<(), String> {
-    if expected != Some(current) { return Err("Runtime changed; refresh before controlling it".into()); }
+    if expected != Some(current) {
+        return Err("Runtime changed; refresh before controlling it".into());
+    }
     Ok(())
 }
 async fn require_run_scope(

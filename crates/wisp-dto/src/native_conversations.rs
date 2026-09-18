@@ -343,7 +343,10 @@ mod tests {
         .unwrap();
         assert_eq!(objects.objects[0].name, "samples");
         assert_eq!(objects.total_count, 1);
-        let execution: crate::RuntimeExecutionSummary = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-runtime-execution.json")).unwrap();
+        let execution: crate::RuntimeExecutionSummary = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-runtime-execution.json"
+        ))
+        .unwrap();
         assert_eq!(execution.text, "[stdout]\n42");
         assert!(execution.plots.is_empty());
     }
