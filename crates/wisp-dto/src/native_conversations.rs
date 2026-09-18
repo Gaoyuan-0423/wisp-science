@@ -298,7 +298,10 @@ mod tests {
     }
     #[test]
     fn panel_context_fixture_preserves_session_membership() {
-        let snapshot: PanelContexts = serde_json::from_str(include_str!("../../../contracts/native-conversations/v1/panel-contexts.json")).unwrap();
+        let snapshot: PanelContexts = serde_json::from_str(include_str!(
+            "../../../contracts/native-conversations/v1/panel-contexts.json"
+        ))
+        .unwrap();
         assert_eq!(snapshot.contexts.len(), 3);
         assert_eq!(snapshot.enabled_ids, vec!["ssh:gpu"]);
         assert!(!snapshot.read_only);
