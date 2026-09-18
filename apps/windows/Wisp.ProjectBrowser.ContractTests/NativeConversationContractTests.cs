@@ -23,6 +23,15 @@ static class NativeConversationContractTests
         Require(highlightFake.Calls == 3 && highlightFake.Args?["library_item_id"]?.GetValue<string>() == "highlight-a", "Highlight removal replayed or lost identity");
         Require(NativeSavedExcerpt.Find("样本 质量\n合格", "样本质量合格") is { } range && "样本 质量\n合格"[range] == "样本 质量\n合格", "Saved excerpt whitespace match drift");
         Require(NativeSavedExcerpt.Find("abc", " ") is null && NativeSavedExcerpt.Find("abc", "ABC") is null, "Saved excerpt empty/case matching drift");
+        highlightFake.Fail = false;
+        highlightFake.Reply = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-highlights.json")))![0]!.DeepClone();
+        await highlights.StarAsync("project-a", "session-a", "样本 质量\n合格");
+        try { await highlights.StarAsync("project-a", "session-a", "other text"); throw new Exception("Expected selection mismatch"); } catch (InvalidDataException) { }
+        highlightFake.Fail = true;
+        var beforeSave = highlightFake.Calls;
+        try { await highlights.StarAsync("project-a", "session-a", "new text"); } catch (IOException) { }
+        Require(highlightFake.Calls == beforeSave + 1 && highlightFake.Args?["text"]?.GetValue<string>() == "new text", "Selection save replayed or changed text");
+        Require(NativeSavedExcerpt.FindAll("🧬 A B / 🧬AB", "🧬AB").Select(range => "🧬 A B / 🧬AB"[range]).SequenceEqual(new[] { "🧬 A B", "🧬AB" }), "Repeated excerpt underline ranges drift");
         var notebookFixture = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "panel-notebook.json")))!;
         var notebookCells = NativeNotebookCell.Collect(notebookFixture["items"]!.Deserialize<ConversationItem[]>(ConversationSnapshot.JsonOptions)!);
         Require(notebookCells.SequenceEqual(notebookFixture["cells"]!.Deserialize<NativeNotebookCell[]>(ConversationSnapshot.JsonOptions)!), "Notebook projection differs from WebView fixture");

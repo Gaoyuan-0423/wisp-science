@@ -92,6 +92,12 @@ pub(crate) async fn dispatch(
                 serde_json::to_value(rows).map_err(|e| e.to_string())?,
             )
         }
+        "native_conversation_panel_highlight_star" => {
+            let value = invoke_command(broker, Some(project_id.into()), "star_library_text", serde_json::json!({
+                "sessionId": session, "text": args.text.ok_or("Selected text is required")?,
+            })).await?;
+            contract::<wisp_dto::LibraryItem>(value)
+        }
         "native_conversation_panel_highlight_remove" => {
             // Personal library snapshots remain editable even when the source session is read-only.
             let id = args.library_item_id.ok_or("Library item ID is required")?;

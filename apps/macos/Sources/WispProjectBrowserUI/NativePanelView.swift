@@ -10,6 +10,8 @@ struct NativePanelView: View {
     @State private var query = ""
     @State private var activity: NativeContextActivitySelection?
     private var availableTabs: [String] { NativePanelTabs.defaults + ["notebook", "highlights", "provenance"] + (sideChat == nil ? [] : ["sidechat"]) }
+    let highlightRevision: Int
+    let highlightRemoved: (String) -> Void
     let sideChat: NativeSideChatModel?
     let revealExcerpt: (String) -> Void
     let transcript: [ConversationItem]
@@ -17,8 +19,8 @@ struct NativePanelView: View {
     let manageWorkflows: () -> Void
     let readOnly: Bool
     let close: () -> Void
-    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, sideChat: NativeSideChatModel? = nil, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.sideChat = sideChat; self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
+    init(client: any NativeConversationQuerying, projectID: String, sessionID: String, highlightRevision: Int = 0, highlightRemoved: @escaping (String) -> Void = { _ in }, sideChat: NativeSideChatModel? = nil, transcript: [ConversationItem] = [], transcriptPage: String = "latest", revealExcerpt: @escaping (String) -> Void = { _ in }, readOnly: Bool = false, manageWorkflows: @escaping () -> Void = {}, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: NativePanelModel(client: client, projectID: projectID, sessionID: sessionID)); self.highlightRevision = highlightRevision; self.highlightRemoved = highlightRemoved; self.sideChat = sideChat; self.revealExcerpt = revealExcerpt; self.transcript = transcript; self.transcriptPage = transcriptPage; self.manageWorkflows = manageWorkflows; self.readOnly = readOnly; self.close = close
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -53,7 +55,7 @@ struct NativePanelView: View {
                     } else if tab == "notebook" {
                         NativeNotebookView(model: model, cells: NativeNotebookCell.collect(transcript), query: query).id(transcriptPage)
                     } else if tab == "highlights" {
-                        NativeHighlightsView(model: model, query: query, reveal: revealExcerpt)
+                        NativeHighlightsView(model: model, query: query, reveal: revealExcerpt, removed: highlightRemoved)
                     } else if tab == "provenance" {
                         NativeProvenanceView(rows: NativeProvenanceRow.collect(transcript), query: query).id(transcriptPage)
                     } else if tab == "agents" {
@@ -91,6 +93,7 @@ struct NativePanelView: View {
             .sheet(item: $activity) { selection in
                 NativeContextActivityView(client: model.client, projectID: model.projectID, sessionID: model.sessionID, selection: selection) { activity = nil }
             }
+            .onChange(of: highlightRevision) { _ in if tab == "highlights" { Task { await model.refresh("highlights") } } }
             .onDisappear { model.close() }
     }
     private var layout: NativePanelTabs { NativePanelTabs(saved: savedTabs, selected: tab, available: availableTabs) }

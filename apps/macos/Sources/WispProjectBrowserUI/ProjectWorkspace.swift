@@ -18,6 +18,8 @@ struct ProjectWorkspace: View {
     @State private var sharePresented = false
     @State private var terminalVisible = false
     @AppStorage("native.workspace.panel.visible") private var panelVisible = false
+    @AppStorage("native.workspace.panel.tab") private var panelTab = "artifacts"
+    @AppStorage("native.workspace.panel.tabs") private var panelTabs = ""
     @State private var panelWidth: CGFloat = 340
     @State private var panelDragStart: CGFloat?
     @State private var terminalHeight: CGFloat = 300
@@ -79,8 +81,16 @@ struct ProjectWorkspace: View {
                     }.padding().foregroundStyle(.orange)
                 }
                 if let session = model.activeSessionID {
-                    NativeConversationView(conversation: conversation)
-                        .task(id: project.id + ":" + session) { await conversation.open(project: project.id, session: session) }
+                    NativeConversationView(conversation: conversation, projectID: project.id, sessionID: session) { selection in
+                        guard model.activeProjectID == project.id, model.activeSessionID == session else { return }
+                        model.nativeSideChat(projectID: project.id, sessionID: session).quotes.append(.init(text: selection, source: "会话摘录"))
+                        var tabs = NativePanelTabs(saved: panelTabs, selected: panelTab, available: NativePanelTabs.all)
+                        tabs.show("sidechat"); panelTabs = tabs.saved; panelTab = tabs.selected; panelVisible = true
+                    }
+                        .task(id: project.id + ":" + session) {
+                            await conversation.open(project: project.id, session: session)
+                            await conversation.loadSavedHighlights(project: project.id, session: session)
+                        }
                         .onDisappear { conversation.pause() }
                 } else {
                     VStack(spacing: 16) {
@@ -105,7 +115,7 @@ struct ProjectWorkspace: View {
                         if panelDragStart == nil { panelDragStart = panelWidth }
                         panelWidth = min(600, max(280, (panelDragStart ?? 340) - value.translation.width))
                     }.onEnded { _ in panelDragStart = nil })
-                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings) { panelVisible = false }
+                NativePanelView(client: conversation.client, projectID: project.id, sessionID: session, highlightRevision: conversation.savedHighlightRevision, highlightRemoved: { id in conversation.removeSavedHighlight(id, project: project.id, session: session) }, sideChat: model.nativeSideChat(projectID: project.id, sessionID: session), transcript: conversation.visibleItems, transcriptPage: conversation.showingHistory ? "history:\(conversation.history?.next_before_seq.map(String.init) ?? "start")" : "latest", revealExcerpt: conversation.revealExcerpt, readOnly: conversation.snapshot?.read_only ?? true, manageWorkflows: model.openWorkflowSettings) { panelVisible = false }
                     .frame(width: panelWidth).id(project.id + ":" + session)
             }
         }

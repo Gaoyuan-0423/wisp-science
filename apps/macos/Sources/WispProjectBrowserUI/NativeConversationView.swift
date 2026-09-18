@@ -3,6 +3,9 @@ import WispProjectBrowser
 
 struct NativeConversationView: View {
     @ObservedObject var conversation: NativeConversationModel
+    var projectID: String?
+    var sessionID: String?
+    var quoteSelection: (String) -> Void = { _ in }
     @Environment(\.colorScheme) private var scheme
     @State private var confirmResend = false
     @State private var followLatest = true
@@ -116,8 +119,10 @@ struct NativeConversationView: View {
                 }
                 Text("选择选项会填入输入框，点击发送后继续。").font(WispDesign.font(size: 11)).foregroundStyle(.secondary)
             } else {
-                Text(markedText(item, index: index))
-                    .font(WispDesign.font(size: 14)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                NativeSelectableMessage(text: markedText(item, index: index), saved: conversation.savedHighlights.map(\.code), quote: quoteSelection) { selection in
+                    guard let projectID, let sessionID else { return }
+                    Task { await conversation.saveSelection(selection, project: projectID, session: sessionID) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(item.role == "user" ? color("bg-sunken") : .clear, in: RoundedRectangle(cornerRadius: 12))

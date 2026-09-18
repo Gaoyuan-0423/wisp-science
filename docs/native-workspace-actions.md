@@ -552,3 +552,42 @@ Command-Return and selection preservation. A focused render with a multiline
 draft passed afterward, and its narrow dark layout was inspected. The complete
 application's shortcut routing with a real IME still belongs to final live smoke
 verification; these tests do not replace the window-level Escape audit.
+
+## Native message selection and saved marks
+
+Ordinary conversation message bodies now use a selectable AppKit text view hosted
+in SwiftUI. The native context menu adds Quote to Side Chat and Save Highlight to
+nonempty selections, alongside standard text actions. Each menu action captures
+both the selected text and its callback at menu creation, so a streaming update
+cannot silently replace the selected excerpt. The workspace validates the
+original project/session before opening SideChat, adds a read-only quote and
+reveals that tab without sending a question automatically.
+
+Save Highlight reuses `star_library_text`, with the existing source metadata,
+size validation and deduplicated library storage. The native conversation model
+validates the returned text and source identity and applies it only after success.
+Duplicate in-flight saves are suppressed; errors are not automatically replayed.
+A late result or an old menu cannot mark a different session. WinUI's typed
+highlight client now exposes the same save operation.
+
+Saved excerpts underline every whitespace-insensitive occurrence in rendered
+message text. Swift character ranges and C# UTF-16 ranges preserve their native
+text-control indexing. Markdown emphasis, links and configured UI fonts remain
+available, and mark updates preserve the selected range. Removing a highlight
+from the panel removes only that item's mark, so a stale panel list cannot erase
+an unrelated newly saved excerpt. Message-open reads and save responses have
+independent generation guards. A successful save refreshes an open Highlights tab.
+
+New tests cover frozen menu selection/callbacks, Unicode, repeated marks,
+formatting, selection preservation, failed/mismatched saves and session switches.
+Narrow light/dark selectable-message renders were inspected. These tests use
+actual AppKit text selection and menu action objects; they do not yet prove the
+complete application's immediate-Escape behavior for a displayed context menu.
+Tool-result and file-preview selections still need the same native action wiring.
+Full repository gates and final live toolbar smoke verification remain pending.
+
+Validation: all 114 Swift tests (including opt-in rendering), 17 DTO contract
+tests, four native panel backend tests and the C# contract executable passed.
+The first Swift run hit a 30-second timeout in the existing process-transport
+test; its focused rerun and the subsequent complete suite passed without changing
+the transport timeout. The cause of that transient failure is not established.

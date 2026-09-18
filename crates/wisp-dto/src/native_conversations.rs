@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "wisp.native-conversations.v1";
 pub const COMMANDS: &[&str] = &[
+    "native_conversation_panel_highlight_star",
     "native_conversation_panel_side_chat",
     "native_conversation_panel_side_chat_options",
     "native_conversation_panel_notebook_stars",
@@ -91,6 +92,8 @@ pub struct PanelContexts {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanelRequest {
+    #[serde(default)]
+    pub text: Option<String>,
     #[serde(default)]
     pub question: Option<String>,
     #[serde(default)]

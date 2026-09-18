@@ -6,6 +6,7 @@ struct NativeHighlightsView: View {
     @ObservedObject var model: NativePanelModel
     var query = ""
     let reveal: (String) -> Void
+    var removed: (String) -> Void = { _ in }
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         if model.highlights.isEmpty && !model.loading {
@@ -20,7 +21,10 @@ struct NativeHighlightsView: View {
                 HStack {
                     Spacer()
                     Button("复制") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(item.code, forType: .string) }
-                    Button("取消收藏") { Task { await model.removeHighlight(item.id) } }.disabled(model.highlightRemoving.contains(item.id))
+                    Button("取消收藏") { Task {
+                        await model.removeHighlight(item.id)
+                        if !model.highlights.contains(where: { $0.id == item.id }) { removed(item.id) }
+                    } }.disabled(model.highlightRemoving.contains(item.id))
                     if model.highlightRemoving.contains(item.id) { ProgressView().controlSize(.small) }
                 }.font(.caption)
             }.padding(12).background(WispDesign.color("bg-elev", scheme), in: RoundedRectangle(cornerRadius: 8))

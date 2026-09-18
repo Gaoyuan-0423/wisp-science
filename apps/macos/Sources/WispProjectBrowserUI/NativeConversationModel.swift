@@ -9,6 +9,10 @@ final class NativeConversationModel: ObservableObject {
     @Published private(set) var outline: [ConversationOutlineEntry] = []
     @Published private(set) var outlineLoading = false
     @Published private(set) var outlineError: String?
+    @Published private(set) var savedHighlights: [NativeHighlight] = []
+    @Published private(set) var savedHighlightRevision = 0
+    @Published private(set) var savingSelections: Set<String> = []
+    private var highlightsReadGeneration = UUID()
     @Published private(set) var revealedExcerpt: String?
     @Published private(set) var scrollTarget: Int?
     @Published private(set) var scrollRevision = 0
@@ -38,6 +42,7 @@ final class NativeConversationModel: ObservableObject {
     func open(project: String, session: String) async {
         pause()
         outlinePresented = false; outline = []; outlineError = nil; outlineLoading = false; scrollTarget = nil; revealedExcerpt = nil
+        savedHighlights = []; savingSelections = []; highlightsReadGeneration = UUID()
         projectID = project; sessionID = session; draft = drafts[session] ?? ""
         snapshot = nil; history = nil; showingHistory = false; pending = pendingSends[session]; uncertainSend = pending != nil; retiredEpochs = []
         operationError = pending == nil ? nil : "上次发送结果尚未确认。请核对最新消息；不会自动重发。"
@@ -179,6 +184,34 @@ final class NativeConversationModel: ObservableObject {
             scrollRevision += 1
             outlinePresented = false
         } catch { if current == generation { outlineError = error.localizedDescription } }
+    }
+    func loadSavedHighlights(project: String, session: String) async {
+        guard projectID == project, sessionID == session else { return }
+        let current = generation; let read = UUID(); highlightsReadGeneration = read
+        do {
+            let value = try await client.invoke("native_conversation_panel_highlights", args: ["session_id": .string(session)], projectID: project)
+            let rows = try JSONDecoder().decode([NativeHighlight].self, from: JSONEncoder().encode(value))
+            guard current == generation, read == highlightsReadGeneration else { return }
+            guard rows.allSatisfy({ $0.belongs(project: project, session: session) }) else { throw ProjectBrowserError.invalidResponse }
+            savedHighlights = rows
+        } catch { if current == generation, read == highlightsReadGeneration { operationError = error.localizedDescription } }
+    }
+    func removeSavedHighlight(_ id: String, project: String, session: String) {
+        guard projectID == project, sessionID == session else { return }
+        highlightsReadGeneration = UUID(); savedHighlights.removeAll { $0.id == id }
+    }
+    func saveSelection(_ text: String, project: String, session: String) async {
+        guard projectID == project, sessionID == session, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !savingSelections.contains(text) else { return }
+        let current = generation; savingSelections.insert(text); operationError = nil
+        defer { if current == generation { savingSelections.remove(text) } }
+        do {
+            let value = try await client.invoke("native_conversation_panel_highlight_star", args: ["session_id": .string(session), "text": .string(text)], projectID: project)
+            let row = try JSONDecoder().decode(NativeHighlight.self, from: JSONEncoder().encode(value))
+            guard current == generation else { return }
+            guard row.belongs(project: project, session: session), row.code == text else { throw ProjectBrowserError.invalidResponse }
+            highlightsReadGeneration = UUID(); savedHighlights.removeAll { $0.id == row.id }; savedHighlights.append(row)
+            savedHighlightRevision += 1
+        } catch { if current == generation { operationError = error.localizedDescription } }
     }
     func revealExcerpt(_ text: String) {
         guard let index = visibleItems.firstIndex(where: { item in

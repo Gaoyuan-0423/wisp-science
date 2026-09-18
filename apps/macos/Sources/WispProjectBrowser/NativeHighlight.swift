@@ -17,15 +17,20 @@ public struct NativeHighlight: Codable, Identifiable, Equatable, Sendable {
 public enum NativeSavedExcerpt {
     /// Character offsets in rendered text; whitespace is ignored like WebView saved marks.
     public static func range(in text: String, excerpt: String) -> Range<Int>? {
+        ranges(in: text, excerpt: excerpt).first
+    }
+    public static func ranges(in text: String, excerpt: String) -> [Range<Int>] {
         let needle = Array(excerpt).filter { !$0.isWhitespace }
-        guard !needle.isEmpty else { return nil }
+        guard !needle.isEmpty else { return [] }
         let indexed = Array(text).enumerated().filter { !$0.element.isWhitespace }
-        guard indexed.count >= needle.count else { return nil }
-        for start in 0...(indexed.count - needle.count) {
+        guard indexed.count >= needle.count else { return [] }
+        var result: [Range<Int>] = []; var start = 0
+        while start <= indexed.count - needle.count {
             if zip(indexed[start..<(start + needle.count)], needle).allSatisfy({ $0.0.element == $0.1 }) {
-                return indexed[start].offset..<(indexed[start + needle.count - 1].offset + 1)
-            }
+                result.append(indexed[start].offset..<(indexed[start + needle.count - 1].offset + 1))
+                start += needle.count
+            } else { start += 1 }
         }
-        return nil
+        return result
     }
 }
