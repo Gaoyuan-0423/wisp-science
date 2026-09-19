@@ -140,6 +140,7 @@ impl DesktopPetActivity {
             | AgentEvent::ToolPresentation { .. }
             | AgentEvent::AppContextUpdate { .. }
             | AgentEvent::Compaction { .. }
+            | AgentEvent::CompactionUndone { .. }
             | AgentEvent::ContextWarning { .. }
             | AgentEvent::Diff { .. }
             | AgentEvent::FileChanged { .. }

@@ -181,6 +181,7 @@ impl DeviceHub {
             | AgentEvent::AppContextUpdate { .. }
             | AgentEvent::Usage { .. }
             | AgentEvent::Compaction { .. }
+            | AgentEvent::CompactionUndone { .. }
             | AgentEvent::ContextWarning { .. }
             | AgentEvent::Diff { .. }
             | AgentEvent::FileChanged { .. } => return,

@@ -527,6 +527,56 @@ pub(crate) fn user_message_index(items: &[ChatItem], ui_index: usize) -> Option<
     )
 }
 
+/// Mark the compaction card for `epoch` as undone after `CompactionUndone`.
+pub(crate) fn apply_compaction_undone(items: &mut [ChatItem], epoch: u64) {
+    for item in items {
+        let ChatItem::Compaction {
+            epoch: Some(item_epoch),
+            undone,
+            can_undo,
+            undo_reason,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if *item_epoch != epoch {
+            continue;
+        }
+        *undone = true;
+        *can_undo = false;
+        *undo_reason = Some("undone".into());
+    }
+}
+
+/// UI index of the user bubble at visual `kept_from` (plus `user_offset`).
+pub(crate) fn compaction_rewind_ui_index(
+    items: &[ChatItem],
+    user_offset: usize,
+    kept_from: usize,
+) -> Option<usize> {
+    let mut seen = user_offset;
+    for (ui_index, item) in items.iter().enumerate() {
+        if !matches!(item, ChatItem::User(_)) {
+            continue;
+        }
+        if seen == kept_from {
+            return Some(ui_index);
+        }
+        seen += 1;
+    }
+    None
+}
+
+pub(crate) fn compaction_undo_reason_key(reason: &str) -> &'static str {
+    match reason {
+        "undone" => "chat.compaction_undo_reason_undone",
+        "not_head" => "chat.compaction_undo_reason_not_head",
+        "has_new_turns" => "chat.compaction_undo_reason_has_new_turns",
+        _ => "chat.compaction_undo_reason_has_new_turns",
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct QueuedTurnRow {
     pub id: u64,
@@ -956,6 +1006,70 @@ mod conversation_outline_tests {
                 .map(|entry| (entry.user_index, entry.text.as_str()))
                 .collect::<Vec<_>>(),
             vec![(0, "first"), (1, "second"), (2, "third")]
+        );
+    }
+}
+
+#[cfg(test)]
+mod compaction_undo_tests {
+    use super::{apply_compaction_undone, compaction_rewind_ui_index, compaction_undo_reason_key};
+    use crate::dto::ChatItem;
+
+    #[test]
+    fn loaded_compaction_fields_survive_into_chat_and_undone_mark() {
+        let item = crate::dto::LoadedItem {
+            role: "compaction".into(),
+            text: r#"{"before":10,"after":4,"strategy":"manual","epoch":1,"checkpoint":"folded older turns","kept_from_user_index":1,"undone":false,"can_undo":true}"#.into(),
+            tool_name: None,
+            ok: None,
+            duration_ms: None,
+            input: String::new(),
+            model_name: None,
+            call_id: None,
+            kind: None,
+            status: None,
+            locations: None,
+            resources: Vec::new(),
+        };
+        let mut items = vec![
+            ChatItem::User("q1".into()),
+            ChatItem::User("q2".into()),
+            item.into_chat(),
+        ];
+        match &items[2] {
+            ChatItem::Compaction {
+                checkpoint,
+                kept_from_user_index,
+                undone,
+                can_undo,
+                ..
+            } => {
+                assert_eq!(checkpoint.as_deref(), Some("folded older turns"));
+                assert_eq!(*kept_from_user_index, Some(1));
+                assert!(!*undone);
+                assert!(*can_undo);
+            }
+            _ => panic!("expected ChatItem::Compaction"),
+        }
+        apply_compaction_undone(&mut items, 1);
+        match &items[2] {
+            ChatItem::Compaction {
+                undone,
+                can_undo,
+                undo_reason,
+                ..
+            } => {
+                assert!(*undone);
+                assert!(!*can_undo);
+                assert_eq!(undo_reason.as_deref(), Some("undone"));
+            }
+            _ => panic!("expected ChatItem::Compaction"),
+        }
+        assert_eq!(compaction_rewind_ui_index(&items, 0, 1), Some(1));
+        assert_eq!(compaction_rewind_ui_index(&items, 2, 3), Some(1));
+        assert_eq!(
+            compaction_undo_reason_key("has_new_turns"),
+            "chat.compaction_undo_reason_has_new_turns"
         );
     }
 }
