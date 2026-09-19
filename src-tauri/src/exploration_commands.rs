@@ -1532,17 +1532,6 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let open = |messages: &[wisp_llm::Message]| wisp_store::OpenContextEpoch {
-            messages,
-            strategy: "manual",
-            kind: "semantic",
-            before_tokens: 1000,
-            after_tokens: 200,
-            checkpoint_index: Some(1),
-            first_kept_seq: Some(5),
-            archive_ref: None,
-            ui_event_seq: None,
-        };
         let first = vec![
             wisp_llm::Message::system("sys"),
             wisp_llm::Message::user("[context summary checkpoint]\n\nsummary"),
@@ -1551,7 +1540,20 @@ mod tests {
         ];
         service
             .store
-            .open_context_epoch("main", open(&first))
+            .open_context_epoch(
+                "main",
+                wisp_store::OpenContextEpoch {
+                    messages: &first,
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 1000,
+                    after_tokens: 200,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: Some(5),
+                    archive_ref: None,
+                    ui_event_seq: None,
+                },
+            )
             .await
             .unwrap();
         let second = vec![
@@ -1562,7 +1564,20 @@ mod tests {
         ];
         service
             .store
-            .open_context_epoch("main", open(&second))
+            .open_context_epoch(
+                "main",
+                wisp_store::OpenContextEpoch {
+                    messages: &second,
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 1000,
+                    after_tokens: 200,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: Some(5),
+                    archive_ref: None,
+                    ui_event_seq: None,
+                },
+            )
             .await
             .unwrap();
         service
