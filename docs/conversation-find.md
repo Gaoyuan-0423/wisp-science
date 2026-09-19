@@ -18,3 +18,16 @@ to search that window; the count refreshes when displayed content changes.
 Collapsed content is searchable after expanding it. Editors and terminals keep
 their own find shortcuts when focused.
 Older WebViews without the CSS Highlight API retain their native find UI.
+
+## Finding older questions after compaction
+
+The conversation outline lists the saved visual history, including questions
+that are no longer part of the model's compacted context. Its count does not
+depend on which message page is currently displayed. Context summary
+checkpoints are not counted as questions.
+
+Choose a question in the outline to load and scroll to it. When an old message
+cursor cannot be used safely after compaction, Wisp walks saved history pages
+until it finds that question. Loading failures are shown and the selection can
+be retried. Scrolling upward also loads earlier pages. This restores access to
+persisted history; it cannot reconstruct events that were never saved.

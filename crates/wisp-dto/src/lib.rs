@@ -2530,7 +2530,7 @@ pub struct LoadedSessionPage {
     pub pending_approvals: Vec<PendingToolApproval>,
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SessionOutlineItem {
     pub user_index: usize,
     #[serde(default)]

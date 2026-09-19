@@ -6890,11 +6890,18 @@ fn App() -> impl IntoView {
         true
     })));
 
+    let outline_jump_request = store_value(0_u64);
     let jump_to_conversation_outline =
         Callback::new(move |(target, before_seq): (usize, Option<i64>)| {
+            outline_jump_request.update_value(|request| *request += 1);
+            let request = outline_jump_request.get_value();
+            let load_epoch = transcript_load_epoch.get_untracked();
             let Some(id) = active_session.get_untracked() else {
                 return;
             };
+            let event_revision =
+                transcript_event_revisions.with_untracked(|all| all.get(&id).copied());
+            transcript_page_error.set(None);
             let user_offset = transcript_pages
                 .with_untracked(|pages| pages.get(&id).copied())
                 .map_or(0, |page| page.user_offset);
@@ -6911,34 +6918,78 @@ fn App() -> impl IntoView {
                 return;
             }
             conversation_outline_selected.set(Some(target));
+            transcript_page_error.set(None);
             spawn_local(async move {
-                let value = invoke(
-                    "load_session",
-                    to_value(&serde_json::json!({
-                        "id": id.clone(),
-                        "beforeSeq": before_seq,
-                    }))
-                    .unwrap(),
-                )
-                .await;
-                let Ok(page) = serde_wasm_bindgen::from_value::<LoadedSessionPage>(value) else {
-                    return;
+                let mut cursor = before_seq;
+                let mut visited = HashSet::new();
+                let result = loop {
+                    if !visited.insert(cursor) {
+                        break Err("History pagination did not advance".to_string());
+                    }
+                    let result = invoke_checked(
+                        "load_session",
+                        to_value(&serde_json::json!({ "id": id.clone(), "beforeSeq": cursor }))
+                            .unwrap(),
+                    )
+                    .await
+                    .map_err(js_error_text)
+                    .and_then(|value| {
+                        serde_wasm_bindgen::from_value::<LoadedSessionPage>(value)
+                            .map_err(|error| error.to_string())
+                    });
+                    // A newer jump, reload, or session switch owns the view.
+                    if outline_jump_request.get_value() != request
+                        || transcript_load_epoch.get_untracked() != load_epoch
+                        || transcript_event_revisions.with_untracked(|all| all.get(&id).copied())
+                            != event_revision
+                        || active_session.get_untracked().as_deref() != Some(id.as_str())
+                    {
+                        return;
+                    }
+                    let page = match result {
+                        Ok(page) => page,
+                        Err(error) => break Err(error),
+                    };
+                    let mut chats = page
+                        .items
+                        .iter()
+                        .cloned()
+                        .map(LoadedItem::into_chat)
+                        .collect::<Vec<_>>();
+                    settle_question_cards(&mut chats);
+                    if conversation_outline_target_is_loaded(&chats, page.user_offset, target) {
+                        let target_local = target - page.user_offset;
+                        break Ok((page, chats, target_local));
+                    }
+                    if target < page.user_offset {
+                        if let Some(next) = page.next_before_seq {
+                            cursor = Some(next);
+                            continue;
+                        }
+                    }
+                    // An obsolete supplied cursor may land before the target.
+                    // Restart at the latest page once, then follow only the
+                    // cursors returned by the backend.
+                    if !visited.contains(&None) {
+                        cursor = None;
+                        continue;
+                    }
+                    break Err("The selected question is unavailable in saved history".to_string());
                 };
-                let target_local = target.saturating_sub(page.user_offset);
-                let mut chats = page
-                    .items
-                    .into_iter()
-                    .map(LoadedItem::into_chat)
-                    .collect::<Vec<_>>();
-                settle_question_cards(&mut chats);
-                let chats = chats;
-                let loaded_turns = chats
-                    .iter()
-                    .filter(|item| matches!(item, ChatItem::User(_) | ChatItem::QueuedUser { .. }))
-                    .count();
-                if target < page.user_offset || target_local >= loaded_turns {
-                    return;
-                }
+                let (page, chats, target_local) = match result {
+                    Ok(result) => result,
+                    Err(error) => {
+                        transcript_page_error.set(Some((
+                            id.clone(),
+                            tf(
+                                locale.get_untracked(),
+                                "transcript.load_failed",
+                                &[("msg", &error)],
+                            ),
+                        )));
+                        return;
+                    }
+                };
                 if !page.outline.is_empty() {
                     conversation_outlines.update(|outlines| {
                         outlines.insert(id.clone(), page.outline);
