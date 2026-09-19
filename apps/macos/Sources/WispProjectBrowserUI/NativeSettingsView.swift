@@ -196,7 +196,7 @@ struct NativeSettingsView: View {
             Divider().padding(.vertical, 10)
             Text(localized("后续交互")).font(WispDesign.font(size: 15, weight: .semibold))
             NativePreferenceRow(title: "建议后续问题", hint: "回复完成后提供可继续探索的问题。") { settingToggle("follow_up_questions") }
-            immediateToggle("自动审核", read: "get_auto_review_enabled", write: "set_auto_review_enabled")
+            immediateToggle("自动审核（新会话默认）", read: "get_auto_review_enabled", write: "set_auto_review_enabled")
             HStack { Spacer(); Button(localized("取消")) { state.discardDrafts() }; Button(localized("保存")) { Task { await state.saveSettings() } }.buttonStyle(NativeSettingsButtonStyle(primary: true)) }
         }
     }

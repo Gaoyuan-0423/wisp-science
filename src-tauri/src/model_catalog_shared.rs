@@ -145,23 +145,25 @@ pub fn namespace_candidates(provider: &str, api_url: &str) -> Vec<&'static str> 
         .next()
         .unwrap_or("")
         .trim_end_matches('/');
-    let by_host = match host.as_str() {
-        "opencode.ai" if path == "zen/go" || path.starts_with("zen/go/") => Some("opencode-go"),
-        "opencode.ai" if path == "zen" || path.starts_with("zen/") => Some("opencode"),
-        "api.anthropic.com" => Some("anthropic"),
-        "api.openai.com" => Some("openai"),
-        "api.x.ai" => Some("xai"),
-        "api.deepseek.com" => Some("deepseek"),
-        "api.moonshot.ai" | "api.moonshot.cn" => Some("moonshotai"),
+    let by_host: &[&'static str] = match host.as_str() {
+        "opencode.ai" if path == "zen/go" || path.starts_with("zen/go/") => &["opencode-go"],
+        "opencode.ai" if path == "zen" || path.starts_with("zen/") => &["opencode"],
+        "api.anthropic.com" => &["anthropic"],
+        "api.openai.com" => &["openai"],
+        "api.x.ai" => &["xai"],
+        "api.deepseek.com" => &["deepseek"],
+        "api.moonshot.ai" | "api.moonshot.cn" => &["moonshotai"],
         // Kimi Code managed models live in their own namespace; the same host
-        // also serves the open Kimi platform ids.
-        "api.kimi.com" => Some("kimi-for-coding"),
-        "open.bigmodel.cn" => Some("zhipuai"),
-        _ => None,
+        // also serves the open Kimi platform ids. models.dev renamed that
+        // namespace `kimi-for-coding` -> `kimi-code-plan-{cn,global}`, so both
+        // are candidates: a freshly fetched catalog carries the new id, a
+        // stale offline snapshot still carries the old one.
+        "api.kimi.com" => &["kimi-code-plan-cn", "kimi-for-coding"],
+        "api.kimi.ai" => &["kimi-code-plan-global", "kimi-for-coding"],
+        "open.bigmodel.cn" => &["zhipuai"],
+        _ => &[],
     };
-    if let Some(ns) = by_host {
-        out.push(ns);
-    }
+    out.extend_from_slice(by_host);
     let by_provider = match provider.trim() {
         "anthropic" => Some("anthropic"),
         "openai" | "openai_responses" => Some("openai"),
@@ -257,6 +259,30 @@ mod tests {
             }
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn kimi_code_host_accepts_the_renamed_and_legacy_namespaces() {
+        assert_eq!(
+            namespace_candidates("openai", "https://api.kimi.com/coding/v1"),
+            vec!["kimi-code-plan-cn", "kimi-for-coding", "openai"]
+        );
+        assert_eq!(
+            namespace_candidates("openai", "https://api.kimi.ai/coding/v1"),
+            vec!["kimi-code-plan-global", "kimi-for-coding", "openai"]
+        );
+        let renamed: Catalog = serde_json::from_str(
+            r#"{"kimi-code-plan-cn": {"k3-256k": {"c": 262144, "o": 131072}}}"#,
+        )
+        .unwrap();
+        let entry = lookup(
+            &renamed,
+            "openai",
+            "https://api.kimi.com/coding/v1",
+            "k3-256k",
+        )
+        .expect("the renamed namespace resolves");
+        assert_eq!((entry.c, entry.o), (262_144, 131_072));
     }
 
     #[test]

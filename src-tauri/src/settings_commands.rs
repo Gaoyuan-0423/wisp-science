@@ -926,17 +926,29 @@ mod tests {
 
 use super::*;
 
+/// With `session_id` this is that conversation's own flag; without one it is
+/// the default new conversations inherit (what the settings pane edits).
 #[tauri::command]
-pub(super) async fn get_auto_review_enabled(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(load_auto_review_enabled(&state.store).await)
+pub(super) async fn get_auto_review_enabled(
+    state: State<'_, AppState>,
+    session_id: Option<String>,
+) -> Result<bool, String> {
+    Ok(match session_id.as_deref() {
+        Some(session_id) => load_auto_review_enabled(&state.store, session_id).await,
+        None => load_default_auto_review_enabled(&state.store).await,
+    })
 }
 
 #[tauri::command]
 pub(super) async fn set_auto_review_enabled(
     state: State<'_, AppState>,
+    session_id: Option<String>,
     enabled: bool,
 ) -> Result<bool, String> {
-    save_auto_review_enabled(&state.store, enabled).await?;
+    match session_id.as_deref() {
+        Some(session_id) => save_auto_review_enabled(&state.store, session_id, enabled).await?,
+        None => save_default_auto_review_enabled(&state.store, enabled).await?,
+    }
     Ok(enabled)
 }
 
