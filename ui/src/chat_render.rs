@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 #[derive(Clone, Copy)]
 pub(crate) struct CompactionRowActions {
+    pub undo: Callback<()>,
     pub rewind_before: Callback<usize>,
 }
 
@@ -1293,7 +1294,9 @@ fn render_compaction_row(
     let undo_reason_key = undo_reason
         .as_deref()
         .map(compaction_undo_reason_key);
-    let rewind_before = use_context::<CompactionRowActions>().map(|actions| actions.rewind_before);
+    let actions = use_context::<CompactionRowActions>();
+    let undo_compaction = actions.map(|actions| actions.undo);
+    let rewind_before = actions.map(|actions| actions.rewind_before);
     view! {
         <div
             class="context-compaction-status context-compaction-complete"
@@ -1375,11 +1378,9 @@ fn render_compaction_row(
                                     if !can_undo {
                                         return;
                                     }
-                                    spawn_local(async move {
-                                        let sid = Option::<String>::None;
-                                        let args = to_value(&tauri_args::undo_compaction(&sid)).unwrap();
-                                        let _ = invoke_checked("undo_compaction", args).await;
-                                    });
+                                    if let Some(undo) = undo_compaction {
+                                        undo.call(());
+                                    }
                                 }
                             >
                                 {compose_icon("undo-compact")}
