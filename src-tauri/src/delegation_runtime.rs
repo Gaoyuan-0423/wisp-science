@@ -3237,7 +3237,7 @@ impl AgentDelegator for AcpDelegator {
                     .map_err(anyhow::Error::msg)?
             ),
         );
-        let next_seq = self.store.load_messages(&child_frame_id).await?.len() as i64 + 1;
+        let next_seq = self.store.max_message_seq(&child_frame_id).await? + 1;
         self.store
             .append_message(&child_frame_id, next_seq, &Message::user(&prompt_text))
             .await?;

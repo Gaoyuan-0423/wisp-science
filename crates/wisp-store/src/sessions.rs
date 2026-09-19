@@ -1,3 +1,4 @@
+use super::context_epochs::{HEAD_EPOCH_ROWS, LIVE_LOG_ROWS};
 use super::{
     parse_role, session_display_title, MessageResourceLink, RecentSessionDetail,
     SessionSearchResult, Store,
@@ -186,10 +187,10 @@ async fn branch_message_rows(
     tx: &mut Transaction<'_, Sqlite>,
     frame_id: &str,
 ) -> Result<Vec<BranchMessageRow>> {
-    let rows = sqlx::query(
+    let rows = sqlx::query(&format!(
         "SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name \
-         FROM messages WHERE frame_id=? ORDER BY seq",
-    )
+         FROM messages m WHERE m.frame_id=? AND {LIVE_LOG_ROWS} ORDER BY seq"
+    ))
     .bind(frame_id)
     .fetch_all(&mut **tx)
     .await?;
@@ -511,6 +512,7 @@ async fn delete_session_rows(tx: &mut Transaction<'_, Sqlite>, frame_id: &str) -
         "DELETE FROM codex_turn_configs WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
         "DELETE FROM acp_sessions WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
         "DELETE FROM execution_log WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
+        "DELETE FROM context_epochs WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
         "DELETE FROM messages WHERE frame_id IN (SELECT id FROM frames WHERE root_frame_id=?)",
     ] {
         sqlx::query(statement)
@@ -890,15 +892,16 @@ impl Store {
         insert_message_row(&self.pool, frame_id, seq, msg).await
     }
 
-    /// Replace a frame's model context wholesale (user-triggered /compact and
-    /// automatic compaction). Only the `messages` rows are rewritten — the
-    /// session_ui_events visual transcript keeps the full history on purpose.
-    /// Resource links and turn undo anchor to message seqs, which a rewrite
-    /// invalidates, so they are dropped too. Remapping `turn_file_undo` onto
-    /// the rewritten seqs would need a stable turn/message id (known #973
-    /// limitation); do not expand that here. Deletes and inserts share one
-    /// write transaction: an interruption mid-replace leaves the previous
-    /// transcript fully intact instead of an emptied or half-written frame.
+    /// Rebuild a frame's model context from scratch as epoch 0 (session
+    /// import, seed data, exploration clones, interrupted-turn rollback).
+    /// Only the `messages` rows are rewritten — the session_ui_events visual
+    /// transcript keeps the full history on purpose. Resource links and turn
+    /// undo anchor to message seqs, which a rewrite invalidates, so they are
+    /// dropped too. Compaction does not go through here any more: it opens a
+    /// new context epoch (`open_context_epoch`) and leaves seqs stable.
+    /// Deletes and inserts share one write transaction: an interruption
+    /// mid-replace leaves the previous transcript fully intact instead of an
+    /// emptied or half-written frame.
     pub async fn replace_messages(&self, frame_id: &str, msgs: &[Message]) -> Result<()> {
         let mut tx = self.begin_write().await?;
         replace_message_rows(&mut tx, frame_id, msgs).await?;
@@ -912,10 +915,11 @@ impl Store {
     /// untouched. Returns false when the frame has no system message.
     pub async fn replace_system_message(&self, frame_id: &str, msg: &Message) -> Result<bool> {
         let content = serde_json::to_string(&msg.content)?;
-        let updated = sqlx::query(
+        let updated = sqlx::query(&format!(
             "UPDATE messages SET content=? WHERE frame_id=? AND role='system' \
-             AND seq=(SELECT MIN(seq) FROM messages WHERE frame_id=? AND role='system')",
-        )
+             AND seq=(SELECT MIN(seq) FROM messages m WHERE m.frame_id=? AND role='system' \
+                      AND {HEAD_EPOCH_ROWS})"
+        ))
         .bind(content)
         .bind(frame_id)
         .bind(frame_id)
@@ -934,11 +938,12 @@ impl Store {
         if frame_ids.is_empty() {
             return Ok(map);
         }
-        let mut qb: sqlx::QueryBuilder<'_, sqlx::Sqlite> = sqlx::QueryBuilder::new(
-            "SELECT frame_id, content FROM messages m WHERE role='system' \
-             AND seq=(SELECT MIN(seq) FROM messages WHERE frame_id=m.frame_id AND role='system') \
-             AND frame_id IN (",
-        );
+        let mut qb: sqlx::QueryBuilder<'_, sqlx::Sqlite> = sqlx::QueryBuilder::new(format!(
+            "SELECT frame_id, content FROM messages m WHERE role='system' AND {HEAD_EPOCH_ROWS} \
+             AND seq=(SELECT MIN(seq) FROM messages mm WHERE mm.frame_id=m.frame_id \
+                      AND mm.role='system' AND mm.epoch=m.epoch) \
+             AND frame_id IN ("
+        ));
         let mut separated = qb.separated(", ");
         for id in frame_ids {
             separated.push_bind(id);
@@ -954,13 +959,14 @@ impl Store {
         Ok(map)
     }
 
+    /// Rows in the head epoch (what `load_messages` would return).
     pub async fn message_count(&self, frame_id: &str) -> Result<i64> {
-        Ok(
-            sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE frame_id=?")
-                .bind(frame_id)
-                .fetch_one(&self.pool)
-                .await?,
-        )
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM messages m WHERE m.frame_id=? AND {HEAD_EPOCH_ROWS}"
+        ))
+        .bind(frame_id)
+        .fetch_one(&self.pool)
+        .await?)
     }
 
     /// Durable seq cursor for a frame: `COALESCE(MAX(seq), 0)`.
@@ -1003,7 +1009,7 @@ impl Store {
     }
 }
 
-fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<(i64, Message)> {
+pub(crate) fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<(i64, Message)> {
     let seq: i64 = row.try_get("seq")?;
     let role: String = row.try_get("role")?;
     let content_json: String = row.try_get("content")?;
@@ -1033,9 +1039,26 @@ fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<(i64, Message)> {
     ))
 }
 
+/// Insert into the frame's head epoch (the context the model sees now).
 pub(crate) async fn insert_message_row<'e, E>(
     executor: E,
     frame_id: &str,
+    seq: i64,
+    msg: &Message,
+) -> Result<()>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    insert_message_row_in_epoch(executor, frame_id, None, seq, msg).await
+}
+
+/// `epoch = None` resolves to the frame's current `head_epoch` at insert time
+/// (0 when the frame row is missing). Compaction passes the new epoch
+/// explicitly; `replace_message_rows` passes 0.
+pub(crate) async fn insert_message_row_in_epoch<'e, E>(
+    executor: E,
+    frame_id: &str,
+    epoch: Option<i64>,
     seq: i64,
     msg: &Message,
 ) -> Result<()>
@@ -1056,7 +1079,10 @@ where
     } else {
         Some(serde_json::to_string(&msg.tool_calls)?)
     };
-    sqlx::query("INSERT INTO messages(id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+    sqlx::query(
+        "INSERT INTO messages(id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name,epoch) \
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,(SELECT head_epoch FROM frames WHERE id=?),0))",
+    )
         .bind(id).bind(frame_id).bind(seq).bind(role).bind(content)
         .bind(tool_calls)
         .bind(msg.tool_call_id.as_deref())
@@ -1064,6 +1090,8 @@ where
         .bind(msg.reasoning.as_deref())
         .bind(msg.ts)
         .bind(msg.model_name.as_deref())
+        .bind(epoch)
+        .bind(frame_id)
         .execute(executor).await?;
     Ok(())
 }
@@ -1087,8 +1115,18 @@ async fn replace_message_rows(
         .bind(frame_id)
         .execute(&mut **tx)
         .await?;
+    // A wholesale rewrite starts the frame's context history over: epoch 0
+    // only, no frozen epochs left behind.
+    sqlx::query("DELETE FROM context_epochs WHERE frame_id=?")
+        .bind(frame_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("UPDATE frames SET head_epoch=0 WHERE id=?")
+        .bind(frame_id)
+        .execute(&mut **tx)
+        .await?;
     for (i, msg) in msgs.iter().enumerate() {
-        insert_message_row(&mut **tx, frame_id, (i + 1) as i64, msg).await?;
+        insert_message_row_in_epoch(&mut **tx, frame_id, Some(0), (i + 1) as i64, msg).await?;
     }
     Ok(())
 }
@@ -1236,10 +1274,10 @@ impl Store {
         frame_id: &str,
         turn_limit: usize,
     ) -> Result<Vec<Message>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&format!(
             "WITH recent_user_turns AS (\
-                 SELECT seq FROM messages \
-                 WHERE frame_id=? AND role='user' AND tool_name IS NULL \
+                 SELECT seq FROM messages m \
+                 WHERE m.frame_id=? AND role='user' AND tool_name IS NULL AND {LIVE_LOG_ROWS} \
                  ORDER BY seq DESC LIMIT ?\
              ), start_seq AS (SELECT MIN(seq) AS seq FROM recent_user_turns) \
              SELECT seq,role,json_quote(substr(\
@@ -1253,9 +1291,9 @@ impl Store {
                  CASE WHEN role='tool' AND COALESCE(tool_name,'') NOT IN \
                      ('attempt_completion','propose_plan','ask_user') THEN ? ELSE ? END\
              )) AS content,NULL AS tool_calls,tool_call_id,tool_name,NULL AS reasoning,ts,model_name \
-             FROM messages WHERE frame_id=? \
-             AND seq>=COALESCE((SELECT seq FROM start_seq), 0) ORDER BY seq ASC",
-        )
+             FROM messages m WHERE m.frame_id=? AND {LIVE_LOG_ROWS} \
+             AND seq>=COALESCE((SELECT seq FROM start_seq), 0) ORDER BY seq ASC"
+        ))
         .bind(frame_id)
         .bind(turn_limit.max(1) as i64)
         .bind(RECENT_TURN_TOOL_PREVIEW_MAX_CHARS as i64)
@@ -1292,10 +1330,10 @@ impl Store {
         &self,
         frame_id: &str,
     ) -> Result<Vec<(i64, String, i64, Option<i64>)>> {
-        let rows = sqlx::query(
-            "SELECT seq,role,content,ts FROM messages \
-             WHERE frame_id=? AND role IN ('user','assistant') ORDER BY seq",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT seq,role,content,ts FROM messages m \
+             WHERE m.frame_id=? AND role IN ('user','assistant') AND {LIVE_LOG_ROWS} ORDER BY seq"
+        ))
         .bind(frame_id)
         .fetch_all(&self.pool)
         .await?;
@@ -1323,13 +1361,19 @@ impl Store {
         Ok(messages)
     }
 
-    /// Load all messages with their durable sequence numbers. Readers use the
-    /// sequence as a stable evidence locator even when one large transcript is
-    /// split across several model calls.
+    /// Load the head-epoch messages (the context the model sees now) with
+    /// their durable sequence numbers. Readers use the sequence as a stable
+    /// evidence locator even when one large transcript is split across
+    /// several model calls. Frozen epochs are reachable through
+    /// `load_messages_in_epoch` / `load_messages_all_epochs`.
     pub async fn load_messages_with_seq(&self, frame_id: &str) -> Result<Vec<(i64, Message)>> {
-        let rows = sqlx::query("SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name FROM messages WHERE frame_id=? ORDER BY seq ASC")
-            .bind(frame_id)
-            .fetch_all(&self.pool).await?;
+        let rows = sqlx::query(&format!(
+            "SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name \
+             FROM messages m WHERE m.frame_id=? AND {HEAD_EPOCH_ROWS} ORDER BY seq ASC"
+        ))
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
         let mut out = vec![];
         for row in rows {
             match message_from_row(&row) {
@@ -1353,10 +1397,13 @@ impl Store {
         turn_limit: usize,
     ) -> Result<SessionTranscriptPage> {
         let limit = turn_limit.max(1);
-        let user_rows = sqlx::query(
-            "SELECT seq FROM messages WHERE frame_id=? AND role='user' \
-             AND (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?",
-        )
+        // Paging walks the live log: compaction copies (checkpoint, retained
+        // tail) have no visual events of their own and would otherwise count
+        // as extra user turns and push the page window past the last boundary.
+        let user_rows = sqlx::query(&format!(
+            "SELECT seq FROM messages m WHERE m.frame_id=? AND role='user' AND {LIVE_LOG_ROWS} \
+             AND (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?"
+        ))
         .bind(frame_id)
         .bind(before_seq)
         .bind(before_seq)
@@ -1369,9 +1416,10 @@ impl Store {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let has_more = user_seqs.len() > limit;
         let selected = &user_seqs[..user_seqs.len().min(limit)];
-        let oldest_available: Option<i64> = sqlx::query_scalar(
-            "SELECT MIN(seq) FROM messages WHERE frame_id=? AND (? IS NULL OR seq < ?)",
-        )
+        let oldest_available: Option<i64> = sqlx::query_scalar(&format!(
+            "SELECT MIN(seq) FROM messages m WHERE m.frame_id=? AND {LIVE_LOG_ROWS} \
+             AND (? IS NULL OR seq < ?)"
+        ))
         .bind(frame_id)
         .bind(before_seq)
         .bind(before_seq)
@@ -1386,10 +1434,11 @@ impl Store {
         };
         let next_before_seq = has_more.then_some(start_seq);
 
-        let rows = sqlx::query(
+        let rows = sqlx::query(&format!(
             "SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name \
-             FROM messages WHERE frame_id=? AND seq>=? AND (? IS NULL OR seq < ?) ORDER BY seq",
-        )
+             FROM messages m WHERE m.frame_id=? AND {LIVE_LOG_ROWS} \
+             AND seq>=? AND (? IS NULL OR seq < ?) ORDER BY seq"
+        ))
         .bind(frame_id)
         .bind(start_seq)
         .bind(before_seq)
@@ -2110,7 +2159,7 @@ impl Store {
         }
 
         let source = sqlx::query(
-            "SELECT agent_name,status,model,reasoning_effort,service_tier,input_tokens,output_tokens,completed_at,title \
+            "SELECT agent_name,status,model,reasoning_effort,service_tier,input_tokens,output_tokens,completed_at,title,head_epoch \
              FROM frames WHERE id=? AND project_id=? AND parent_frame_id=id",
         )
         .bind(frame_id)
@@ -2123,8 +2172,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO frames(\
                 id,parent_frame_id,root_frame_id,agent_name,status,project_id,folder_id,model,reasoning_effort,service_tier,\
-                input_tokens,output_tokens,created_at,updated_at,completed_at,title\
-             ) VALUES(?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?)",
+                input_tokens,output_tokens,created_at,updated_at,completed_at,title,head_epoch\
+             ) VALUES(?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(new_frame_id)
         .bind(new_frame_id)
@@ -2141,36 +2190,34 @@ impl Store {
         .bind(now)
         .bind(source.try_get::<Option<i64>, _>("completed_at")?)
         .bind(source.try_get::<Option<String>, _>("title")?)
+        .bind(source.try_get::<i64, _>("head_epoch")?)
         .execute(&mut *tx)
         .await?;
 
-        let messages = sqlx::query(
-            "SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name \
+        // Every epoch moves with the conversation so frozen history stays
+        // rewindable in the target project.
+        sqlx::query(
+            "INSERT INTO messages(\
+                id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name,epoch\
+             ) SELECT lower(hex(randomblob(16))),?,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name,epoch \
              FROM messages WHERE frame_id=? ORDER BY seq",
         )
+        .bind(new_frame_id)
         .bind(frame_id)
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await?;
-        for message in messages {
-            sqlx::query(
-                "INSERT INTO messages(\
-                    id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name\
-                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            )
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(new_frame_id)
-            .bind(message.try_get::<i64, _>("seq")?)
-            .bind(message.try_get::<String, _>("role")?)
-            .bind(message.try_get::<Option<String>, _>("content")?)
-            .bind(message.try_get::<Option<String>, _>("tool_calls")?)
-            .bind(message.try_get::<Option<String>, _>("tool_call_id")?)
-            .bind(message.try_get::<Option<String>, _>("tool_name")?)
-            .bind(message.try_get::<Option<String>, _>("reasoning")?)
-            .bind(message.try_get::<i64, _>("ts")?)
-            .bind(message.try_get::<Option<String>, _>("model_name")?)
-            .execute(&mut *tx)
-            .await?;
-        }
+        sqlx::query(
+            "INSERT INTO context_epochs(frame_id,epoch,parent_epoch,strategy,kind,before_tokens,\
+                after_tokens,first_seq,initial_head_seq,checkpoint_seq,first_kept_seq,archive_ref,\
+                ui_event_seq,created_at) \
+             SELECT ?,epoch,parent_epoch,strategy,kind,before_tokens,after_tokens,first_seq,\
+                initial_head_seq,checkpoint_seq,first_kept_seq,archive_ref,ui_event_seq,created_at \
+             FROM context_epochs WHERE frame_id=?",
+        )
+        .bind(new_frame_id)
+        .bind(frame_id)
+        .execute(&mut *tx)
+        .await?;
 
         let reviews = sqlx::query(
             "SELECT message_seq,report_json,created_at,updated_at \
@@ -2535,22 +2582,12 @@ impl Store {
                 .fetch_one(&mut *tx)
                 .await?;
         let message = Message::assistant(summary);
-        sqlx::query(
-            "INSERT INTO messages(id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name) \
-             VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        insert_message_row(
+            &mut *tx,
+            &preview.main_session_id,
+            summary_message_seq,
+            &message,
         )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&preview.main_session_id)
-        .bind(summary_message_seq)
-        .bind("assistant")
-        .bind(serde_json::to_string(&message.content)?)
-        .bind(Option::<String>::None)
-        .bind(Option::<String>::None)
-        .bind(Option::<String>::None)
-        .bind(Option::<String>::None)
-        .bind(message.ts)
-        .bind(Option::<String>::None)
-        .execute(&mut *tx)
         .await?;
         // Do not emit a normal Text event for the summary. Event replay
         // coalesces adjacent assistant text, so a tail-only merge could be

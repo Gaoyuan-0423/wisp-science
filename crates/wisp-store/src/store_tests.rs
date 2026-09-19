@@ -4809,6 +4809,7 @@ async fn store_open_records_migrations_and_seeds_local_context() {
             EXPLORATION_HISTORY_MIGRATION.to_string(),
             PROJECT_STARS_MIGRATION.to_string(),
             RESEARCH_ARCHIVES_MIGRATION.to_string(),
+            CONTEXT_EPOCHS_MIGRATION.to_string(),
         ]
     );
     let first_open_migrations = store.schema_migrations().await.unwrap();

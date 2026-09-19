@@ -193,6 +193,47 @@ async fn copy_project_children(tx: &mut Transaction<'_, Sqlite>, project_id: &st
             .execute(&mut **tx)
             .await?;
     }
+    // Context epochs arrived after the fixed column lists above. Older
+    // bundles have neither column nor table and import as epoch 0.
+    if attached_table_columns(tx, "messages")
+        .await?
+        .contains("epoch")
+    {
+        sqlx::query(
+            "UPDATE messages SET epoch=(SELECT source.epoch FROM transfer.messages source \
+               WHERE source.id=messages.id) \
+             WHERE frame_id IN (SELECT id FROM transfer.frames WHERE project_id=?)",
+        )
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if attached_table_columns(tx, "frames")
+        .await?
+        .contains("head_epoch")
+    {
+        sqlx::query(
+            "UPDATE frames SET head_epoch=(SELECT source.head_epoch FROM transfer.frames source \
+               WHERE source.id=frames.id) WHERE project_id=?",
+        )
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if attached_table_exists(tx, "context_epochs").await? {
+        sqlx::query(
+            "INSERT INTO context_epochs(frame_id,epoch,parent_epoch,strategy,kind,before_tokens,\
+                after_tokens,first_seq,initial_head_seq,checkpoint_seq,first_kept_seq,archive_ref,\
+                ui_event_seq,created_at) \
+             SELECT frame_id,epoch,parent_epoch,strategy,kind,before_tokens,after_tokens,first_seq,\
+                initial_head_seq,checkpoint_seq,first_kept_seq,archive_ref,ui_event_seq,created_at \
+             FROM transfer.context_epochs \
+             WHERE frame_id IN (SELECT id FROM transfer.frames WHERE project_id=?)",
+        )
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
+    }
     if attached_table_exists(tx, "message_resource_links").await? {
         let columns = attached_table_columns(tx, "message_resource_links").await?;
         let created_artifact = if columns.contains("created_artifact") {
@@ -885,6 +926,7 @@ pub(crate) async fn delete_project_children(
         "DELETE FROM codex_turn_configs WHERE frame_id IN (SELECT id FROM frames WHERE project_id=?)",
         "DELETE FROM acp_sessions WHERE frame_id IN (SELECT id FROM frames WHERE project_id=?)",
         "DELETE FROM execution_log WHERE frame_id IN (SELECT id FROM frames WHERE project_id=?)",
+        "DELETE FROM context_epochs WHERE frame_id IN (SELECT id FROM frames WHERE project_id=?)",
         "DELETE FROM messages WHERE frame_id IN (SELECT id FROM frames WHERE project_id=?)",
         "DELETE FROM research_edges WHERE project_id=?",
         "DELETE FROM research_nodes WHERE project_id=?",
@@ -1679,6 +1721,92 @@ mod tests {
             r"C:\Users\Alice\Study\figures\plot.png"
         );
         assert!(restored_project_path(Path::new("/tmp/study"), "../escape").is_err());
+    }
+
+    #[tokio::test]
+    async fn context_epochs_survive_a_project_database_roundtrip() {
+        let token = uuid::Uuid::new_v4();
+        let source_path =
+            std::env::temp_dir().join(format!("wisp_epoch_transfer_source_{token}.sqlite"));
+        let archive_path =
+            std::env::temp_dir().join(format!("wisp_epoch_transfer_archive_{token}.sqlite"));
+        let target_path =
+            std::env::temp_dir().join(format!("wisp_epoch_transfer_target_{token}.sqlite"));
+        let source = Store::open(&source_path).await.unwrap();
+        source
+            .create_project("project", "Epoch project", "workspace")
+            .await
+            .unwrap();
+        source
+            .create_frame("frame", "project", "OPERON", "model")
+            .await
+            .unwrap();
+        for (seq, message) in [
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("q1"),
+            wisp_llm::Message::assistant("a1"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            source
+                .append_message("frame", seq as i64 + 1, message)
+                .await
+                .unwrap();
+        }
+        let compacted = [
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("[context summary checkpoint]\n\nsummary"),
+        ];
+        source
+            .open_context_epoch(
+                "frame",
+                crate::OpenContextEpoch {
+                    messages: &compacted,
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 10,
+                    after_tokens: 5,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: None,
+                    archive_ref: Some("wisp-history:abc"),
+                    ui_event_seq: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        source
+            .export_project_database("project", &archive_path)
+            .await
+            .unwrap();
+        let target = Store::open(&target_path).await.unwrap();
+        target
+            .import_project_database(&archive_path, "project", Path::new("workspace-imported"))
+            .await
+            .unwrap();
+        assert_eq!(target.frame_head_epoch("frame").await.unwrap(), 1);
+        assert_eq!(
+            target.context_epochs("frame").await.unwrap(),
+            source.context_epochs("frame").await.unwrap()
+        );
+        assert_eq!(
+            target
+                .load_messages_all_epochs("frame")
+                .await
+                .unwrap()
+                .iter()
+                .map(|(epoch, seq, _)| (*epoch, *seq))
+                .collect::<Vec<_>>(),
+            [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)]
+        );
+        assert_eq!(target.load_messages("frame").await.unwrap().len(), 2);
+
+        source.pool.close().await;
+        target.pool.close().await;
+        for path in [source_path, archive_path, target_path] {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     #[tokio::test]

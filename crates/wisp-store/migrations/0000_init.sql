@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS frames (
     output_tokens   INTEGER,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
-    completed_at    INTEGER
+    completed_at    INTEGER,
+    head_epoch      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_frames_project_id ON frames(project_id);
 CREATE INDEX IF NOT EXISTS ix_frames_project_created ON frames(project_id, created_at DESC, id DESC);
@@ -62,9 +63,31 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_name   TEXT,
     reasoning   TEXT,
     ts          INTEGER NOT NULL,
+    epoch       INTEGER NOT NULL DEFAULT 0,
     UNIQUE(frame_id, seq)
 );
 CREATE INDEX IF NOT EXISTS ix_messages_frame ON messages(frame_id);
+-- ix_messages_frame_epoch_seq lives in 0058_context_epochs.sql: a legacy
+-- messages table gains the epoch column only after this script has run.
+
+-- Model-context snapshots appended by compaction; see 0058_context_epochs.sql.
+CREATE TABLE IF NOT EXISTS context_epochs (
+    frame_id         TEXT NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+    epoch            INTEGER NOT NULL,
+    parent_epoch     INTEGER NOT NULL,
+    strategy         TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    before_tokens    INTEGER NOT NULL,
+    after_tokens     INTEGER NOT NULL,
+    first_seq        INTEGER NOT NULL,
+    initial_head_seq INTEGER NOT NULL,
+    checkpoint_seq   INTEGER,
+    first_kept_seq   INTEGER,
+    archive_ref      TEXT,
+    ui_event_seq     INTEGER,
+    created_at       INTEGER NOT NULL,
+    PRIMARY KEY(frame_id, epoch)
+);
 
 CREATE TABLE IF NOT EXISTS session_branch_merges (
     id                      TEXT PRIMARY KEY,

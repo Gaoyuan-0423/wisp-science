@@ -98,6 +98,8 @@ impl Store {
               FROM messages m JOIN frames f ON f.id=m.frame_id
               WHERE f.project_id=?1 AND ((?2 IS NULL AND f.exploration_id IS NULL) OR f.exploration_id=?2)
                 AND m.role='user' AND trim(COALESCE(m.content,''))<>''
+                AND NOT EXISTS (SELECT 1 FROM context_epochs ce WHERE ce.frame_id=m.frame_id
+                    AND m.seq BETWEEN ce.first_seq AND ce.initial_head_seq)
               UNION ALL
               SELECT 'journal:'||j.id, j.category, j.title, j.body, j.occurred_at, j.created_at,
                 j.id, NULL, 'recorded', '', NULL, 0, 1 FROM research_journal_entries j

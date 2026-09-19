@@ -11,6 +11,7 @@ mod agent_workflows;
 mod artifacts;
 mod ask_user_requests;
 mod codex_imports;
+mod context_epochs;
 mod execution_contexts;
 mod explorations;
 mod external_session_cache;
@@ -54,6 +55,7 @@ pub use agent_workflows::{
 };
 pub use artifacts::{logical_artifact_id, scoped_logical_artifact_id};
 pub use ask_user_requests::AskUserPoll;
+pub use context_epochs::{ContextEpochRecord, OpenContextEpoch};
 pub use execution_contexts::FRAME_DEFAULT_EXECUTION_CONTEXT_PREFIX;
 pub use explorations::{
     ArtifactHead, ContextArchiveRecord, Exploration, ExplorationBaselineArtifactHead,
@@ -180,6 +182,7 @@ const RESEARCH_JOURNAL_MIGRATION: &str = "0054_research_journal";
 const EXPLORATION_HISTORY_MIGRATION: &str = "0055_exploration_history";
 const PROJECT_STARS_MIGRATION: &str = "0056_project_stars";
 const RESEARCH_ARCHIVES_MIGRATION: &str = "0057_research_archives";
+const CONTEXT_EPOCHS_MIGRATION: &str = "0058_context_epochs";
 
 #[derive(Clone)]
 pub struct Store {
@@ -922,7 +925,35 @@ impl Store {
         .await?;
         Self::add_columns_if_missing(pool, "session_ui_events", &[("created_at", "INTEGER")])
             .await?;
+        Self::apply_context_epochs(pool).await?;
         Ok(())
+    }
+
+    /// Context epochs (compaction snapshots inside one frame). Existing rows
+    /// stay in epoch 0 and every frame's head stays at 0, so a database that
+    /// predates epochs reads back exactly as before. Additive only; safe to
+    /// re-run on every open.
+    async fn apply_context_epochs(pool: &SqlitePool) -> Result<()> {
+        let tables: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('frames','messages')",
+        )
+        .fetch_one(pool)
+        .await?;
+        if tables != 2 {
+            return Ok(());
+        }
+        Self::add_columns_if_missing(pool, "messages", &[("epoch", "INTEGER NOT NULL DEFAULT 0")])
+            .await?;
+        Self::add_columns_if_missing(
+            pool,
+            "frames",
+            &[("head_epoch", "INTEGER NOT NULL DEFAULT 0")],
+        )
+        .await?;
+        sqlx::raw_sql(include_str!("../migrations/0058_context_epochs.sql"))
+            .execute(pool)
+            .await?;
+        Self::record_migration(pool, CONTEXT_EPOCHS_MIGRATION).await
     }
 
     /// Promotion recovery must outlive the exploration row that is hard

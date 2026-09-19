@@ -543,12 +543,21 @@ impl Store {
         .execute(&mut *tx)
         .await?;
 
+        // The clone inherits the context epoch that owns the checkpoint row.
+        // Rows of other epochs are either frozen history or later copies of
+        // the same turns; copying them too would duplicate the prefix.
         let messages = sqlx::query(
             "SELECT seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name \
-             FROM messages WHERE frame_id=? AND seq<=? ORDER BY seq",
+             FROM messages WHERE frame_id=? AND seq<=? \
+             AND epoch=COALESCE((SELECT epoch FROM messages WHERE frame_id=? AND seq=?),\
+                                (SELECT head_epoch FROM frames WHERE id=?),0) \
+             ORDER BY seq",
         )
         .bind(source_frame_id)
         .bind(message_head_seq)
+        .bind(source_frame_id)
+        .bind(message_head_seq)
+        .bind(source_frame_id)
         .fetch_all(&mut *tx)
         .await?;
         for message in messages {
@@ -1004,7 +1013,11 @@ impl Store {
                     MAX((SELECT COUNT(*) FROM messages source_message \
                          WHERE source_message.frame_id=checkpoint.source_frame_id \
                            AND source_message.seq<=checkpoint.source_message_seq \
-                           AND source_message.role='user') - 1, 0) AS checkpoint_user_index,\
+                           AND source_message.role='user' \
+                           AND NOT EXISTS (SELECT 1 FROM context_epochs ce \
+                               WHERE ce.frame_id=source_message.frame_id \
+                                 AND source_message.seq BETWEEN ce.first_seq AND ce.initial_head_seq)) - 1, 0) \
+                        AS checkpoint_user_index,\
                     checkpoint.isolation_summary_json AS isolation_summary_json \
              FROM explorations e \
              JOIN exploration_checkpoints checkpoint ON checkpoint.id=e.checkpoint_id \
@@ -1923,7 +1936,6 @@ async fn merge_selected_exploration_into_mainline_in_tx(
              reason=CASE WHEN before_snapshot_path IS NULL THEN reason \
                 ELSE 'Exploration was merged; its isolated undo snapshot was discarded' END \
          WHERE frame_id=? AND user_message_seq>?",
-        "UPDATE messages SET frame_id=?,seq=seq+? WHERE frame_id=? AND seq>?",
     ] {
         sqlx::query(statement)
             .bind(source_frame_id)
@@ -1933,6 +1945,24 @@ async fn merge_selected_exploration_into_mainline_in_tx(
             .execute(&mut **tx)
             .await?;
     }
+    // Only the exploration's live rows join the mainline, in its head epoch.
+    // Rows a compaction materialised inside the exploration (checkpoint,
+    // retained tail) are copies of turns already moved and stay behind to be
+    // deleted with the exploration frame.
+    sqlx::query(
+        "UPDATE messages SET frame_id=?,seq=seq+?,\
+             epoch=COALESCE((SELECT head_epoch FROM frames WHERE id=?),0) \
+         WHERE frame_id=? AND seq>? \
+           AND NOT EXISTS (SELECT 1 FROM context_epochs ce WHERE ce.frame_id=messages.frame_id \
+                           AND messages.seq BETWEEN ce.first_seq AND ce.initial_head_seq)",
+    )
+    .bind(source_frame_id)
+    .bind(message_offset)
+    .bind(source_frame_id)
+    .bind(exploration_frame_id)
+    .bind(inherited_message_head)
+    .execute(&mut **tx)
+    .await?;
     sqlx::query(
         "UPDATE session_ui_events SET frame_id=?,seq=seq+?,\
          event_json=json_set(CASE WHEN json_extract(event_json,'$.kind') IN ('MessageBoundary','Resources') AND json_extract(event_json,'$.seq')>0 \
@@ -2302,6 +2332,7 @@ pub(crate) async fn purge_exploration_scope_in_tx(
         "DELETE FROM session_imports WHERE frame_id IN (SELECT id FROM frames WHERE exploration_id=?)",
         "DELETE FROM ask_user_requests WHERE frame_id IN (SELECT id FROM frames WHERE exploration_id=?)",
         "DELETE FROM execution_log WHERE frame_id IN (SELECT id FROM frames WHERE exploration_id=?)",
+        "DELETE FROM context_epochs WHERE frame_id IN (SELECT id FROM frames WHERE exploration_id=?)",
         "DELETE FROM messages WHERE frame_id IN (SELECT id FROM frames WHERE exploration_id=?)",
     ] {
         let mut query = sqlx::query(statement).bind(exploration_id);

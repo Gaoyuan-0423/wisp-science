@@ -187,8 +187,8 @@ impl Store {
                 .ok_or_else(|| anyhow::anyhow!("ready Agent delivery has no result"))?;
             let content = serde_json::to_string(&wisp_llm::Content::text(result))?;
             sqlx::query(
-                "INSERT INTO messages(id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name) \
-                 VALUES(?,?,?,'internal',?,NULL,?,?,NULL,?,NULL)",
+                "INSERT INTO messages(id,frame_id,seq,role,content,tool_calls,tool_call_id,tool_name,reasoning,ts,model_name,epoch) \
+                 VALUES(?,?,?,'internal',?,NULL,?,?,NULL,?,NULL,COALESCE((SELECT head_epoch FROM frames WHERE id=?),0))",
             )
             .bind(format!("agent-delivery-{}", item.id))
             .bind(frame_id)
@@ -197,6 +197,7 @@ impl Store {
             .bind(&item.id)
             .bind(AGENT_WORKFLOW_COMPLETION_TOOL)
             .bind(chrono::Utc::now().timestamp())
+            .bind(frame_id)
             .execute(&mut *tx)
             .await?;
             let now = chrono::Utc::now().timestamp();
