@@ -9,6 +9,12 @@ use sqlx::{Row, Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
 use wisp_llm::Message;
 
+/// Synthetic model-context checkpoints are not user-authored questions.
+/// Keep both markers for archives written before semantic compaction existed.
+pub fn is_compaction_checkpoint(text: &str) -> bool {
+    text.starts_with("[context summary checkpoint]") || text.starts_with("[compacted;")
+}
+
 /// Sidebar, project-card count, and search (#888): a root frame is visible
 /// once it has a user turn **or** an explicit title. Untitled empty drafts stay
 /// hidden. Keep this in lockstep with every list/count/search query that
@@ -88,6 +94,9 @@ pub struct SessionTranscriptPage {
     pub next_before_seq: Option<i64>,
     pub user_offset: usize,
     pub latest_seq: i64,
+    /// Message-only legacy prefix preceding visual events. None is the old
+    /// message fallback; Some(0) prevents compacted context leaking into UI.
+    pub event_message_prefix_len: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -1306,7 +1315,10 @@ impl Store {
             let content_json: String = row.try_get("content")?;
             let content: wisp_llm::Content =
                 serde_json::from_str(&content_json).unwrap_or(wisp_llm::Content::text(""));
-            messages.push((seq, content.as_text(), ts, None));
+            let text = content.as_text();
+            if !is_compaction_checkpoint(&text) {
+                messages.push((seq, text, ts, None));
+            }
         }
         Ok(messages)
     }
@@ -1409,13 +1421,6 @@ impl Store {
             ));
         }
 
-        let user_offset: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messages WHERE frame_id=? AND role='user' AND seq < ?",
-        )
-        .bind(frame_id)
-        .bind(start_seq)
-        .fetch_one(&self.pool)
-        .await?;
         let latest_seq = self.max_message_seq(frame_id).await?;
 
         let start_event_seq: i64 = sqlx::query_scalar(
@@ -1427,6 +1432,35 @@ impl Store {
         .bind(start_seq)
         .fetch_one(&self.pool)
         .await?;
+        // Visual indices must use the same history as the outline. Model
+        // sequence numbers are reused after compaction, while event sequence
+        // numbers remain monotonic. Include any legacy message-only prefix.
+        let outline = self.session_outline_records(frame_id).await?;
+        let user_offset = outline
+            .iter()
+            .filter(|(event_seq, item)| {
+                event_seq.map_or_else(
+                    || item.seq.is_some_and(|seq| seq < start_seq),
+                    |seq| seq <= start_event_seq,
+                )
+            })
+            .count();
+        let event_message_prefix_len = outline.iter().any(|(seq, _)| seq.is_some()).then(|| {
+            let legacy_seqs = outline
+                .iter()
+                .filter(|(seq, _)| seq.is_none())
+                .filter_map(|(_, item)| item.seq)
+                .collect::<HashSet<_>>();
+            if legacy_seqs.is_empty() {
+                return 0;
+            }
+            messages
+                .iter()
+                .take_while(|(seq, message)| {
+                    message.role != wisp_llm::Role::User || legacy_seqs.contains(seq)
+                })
+                .count()
+        });
         let end_event_seq = if let Some(before) = before_seq {
             sqlx::query_scalar(
                 "SELECT COALESCE(MAX(seq),0) FROM session_ui_events WHERE frame_id=? \
@@ -1542,8 +1576,9 @@ impl Store {
             ui_events,
             resources,
             next_before_seq,
-            user_offset: user_offset as usize,
+            user_offset,
             latest_seq,
+            event_message_prefix_len,
         })
     }
 
@@ -1601,6 +1636,118 @@ impl Store {
         rows.into_iter()
             .map(|row| row.try_get("event_json").map_err(Into::into))
             .collect()
+    }
+
+    /// Full visual outline, independent of the compacted model context.
+    pub async fn load_session_outline(
+        &self,
+        frame_id: &str,
+    ) -> Result<Vec<wisp_dto::SessionOutlineItem>> {
+        Ok(self
+            .session_outline_records(frame_id)
+            .await?
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect())
+    }
+
+    /// The private event sequence anchors offsets; it must never be passed to
+    /// the public message-sequence paging cursor. Event-backed entries expose
+    /// no cursor: navigation walks pages until it finds their visual index.
+    async fn session_outline_records(
+        &self,
+        frame_id: &str,
+    ) -> Result<Vec<(Option<i64>, wisp_dto::SessionOutlineItem)>> {
+        let current = self.load_session_user_messages(frame_id).await?;
+        // Do not load tool dumps or assistant text just to build the index.
+        let rows = sqlx::query(
+            "SELECT seq,created_at,json_extract(event_json,'$.kind') AS kind, \
+             CASE WHEN json_extract(event_json,'$.kind')='User' \
+                  THEN json_extract(event_json,'$.text') END AS text, \
+             json_extract(event_json,'$.seq') AS message_seq \
+             FROM session_ui_events WHERE frame_id=? \
+             AND json_extract(event_json,'$.kind') IN ('User','Text','MessageBoundary') ORDER BY seq",
+        ).bind(frame_id).fetch_all(&self.pool).await?;
+        let mut records = Vec::<(Option<i64>, wisp_dto::SessionOutlineItem)>::new();
+        let mut pending_user = false;
+        let mut first_boundary = None;
+        for row in rows {
+            let kind: String = row.try_get("kind")?;
+            let timestamp = row
+                .try_get::<Option<i64>, _>("created_at")?
+                .filter(|ts| *ts > 0)
+                .map(|ts| ts / 1000);
+            match kind.as_str() {
+                "User" => {
+                    let Some(text) = row.try_get::<Option<String>, _>("text")? else {
+                        continue;
+                    };
+                    if is_compaction_checkpoint(&text) {
+                        continue;
+                    }
+                    records.push((
+                        Some(row.try_get("seq")?),
+                        wisp_dto::SessionOutlineItem {
+                            user_index: records.len(),
+                            seq: None,
+                            text,
+                            sent_at: timestamp,
+                            response_at: None,
+                        },
+                    ));
+                    pending_user = true;
+                }
+                "MessageBoundary" if pending_user => {
+                    if records.len() == 1 {
+                        first_boundary = row.try_get::<Option<i64>, _>("message_seq")?;
+                    }
+                    pending_user = false;
+                }
+                "Text" => {
+                    if let Some((_, item)) = records.last_mut() {
+                        item.response_at = timestamp.or(item.response_at);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Some old sessions acquired event logging partway through. Only
+        // retain a message prefix when its first event still has an exact
+        // sequence/text anchor. Never guess by matching repeated text.
+        let prefix_len = if records.len() > current.len() {
+            // The model has already lost turns. A coincidental repeated text
+            // and reused sequence must not manufacture a legacy prefix.
+            0
+        } else if let Some((_, first)) = records.first() {
+            current
+                .iter()
+                .position(|(seq, text, ..)| Some(*seq) == first_boundary && text == &first.text)
+                .unwrap_or(0)
+        } else {
+            current.len()
+        };
+        let mut outline = current
+            .into_iter()
+            .take(prefix_len)
+            .enumerate()
+            .map(|(user_index, (seq, text, sent_at, response_at))| {
+                (
+                    None,
+                    wisp_dto::SessionOutlineItem {
+                        user_index,
+                        seq: Some(seq),
+                        text,
+                        sent_at: (sent_at > 0).then_some(sent_at),
+                        response_at,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        for (event_seq, mut item) in records {
+            item.user_index = outline.len();
+            outline.push((event_seq, item));
+        }
+        Ok(outline)
     }
 
     /// Load the persisted visual transcript with per-event wall-clock stamps

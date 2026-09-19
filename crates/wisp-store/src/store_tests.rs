@@ -2703,6 +2703,73 @@ async fn transcript_pages_keep_complete_user_turns_and_matching_events() {
 }
 
 #[tokio::test]
+async fn outline_keeps_legacy_prefix_and_uses_each_repeated_questions_event_time() {
+    let tmp = std::env::temp_dir().join(format!("wisp_outline_{}.sqlite", uuid::Uuid::new_v4()));
+    let store = Store::open(&tmp).await.unwrap();
+    store.create_project("p", "proj", "").await.unwrap();
+    store.create_frame("f", "p", "OPERON", "m").await.unwrap();
+    for (seq, message) in [
+        Message::user("legacy"),
+        Message::assistant("old answer"),
+        Message::user("again"),
+        Message::assistant("answer"),
+        Message::user("again"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        store
+            .append_message("f", seq as i64 + 1, message)
+            .await
+            .unwrap();
+    }
+    for (seq, json) in [
+        r#"{"kind":"User","frame_id":"f","text":"again"}"#,
+        r#"{"kind":"MessageBoundary","frame_id":"f","seq":3}"#,
+        r#"{"kind":"Text","frame_id":"f","delta":"answer"}"#,
+        r#"{"kind":"MessageBoundary","frame_id":"f","seq":4}"#,
+        r#"{"kind":"User","frame_id":"f","text":"again"}"#,
+        r#"{"kind":"MessageBoundary","frame_id":"f","seq":5}"#,
+    ]
+    .iter()
+    .enumerate()
+    {
+        store
+            .append_session_ui_event("f", seq as i64 + 1, json)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE session_ui_events SET created_at=(1000+seq)*1000 WHERE frame_id='f'")
+        .execute(&store.pool)
+        .await
+        .unwrap();
+    let outline = store.load_session_outline("f").await.unwrap();
+    assert_eq!(
+        outline
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        ["legacy", "again", "again"]
+    );
+    assert_eq!(outline[1].sent_at, Some(1001));
+    assert_eq!(outline[1].response_at, Some(1003));
+    assert_eq!(outline[2].sent_at, Some(1005));
+    assert_eq!(outline[2].response_at, None);
+    let latest = store
+        .load_session_transcript_page("f", None, 1)
+        .await
+        .unwrap();
+    assert_eq!(latest.user_offset, 2);
+    assert_eq!(latest.event_message_prefix_len, Some(0));
+    let full = store
+        .load_session_transcript_page("f", None, 20)
+        .await
+        .unwrap();
+    assert_eq!(full.user_offset, 0);
+    assert_eq!(full.event_message_prefix_len, Some(2));
+}
+
+#[tokio::test]
 async fn max_message_seq_uses_max_not_count_when_seqs_have_gaps() {
     let tmp = std::env::temp_dir().join(format!(
         "wisp_store_max_seq_gap_{}.sqlite",

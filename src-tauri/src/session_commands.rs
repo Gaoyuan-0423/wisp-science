@@ -1130,17 +1130,22 @@ pub(super) fn transcript_page_items(
         })
         .collect();
     let (mut items, boundaries) = if events.is_empty() {
-        (messages_to_items(&msgs), HashMap::new())
+        (
+            messages_to_items(&msgs[..page.event_message_prefix_len.unwrap_or(msgs.len())]),
+            HashMap::new(),
+        )
     } else {
         let first_seq = events.iter().find_map(|event| match event {
             AgentEvent::MessageBoundary { seq, .. } => Some(*seq),
             _ => None,
         });
-        let prefix_len = first_seq.map_or(msgs.len(), |first_seq| {
-            page.messages
-                .iter()
-                .take_while(|(seq, _)| *seq < first_seq)
-                .count()
+        let prefix_len = page.event_message_prefix_len.unwrap_or_else(|| {
+            first_seq.map_or(msgs.len(), |first_seq| {
+                page.messages
+                    .iter()
+                    .take_while(|(seq, _)| *seq < first_seq)
+                    .count()
+            })
         });
         let mut prefix = messages_to_items(&msgs[..prefix_len]);
         let prefix_items = prefix.len();
@@ -1304,21 +1309,9 @@ pub(super) async fn load_session(
     let outline = if before_seq.is_none() {
         state
             .store
-            .load_session_user_messages(&id)
+            .load_session_outline(&id)
             .await
-            .map_err(|e| format!("{e}"))?
-            .into_iter()
-            .enumerate()
-            .map(
-                |(user_index, (seq, text, sent_at, response_at))| SessionOutlineItem {
-                    user_index,
-                    seq,
-                    text,
-                    sent_at,
-                    response_at,
-                },
-            )
-            .collect()
+            .map_err(|e| e.to_string())?
     } else {
         Vec::new()
     };

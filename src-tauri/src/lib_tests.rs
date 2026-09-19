@@ -1769,6 +1769,7 @@ fn transcript_page_reconstructs_legacy_prefix_before_persisted_events() {
         },
     ];
     let page = wisp_store::SessionTranscriptPage {
+        event_message_prefix_len: None,
         messages: vec![
             (1, wisp_llm::Message::user("legacy question")),
             (2, wisp_llm::Message::assistant("fallback answer")),
@@ -1796,6 +1797,7 @@ fn transcript_page_reconstructs_legacy_prefix_before_persisted_events() {
 #[test]
 fn persisted_ui_events_from_older_builds_keep_the_transcript() {
     let page = wisp_store::SessionTranscriptPage {
+        event_message_prefix_len: None,
         messages: vec![(1, wisp_llm::Message::user("hello"))],
         branch_merges: vec![],
         reviews: vec![],
@@ -1831,8 +1833,37 @@ fn persisted_ui_events_from_older_builds_keep_the_transcript() {
 }
 
 #[test]
+fn compacted_model_prefix_and_checkpoint_never_duplicate_visual_questions() {
+    let page = wisp_store::SessionTranscriptPage {
+        event_message_prefix_len: Some(0),
+        messages: vec![(3, wisp_llm::Message::user("question 41"))],
+        branch_merges: vec![],
+        reviews: vec![],
+        resources: vec![],
+        ui_events: vec![
+            r#"{"kind":"User","frame_id":"f","text":"question 2"}"#.into(),
+            r#"{"kind":"MessageBoundary","frame_id":"f","seq":4}"#.into(),
+        ],
+        next_before_seq: Some(3),
+        user_offset: 1,
+        latest_seq: 81,
+    };
+    let items = transcript_page_items(&page).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].text, "question 2");
+    let fallback = messages_to_items(&[
+        wisp_llm::Message::user("[context summary checkpoint] summary"),
+        wisp_llm::Message::user("[compacted; summary]"),
+        wisp_llm::Message::user("real question"),
+    ]);
+    assert_eq!(fallback.len(), 1);
+    assert_eq!(fallback[0].text, "real question");
+}
+
+#[test]
 fn branch_merge_projection_never_relabels_the_previous_answer() {
     let page = wisp_store::SessionTranscriptPage {
+        event_message_prefix_len: None,
         messages: vec![
             (1, wisp_llm::Message::user("question")),
             (2, wisp_llm::Message::assistant("original answer")),

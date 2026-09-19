@@ -82,10 +82,10 @@ pub use remote_staging::RemoteStagingEntry;
 pub use schedules::{next_slot_after, ScheduleRecord, ScheduleRunRecord};
 pub use session_imports::RecoveredWorkspaceSession;
 pub use sessions::{
-    ModelTokenUsage, ProjectTokenUsage, SessionBranchDeltaMessage, SessionBranchLink,
-    SessionBranchMerge, SessionBranchMergeCard, SessionBranchMergePreview, SessionTokenUsage,
-    SessionTokenUsagePage, SessionTranscriptPage, SessionUiEventRecord, SessionUiEventSnapshot,
-    TokenUsageDay, ToolCallUsage,
+    is_compaction_checkpoint, ModelTokenUsage, ProjectTokenUsage, SessionBranchDeltaMessage,
+    SessionBranchLink, SessionBranchMerge, SessionBranchMergeCard, SessionBranchMergePreview,
+    SessionTokenUsage, SessionTokenUsagePage, SessionTranscriptPage, SessionUiEventRecord,
+    SessionUiEventSnapshot, TokenUsageDay, ToolCallUsage,
 };
 pub use storage_prefs::{
     validate_local_results_dir, validate_remote_data_root, validate_remote_workdir_root,

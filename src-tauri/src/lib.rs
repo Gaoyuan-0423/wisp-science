@@ -1049,15 +1049,7 @@ struct SessionTranscriptPage {
     pending_approvals: Vec<wisp_dto::PendingToolApproval>,
 }
 
-#[derive(Serialize)]
-struct SessionOutlineItem {
-    user_index: usize,
-    seq: i64,
-    text: String,
-    sent_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    response_at: Option<i64>,
-}
+use wisp_dto::SessionOutlineItem;
 
 #[derive(Serialize)]
 struct SessionPresentation {
@@ -1246,7 +1238,7 @@ fn messages_to_items(msgs: &[wisp_llm::Message]) -> Vec<UiItem> {
                         locations: None,
                         resources: Vec::new(),
                     });
-                } else if !t.trim().is_empty() {
+                } else if !t.trim().is_empty() && !wisp_store::is_compaction_checkpoint(&t) {
                     out.push(UiItem {
                         role: "user".into(),
                         text: t,
