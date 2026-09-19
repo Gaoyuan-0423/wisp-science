@@ -206,6 +206,8 @@ pub(crate) fn class_for(item: &ChatItem) -> &'static str {
         ChatItem::Plan(_) => "tool-wrap plan-wrap",
         ChatItem::Question(_) => "tool-wrap plan-question-wrap",
         ChatItem::AppContextNotice(_) => "app-context-notice-row",
+        ChatItem::System(_) => "msg system context-system-row",
+        ChatItem::Checkpoint(_) => "msg checkpoint context-checkpoint-row",
     }
 }
 
@@ -2439,6 +2441,26 @@ pub(crate) fn render_item(
         // App context is rendered as a removable composer attachment instead
         // of being embedded in the conversation transcript.
         ChatItem::AppContextNotice(_) => view! {}.into_view(),
+        ChatItem::System(text) => {
+            let body = text.clone();
+            view! {
+                <details class="context-system-row" data-testid="context-system-row">
+                    <summary>{move || t(locale.get(), "chat.context_system")}</summary>
+                    <pre class="context-system-body">{body}</pre>
+                </details>
+            }
+            .into_view()
+        }
+        ChatItem::Checkpoint(text) => {
+            let html = md_to_html(text);
+            view! {
+                <div class="context-checkpoint-row" data-testid="context-checkpoint-row">
+                    <div class="context-checkpoint-label">{move || t(locale.get(), "chat.compaction_checkpoint")}</div>
+                    <div class="body md" inner_html=html></div>
+                </div>
+            }
+            .into_view()
+        }
         ChatItem::Tool { name, .. } if name == "attempt_completion" => view! {}.into_view(),
         ChatItem::Tool {
             name,

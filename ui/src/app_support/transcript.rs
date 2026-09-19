@@ -154,7 +154,9 @@ pub(crate) fn review_message_ui_index(items: &[ChatItem], message_index: usize) 
             | ChatItem::Compaction { .. }
             | ChatItem::ReviewTransition { .. }
             | ChatItem::Review(_)
-            | ChatItem::AppContextNotice(_) => false,
+            | ChatItem::AppContextNotice(_)
+            | ChatItem::System(_)
+            | ChatItem::Checkpoint(_) => false,
         })
         .nth(message_index)
         .map(|(ui_index, _)| ui_index)
@@ -635,6 +637,30 @@ pub(crate) fn owning_user_turn_index(items: &[ChatItem], ui_index: usize) -> Opt
         .checked_sub(1)
 }
 
+/// Whether a transcript row is still in the model's current working set.
+/// Compaction / usage / system / checkpoint rows are the in-context divider.
+pub(crate) fn item_in_context(
+    items: &[ChatItem],
+    ui_index: usize,
+    user_offset: usize,
+    from: Option<usize>,
+) -> bool {
+    let Some(from) = from else {
+        return true;
+    };
+    match items.get(ui_index) {
+        Some(
+            ChatItem::Compaction { .. }
+            | ChatItem::Usage { .. }
+            | ChatItem::System(_)
+            | ChatItem::Checkpoint(_),
+        ) => true,
+        Some(_) => owning_user_turn_index(items, ui_index)
+            .is_none_or(|turn| user_offset + turn >= from),
+        None => true,
+    }
+}
+
 pub(crate) fn transcript_item_timestamp(
     items: &[ChatItem],
     ui_index: usize,
@@ -856,9 +882,9 @@ mod transcript_render_window_tests {
 #[cfg(test)]
 mod conversation_outline_tests {
     use super::{
-        conversation_outline_target_is_loaded, merge_conversation_outline, owning_user_turn_index,
-        queued_turn_rows, transcript_item_timestamp, turn_duration_ms, user_turn_index,
-        QueuedTurnRow,
+        conversation_outline_target_is_loaded, item_in_context, merge_conversation_outline,
+        owning_user_turn_index, queued_turn_rows, transcript_item_timestamp, turn_duration_ms,
+        user_turn_index, QueuedTurnRow,
     };
     use crate::dto::{ChatItem, SessionOutlineItem};
 
@@ -924,6 +950,12 @@ mod conversation_outline_tests {
         assert_eq!(user_turn_index(&items, 2), Some(1));
         assert_eq!(owning_user_turn_index(&items, 1), Some(0));
         assert_eq!(owning_user_turn_index(&items, 2), Some(1));
+        assert!(item_in_context(&items, 0, 0, None));
+        assert!(item_in_context(&items, 0, 0, Some(0)));
+        assert!(!item_in_context(&items, 0, 0, Some(1)));
+        assert!(item_in_context(&items, 2, 0, Some(1)));
+        assert!(!item_in_context(&items, 0, 1, Some(2)));
+        assert!(item_in_context(&items, 0, 1, Some(1)));
         assert!(conversation_outline_target_is_loaded(&items, 1, 2));
         assert!(!conversation_outline_target_is_loaded(&items, 1, 0));
         assert_eq!(
@@ -1071,6 +1103,49 @@ mod compaction_undo_tests {
             compaction_undo_reason_key("has_new_turns"),
             "chat.compaction_undo_reason_has_new_turns"
         );
+    }
+}
+
+#[cfg(test)]
+mod context_view_tests {
+    use super::item_in_context;
+    use crate::dto::ChatItem;
+
+    #[test]
+    fn in_context_marks_follow_the_kept_turn_and_offset() {
+        let items = vec![
+            ChatItem::User("q1".into()),
+            ChatItem::Assistant {
+                text: "a1".into(),
+                model: None,
+                resources: Vec::new(),
+            },
+            ChatItem::compaction(10, 4, "manual", Some(1)),
+            ChatItem::User("q2".into()),
+            ChatItem::Assistant {
+                text: "a2".into(),
+                model: None,
+                resources: Vec::new(),
+            },
+            ChatItem::Usage {
+                input: 1,
+                output: 1,
+                reasoning: 0,
+                cached: 0,
+                ctx_tokens: 4,
+                max_context: 10,
+                context_usage: crate::dto::ContextUsage::default(),
+            },
+        ];
+        assert!(!item_in_context(&items, 0, 0, Some(1)));
+        assert!(!item_in_context(&items, 1, 0, Some(1)));
+        assert!(item_in_context(&items, 2, 0, Some(1)));
+        assert!(item_in_context(&items, 3, 0, Some(1)));
+        assert!(item_in_context(&items, 4, 0, Some(1)));
+        assert!(item_in_context(&items, 5, 0, Some(1)));
+        assert!(item_in_context(&items, 0, 0, None));
+        assert!(!item_in_context(&items, 3, 0, Some(2)));
+        assert!(item_in_context(&items, 0, 1, Some(1)));
     }
 }
 

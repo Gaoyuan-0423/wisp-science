@@ -2505,6 +2505,18 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "context_usage.nudge") => Some("Window is almost full"),
         (Locale::En, "context_usage.nudge_compact") => Some("Compact"),
         (Locale::En, "context_usage.nudge_new_session") => Some("New session"),
+        (Locale::En, "context_usage.epoch_line") => {
+            Some("Epoch {epoch} · system + checkpoint + {turns} kept turns")
+        }
+        (Locale::En, "context_usage.epoch_line_no_checkpoint") => {
+            Some("Epoch {epoch} · system + {turns} kept turns")
+        }
+        (Locale::En, "chat.view_full") => Some("Full transcript"),
+        (Locale::En, "chat.view_model") => Some("Model view"),
+        (Locale::En, "chat.out_of_context") => {
+            Some("Not in the current context; represented by the summary")
+        }
+        (Locale::En, "chat.context_system") => Some("System prompt"),
         (Locale::En, "msg.usage") => Some("{in} in · {out} out tokens"),
         (Locale::En, "msg.usage.cached") => Some(" · {c} cached"),
         (Locale::En, "msg.usage.reasoning") => Some(" · {r} reasoning"),
@@ -5220,6 +5232,16 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "context_usage.nudge") => Some("窗口快满了"),
         (Locale::Zh, "context_usage.nudge_compact") => Some("压缩"),
         (Locale::Zh, "context_usage.nudge_new_session") => Some("新开对话"),
+        (Locale::Zh, "context_usage.epoch_line") => {
+            Some("纪元 {epoch} · system + checkpoint + {turns} 轮 tail")
+        }
+        (Locale::Zh, "context_usage.epoch_line_no_checkpoint") => {
+            Some("纪元 {epoch} · system + {turns} 轮 tail")
+        }
+        (Locale::Zh, "chat.view_full") => Some("完整记录"),
+        (Locale::Zh, "chat.view_model") => Some("模型视角"),
+        (Locale::Zh, "chat.out_of_context") => Some("不在当前上下文，已由摘要代表"),
+        (Locale::Zh, "chat.context_system") => Some("系统提示词"),
         (Locale::Zh, "msg.usage") => Some("输入 {in} · 输出 {out} tokens"),
         (Locale::Zh, "msg.usage.cached") => Some(" · 缓存 {c}"),
         (Locale::Zh, "msg.usage.reasoning") => Some(" · 思考 {r}"),
@@ -6726,6 +6748,8 @@ mod queue_label_tests {
 
     #[test]
     fn context_usage_dock_and_resize_labels_exist_in_both_locales() {
+        assert_eq!(t(Locale::En, "chat.view_model"), "Model view");
+        assert_eq!(t(Locale::Zh, "chat.view_model"), "模型视角");
         assert_eq!(t(Locale::En, "context_usage.dock"), "Dock panel");
         assert_eq!(t(Locale::Zh, "context_usage.dock"), "停靠面板");
         assert_eq!(t(Locale::En, "context_usage.resize"), "Resize panel");

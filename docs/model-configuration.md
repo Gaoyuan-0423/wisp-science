@@ -363,6 +363,8 @@ Older native usage rows that only stored a total attribute that window to
 Conversation until the next reply refreshes the full breakdown. ACP sessions
 expose only the total reported by the remote agent, so Wisp labels that value
 as an agent-reported total instead of inventing a breakdown it cannot observe.
+See [conversation history](conversation-history.md#model-view) for the model-view
+toggle and the in-context marks on compacted turns.
 
 ## Usage dashboard
 

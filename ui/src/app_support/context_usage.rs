@@ -11,6 +11,29 @@ use crate::chat_render::{
 
 const CONTEXT_USAGE_DRAG_THRESHOLD: f64 = 8.0;
 
+pub(crate) fn context_epoch_line(
+    locale: Locale,
+    head_epoch: u64,
+    has_checkpoint: bool,
+    kept_turns: usize,
+) -> Option<String> {
+    if head_epoch == 0 {
+        return None;
+    }
+    Some(tf(
+        locale,
+        if has_checkpoint {
+            "context_usage.epoch_line"
+        } else {
+            "context_usage.epoch_line_no_checkpoint"
+        },
+        &[
+            ("epoch", &head_epoch.to_string()),
+            ("turns", &kept_turns.to_string()),
+        ],
+    ))
+}
+
 fn context_usage_event_target(ev: &web_sys::MouseEvent) -> Option<web_sys::Element> {
     ev.target()
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
@@ -259,6 +282,9 @@ pub(crate) fn ContextUsagePanel(
     on_compact: Callback<()>,
     on_new_session: Callback<()>,
     compact_disabled: Signal<bool>,
+    epoch_line: Option<String>,
+    model_view: RwSignal<bool>,
+    on_toggle_model_view: Callback<()>,
 ) -> impl IntoView {
     let loc = locale.get();
     let pct = context_percent(snapshot.used, snapshot.max);
@@ -327,6 +353,27 @@ pub(crate) fn ContextUsagePanel(
             <div class="context-usage-summary">
                 <span>{tf(loc, "context_usage.full", &[("pct", &pct.to_string())])}</span>
                 <span>{total}</span>
+            </div>
+            {epoch_line.as_ref().map(|line| {
+                let line = line.clone();
+                view! {
+                    <div class="context-usage-epoch" data-testid="context-usage-epoch">{line}</div>
+                }
+            })}
+            <div class="transcript-view-toggle context-usage-view-toggle" data-testid="context-usage-view-toggle">
+                <button type="button"
+                    class:active=move || !model_view.get()
+                    data-testid="context-usage-view-full"
+                    on:click=move |_| if model_view.get() { on_toggle_model_view.call(()); }>
+                    {t(loc, "chat.view_full")}
+                </button>
+                <button type="button"
+                    class:active=move || model_view.get()
+                    data-testid="context-usage-view-model"
+                    on:click=move |_| if !model_view.get() { on_toggle_model_view.call(()); }>
+                    {compose_icon("eye")}
+                    {t(loc, "chat.view_model")}
+                </button>
             </div>
             {danger.then(|| view! {
                 <div class="context-usage-nudge" data-testid="context-usage-nudge" role="status">
@@ -406,5 +453,28 @@ pub(crate) fn ContextUsagePanel(
                 </button>
             })}
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::context_epoch_line;
+    use crate::i18n::Locale;
+
+    #[test]
+    fn epoch_line_hidden_without_compaction() {
+        assert_eq!(context_epoch_line(Locale::En, 0, true, 3), None);
+    }
+
+    #[test]
+    fn epoch_line_names_checkpoint_and_kept_turns() {
+        assert_eq!(
+            context_epoch_line(Locale::En, 1, true, 1).as_deref(),
+            Some("Epoch 1 · system + checkpoint + 1 kept turns")
+        );
+        assert_eq!(
+            context_epoch_line(Locale::Zh, 2, false, 4).as_deref(),
+            Some("纪元 2 · system + 4 轮 tail")
+        );
     }
 }

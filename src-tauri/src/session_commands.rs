@@ -1520,6 +1520,8 @@ pub(super) async fn load_session(
     }
     let (context_epochs, head_epoch) =
         load_context_epoch_page(&state.store, &id, &mut items).await?;
+    let in_context_from_user_index =
+        in_context_from_user_index(&state.store, &id, &context_epochs, head_epoch).await?;
     Ok(SessionTranscriptPage {
         archived: state
             .store
@@ -1536,6 +1538,7 @@ pub(super) async fn load_session(
         branch_state,
         context_epochs,
         head_epoch,
+        in_context_from_user_index,
         pending_approvals: if before_seq.is_none() {
             state
                 .confirms
@@ -1605,6 +1608,53 @@ async fn load_context_epoch_page(
     Ok((dtos, u64::try_from(head_epoch).unwrap_or(0)))
 }
 
+async fn in_context_from_user_index(
+    store: &Store,
+    frame_id: &str,
+    epochs: &[wisp_dto::ContextEpochDto],
+    head_epoch: u64,
+) -> Result<Option<usize>, String> {
+    if head_epoch == 0 {
+        return Ok(None);
+    }
+    let Some(head) = epochs.iter().find(|row| row.epoch == head_epoch) else {
+        return Ok(None);
+    };
+    let Some(seq) = head.first_kept_seq else {
+        return Ok(None);
+    };
+    store
+        .visual_user_index_for_kept_seq(frame_id, seq)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Head-epoch messages the model currently sees, including the folded system
+/// prompt and the compaction checkpoint.
+#[tauri::command]
+pub(super) async fn load_session_context_view(
+    state: State<'_, AppState>,
+    window: crate::workspace_surface::WorkspaceSurface,
+    session_id: Option<String>,
+) -> Result<Vec<UiItem>, String> {
+    let frame_id = match session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(id) => id.to_string(),
+        None => state
+            .active_frame(window.label())
+            .ok_or_else(|| "No active session to load the model view.".to_string())?,
+    };
+    let runtime = state.sessions.lock().await.get(&frame_id).cloned();
+    if let Some(runtime) = runtime.as_deref() {
+        flush_session_events(&runtime.ui_event_writer).await?;
+    }
+    let messages = state
+        .store
+        .load_messages(&frame_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(messages_to_context_view_items(&messages))
+}
+
 async fn enrich_compaction_items(
     store: &Store,
     frame_id: &str,
@@ -1637,7 +1687,7 @@ async fn enrich_compaction_items(
             }
             if let Some(seq) = record.first_kept_seq {
                 if let Some(index) = store
-                    .visual_user_index_for_seq(frame_id, seq)
+                    .visual_user_index_for_kept_seq(frame_id, seq)
                     .await
                     .map_err(|error| error.to_string())?
                 {
@@ -1947,55 +1997,56 @@ mod hydration_tests {
 }
 
 #[cfg(test)]
+async fn store_with_compacted_frame() -> Store {
+    let tmp = std::env::temp_dir().join(format!(
+        "wisp_undo_compaction_{}.sqlite",
+        uuid::Uuid::new_v4()
+    ));
+    let store = Store::open(&tmp).await.unwrap();
+    store.create_project("p", "proj", "").await.unwrap();
+    store.create_frame("f", "p", "OPERON", "m").await.unwrap();
+    for (seq, role, text) in [
+        (1, "system", "sys"),
+        (2, "user", "q1"),
+        (3, "assistant", "a1"),
+        (4, "user", "q2"),
+        (5, "assistant", "a2"),
+    ] {
+        let message = match role {
+            "system" => wisp_llm::Message::system(text),
+            "user" => wisp_llm::Message::user(text),
+            _ => wisp_llm::Message::assistant(text),
+        };
+        store.append_message("f", seq, &message).await.unwrap();
+    }
+    store
+        .open_context_epoch(
+            "f",
+            wisp_store::OpenContextEpoch {
+                messages: &[
+                    wisp_llm::Message::system("sys"),
+                    wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
+                    wisp_llm::Message::user("q2"),
+                    wisp_llm::Message::assistant("a2"),
+                ],
+                strategy: "manual",
+                kind: "semantic",
+                before_tokens: 1000,
+                after_tokens: 200,
+                checkpoint_index: Some(1),
+                first_kept_seq: Some(4),
+                archive_ref: None,
+                ui_event_seq: Some(9),
+            },
+        )
+        .await
+        .unwrap();
+    store
+}
+
+#[cfg(test)]
 mod compaction_undo_tests {
     use super::*;
-
-    async fn store_with_compacted_frame() -> Store {
-        let tmp = std::env::temp_dir().join(format!(
-            "wisp_undo_compaction_{}.sqlite",
-            uuid::Uuid::new_v4()
-        ));
-        let store = Store::open(&tmp).await.unwrap();
-        store.create_project("p", "proj", "").await.unwrap();
-        store.create_frame("f", "p", "OPERON", "m").await.unwrap();
-        for (seq, role, text) in [
-            (1, "system", "sys"),
-            (2, "user", "q1"),
-            (3, "assistant", "a1"),
-            (4, "user", "q2"),
-            (5, "assistant", "a2"),
-        ] {
-            let message = match role {
-                "system" => wisp_llm::Message::system(text),
-                "user" => wisp_llm::Message::user(text),
-                _ => wisp_llm::Message::assistant(text),
-            };
-            store.append_message("f", seq, &message).await.unwrap();
-        }
-        store
-            .open_context_epoch(
-                "f",
-                wisp_store::OpenContextEpoch {
-                    messages: &[
-                        wisp_llm::Message::system("sys"),
-                        wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
-                        wisp_llm::Message::user("q2"),
-                        wisp_llm::Message::assistant("a2"),
-                    ],
-                    strategy: "manual",
-                    kind: "semantic",
-                    before_tokens: 1000,
-                    after_tokens: 200,
-                    checkpoint_index: Some(1),
-                    first_kept_seq: Some(4),
-                    archive_ref: None,
-                    ui_event_seq: Some(9),
-                },
-            )
-            .await
-            .unwrap();
-        store
-    }
 
     #[tokio::test]
     async fn load_context_epoch_page_merges_checkpoint_and_undo_flags() {
@@ -2064,5 +2115,100 @@ mod compaction_undo_tests {
         assert_eq!(value["undone"], true);
         assert_eq!(value["can_undo"], false);
         assert_eq!(value["undo_reason"], "undone");
+    }
+}
+
+#[cfg(test)]
+mod context_view_tests {
+    use super::*;
+
+    async fn persist_end_boundary(
+        store: &Store,
+        event_seq: &mut i64,
+        message_seq: i64,
+        text: &str,
+    ) {
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"User","frame_id":"f","text":"{text}"}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{message_seq}}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+    }
+
+    #[tokio::test]
+    async fn context_view_items_include_system_checkpoint_and_tail() {
+        let items = messages_to_context_view_items(&[
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
+            wisp_llm::Message::user("q2"),
+            wisp_llm::Message::assistant("a2"),
+        ]);
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| (item.role.as_str(), item.kind.as_deref(), item.text.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("system", Some("system"), "sys"),
+                (
+                    "checkpoint",
+                    Some("checkpoint"),
+                    "[context summary checkpoint]\n\nfolded"
+                ),
+                ("user", None, "q2"),
+                ("assistant", None, "a2"),
+            ]
+        );
+        assert!(messages_to_items(&[
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
+            wisp_llm::Message::user("q2"),
+        ])
+        .iter()
+        .all(|item| item.role == "user" && item.text == "q2"));
+    }
+
+    #[tokio::test]
+    async fn in_context_from_matches_first_kept_seq() {
+        let store = store_with_compacted_frame().await;
+        let mut event_seq = 1i64;
+        persist_end_boundary(&store, &mut event_seq, 3, "q1").await;
+        persist_end_boundary(&store, &mut event_seq, 5, "q2").await;
+        let (epochs, head) = load_context_epoch_page(&store, "f", &mut []).await.unwrap();
+        assert_eq!(head, 1);
+        assert_eq!(epochs[0].first_kept_seq, Some(4));
+        assert_eq!(
+            in_context_from_user_index(&store, "f", &epochs, head)
+                .await
+                .unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            in_context_from_user_index(&store, "f", &[], 0)
+                .await
+                .unwrap(),
+            None
+        );
+        let mut no_kept = epochs.clone();
+        no_kept[0].first_kept_seq = None;
+        assert_eq!(
+            in_context_from_user_index(&store, "f", &no_kept, head)
+                .await
+                .unwrap(),
+            None
+        );
     }
 }

@@ -43,6 +43,17 @@ previous model context and marks the row undone. After new turns, undo is
 disabled and **Rewind to before compact** uses the existing rewind confirmation
 to cut the conversation at that kept turn. Escape closes only the open summary.
 
+## Model view
+
+After a compact, earlier bubbles stay on the full transcript but are dimmed
+(`data-in-context="false"`) with a tooltip that they are represented by the
+summary. **Full transcript | Model view** in the conversation header (and the
+context-usage panel) switches the thread to the head epoch the model sees:
+folded system prompt, the checkpoint, and the kept tail. Model view is
+read-only — rewind, branch, edit, and explore stay on the full transcript.
+The usage panel adds a line such as `Epoch n · system + checkpoint + k kept
+turns` while a compaction is active. Switching conversations resets the view.
+
 ## Manual smoke checks
 
 - Leave a native tool waiting for approval, open that running conversation in a

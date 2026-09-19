@@ -1041,6 +1041,8 @@ pub(crate) fn is_activity_glue(item: &ChatItem) -> bool {
         | ChatItem::Compaction { .. }
         | ChatItem::FileChanged(_)
         | ChatItem::AppContextNotice(_)
+        | ChatItem::System(_)
+        | ChatItem::Checkpoint(_)
         | ChatItem::ReviewTransition { .. } => true,
         ChatItem::Assistant { text, .. } if text.trim().is_empty() => true,
         ChatItem::Tool { name, .. } if name == "attempt_completion" => true,
