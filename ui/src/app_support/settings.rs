@@ -255,6 +255,9 @@ pub(crate) mod tauri_args {
     pub fn undo_compaction(session_id: &Option<String>) -> Value {
         json!({ "sessionId": session_id })
     }
+    pub fn load_session_context_view(session_id: &str) -> Value {
+        json!({ "sessionId": session_id })
+    }
     pub fn turn_undo(session_id: &str, user_index: usize) -> Value {
         json!({ "sessionId": session_id, "userIndex": user_index })
     }
@@ -344,6 +347,10 @@ mod tauri_args_tests {
         assert!(v.get("user_index").is_none());
 
         let v = tauri_args::undo_compaction(&sid);
+        assert_eq!(v["sessionId"], "frame-1");
+        assert!(v.get("session_id").is_none());
+
+        let v = tauri_args::load_session_context_view("frame-1");
         assert_eq!(v["sessionId"], "frame-1");
         assert!(v.get("session_id").is_none());
 

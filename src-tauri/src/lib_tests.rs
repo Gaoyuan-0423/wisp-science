@@ -5,11 +5,11 @@ use super::session_commands::transcript_page_items;
 use super::{
     begin_queued_cutin, branch_title, client_turn_error, coalesce_live_agent_events,
     copy_dir_recursive, enable_referenced_contexts, events_to_items, limit_persisted_ui_event,
-    merge_pending_ui_event, message_uses_resource_bindings, messages_to_items, navigation_allowed,
-    parse_disabled_skills, parse_enabled_skill_names, parse_follow_up_questions, parse_skill_tags,
-    persist_ui_events, provenance_ui_file_changes, receive_confirm_decision,
-    resolve_acp_artifact_references, resolve_composer_references, resolve_reader_references,
-    resolve_review_backend, resolve_workspace, session_runtime_status,
+    merge_pending_ui_event, message_uses_resource_bindings, messages_to_context_view_items,
+    messages_to_items, navigation_allowed, parse_disabled_skills, parse_enabled_skill_names,
+    parse_follow_up_questions, parse_skill_tags, persist_ui_events, provenance_ui_file_changes,
+    receive_confirm_decision, resolve_acp_artifact_references, resolve_composer_references,
+    resolve_reader_references, resolve_review_backend, resolve_workspace, session_runtime_status,
     should_hide_app_on_macos_close, should_persist_ui_event, take_next_queued_turn,
     user_message_start, AgentEvent, ComposerReferenceArg, McpConnection, McpHttpAuth, McpTransport,
     ProjectActivityLocks, QueuedItem, SessionRuntime, SkillInfo, StartupReport, StartupTimeline,
@@ -914,6 +914,25 @@ fn reloaded_background_completion_keeps_terminal_status() {
     assert_eq!(items[0].tool_name.as_deref(), Some("delegate_tasks"));
     assert_eq!(items[0].ok, Some(false));
     assert_eq!(items[0].kind.as_deref(), Some("background_completion"));
+}
+
+#[test]
+fn context_view_keeps_system_and_checkpoint_rows() {
+    let items = messages_to_context_view_items(&[
+        wisp_llm::Message::system("sys"),
+        wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
+        wisp_llm::Message::user("keep"),
+        wisp_llm::Message::assistant("answer"),
+    ]);
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.role.as_str())
+            .collect::<Vec<_>>(),
+        ["system", "checkpoint", "user", "assistant"]
+    );
+    assert_eq!(items[0].kind.as_deref(), Some("system"));
+    assert_eq!(items[1].kind.as_deref(), Some("checkpoint"));
 }
 
 #[test]

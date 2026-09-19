@@ -478,6 +478,58 @@ impl Store {
         Ok(found)
     }
 
+    /// First visual user whose completed turn ends at or after `kept_seq`.
+    ///
+    /// `first_kept_seq` is the durable seq of the first retained-tail *message*
+    /// (often the user row). `visual_user_index_for_seq` looks for the last
+    /// `MessageBoundary <= seq`, which lands on the previous turn when the
+    /// only boundary is the assistant at the end of the turn.
+    pub async fn visual_user_index_for_kept_seq(
+        &self,
+        frame_id: &str,
+        kept_seq: i64,
+    ) -> Result<Option<usize>> {
+        let rows = sqlx::query(
+            "SELECT json_extract(event_json,'$.kind') AS kind, \
+             json_extract(event_json,'$.text') AS text, \
+             json_extract(event_json,'$.seq') AS message_seq \
+             FROM session_ui_events WHERE frame_id=? \
+             AND json_extract(event_json,'$.kind') IN ('User','MessageBoundary') \
+             ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut seen = 0usize;
+        let mut current: Option<usize> = None;
+        for row in rows {
+            let kind: String = row.try_get("kind")?;
+            match kind.as_str() {
+                "User" => {
+                    let Some(text) = row.try_get::<Option<String>, _>("text")? else {
+                        continue;
+                    };
+                    if crate::is_compaction_checkpoint(&text) {
+                        continue;
+                    }
+                    current = Some(seen);
+                    seen += 1;
+                }
+                "MessageBoundary" => {
+                    if let (Some(index), Some(message_seq)) =
+                        (current, row.try_get::<Option<i64>, _>("message_seq")?)
+                    {
+                        if message_seq >= kept_seq {
+                            return Ok(Some(index));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
     /// Roll the head epoch back to its parent. Allowed only when the head
     /// has no rows past `initial_head_seq` (the user has not continued).
     /// Returns the undone epoch number.
@@ -1259,6 +1311,70 @@ mod tests {
             store.visual_user_index_for_seq("f", 4).await.unwrap(),
             Some(1)
         );
+        assert_eq!(
+            store.visual_user_index_for_kept_seq("f", 4).await.unwrap(),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn visual_user_index_for_kept_seq_uses_the_first_covering_turn() {
+        let store = store().await;
+        seed(
+            &store,
+            &[
+                ("system", "sys"),
+                ("user", "q1"),
+                ("assistant", "a1"),
+                ("user", "q2"),
+                ("assistant", "a2"),
+            ],
+        )
+        .await;
+        // Only the end-of-turn assistant boundary is persisted — the live
+        // path that first_kept_seq (user row 4) used to miss.
+        let mut event_seq = 1i64;
+        for (message_seq, text) in [(3i64, "q1"), (5, "q2")] {
+            store
+                .append_session_ui_event(
+                    "f",
+                    event_seq,
+                    &format!(r#"{{"kind":"User","frame_id":"f","text":"{text}"}}"#),
+                )
+                .await
+                .unwrap();
+            event_seq += 1;
+            store
+                .append_session_ui_event(
+                    "f",
+                    event_seq,
+                    &format!(r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{message_seq}}}"#),
+                )
+                .await
+                .unwrap();
+            event_seq += 1;
+        }
+        assert_eq!(
+            store.visual_user_index_for_seq("f", 4).await.unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            store.visual_user_index_for_kept_seq("f", 4).await.unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            store.visual_user_index_for_kept_seq("f", 5).await.unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            store.visual_user_index_for_kept_seq("f", 2).await.unwrap(),
+            Some(0)
+        );
+        assert!(store
+            .visual_user_index_for_kept_seq("f", 9)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

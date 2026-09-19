@@ -487,6 +487,10 @@ pub enum ChatItem {
     AppContextNotice(AppContextNotice),
     Plan(PlanCard),
     Question(QuestionCard),
+    /// Folded system prompt shown only in the model-context view.
+    System(String),
+    /// Compaction checkpoint user row shown only in the model-context view.
+    Checkpoint(String),
 }
 
 impl ChatItem {
@@ -744,6 +748,14 @@ impl ChatItem {
                 &notice.structured_preview,
             )
                 .hash(&mut h),
+            Self::System(s) => {
+                17u8.hash(&mut h);
+                hash_text_sampled(&mut h, s);
+            }
+            Self::Checkpoint(s) => {
+                18u8.hash(&mut h);
+                hash_text_sampled(&mut h, s);
+            }
         }
         h.finish()
     }
@@ -2587,6 +2599,10 @@ pub struct LoadedSessionPage {
     pub context_epochs: Vec<ContextEpochDto>,
     #[serde(default)]
     pub head_epoch: u64,
+    /// Visual user index where the head-epoch retained tail starts.
+    /// `None` when the session has no compaction or `first_kept_seq` is unknown.
+    #[serde(default)]
+    pub in_context_from_user_index: Option<usize>,
 }
 
 /// One persisted context epoch, as returned by `load_session`.
@@ -2641,7 +2657,10 @@ pub struct TranscriptPageState {
 impl LoadedItem {
     pub fn into_chat(self) -> ChatItem {
         match self.role.as_str() {
+            "user" if self.kind.as_deref() == Some("checkpoint") => ChatItem::Checkpoint(self.text),
             "user" => ChatItem::User(self.text),
+            "system" => ChatItem::System(self.text),
+            "checkpoint" => ChatItem::Checkpoint(self.text),
             "branch_merge" => ChatItem::BranchMerge {
                 text: self.text,
                 branch_id: self.input,

@@ -363,6 +363,41 @@
   .context-compaction-live .context-compaction-mark svg path:last-child,
   .context-compaction-complete { animation: none; }
 }
+.msg[data-in-context="false"],
+.tool-wrap[data-in-context="false"],
+.usage-row[data-in-context="false"] {
+  opacity: .45;
+}
+.transcript-view-toggle {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--bg-elev);
+}
+.transcript-view-toggle button {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0; padding: 4px 8px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-muted); font: inherit; font-size: 12px;
+  cursor: pointer;
+}
+.transcript-view-toggle button.active {
+  background: color-mix(in srgb, var(--clay) 12%, var(--bg-app));
+  color: var(--text);
+}
+.transcript-view-toggle svg { width: 14px; height: 14px; }
+.context-system-row, .context-checkpoint-row {
+  min-width: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45;
+}
+.context-system-row summary { cursor: pointer; color: var(--text-faint); font-size: 12px; }
+.context-system-body {
+  margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--bg-elev); color: var(--text); white-space: pre-wrap;
+  font-size: 12px; line-height: 1.45;
+}
+.context-checkpoint-label { color: var(--text-faint); font-size: 11px; margin-bottom: 4px; }
+.context-usage-epoch {
+  margin-top: 10px; color: var(--text-muted); font-size: 12px; line-height: 1.4;
+}
+.context-usage-view-toggle { margin-top: 10px; }
 .review-live {
   display: flex; align-items: center; gap: 9px; flex: 0 1 280px; min-width: 0;
   color: var(--text-muted);

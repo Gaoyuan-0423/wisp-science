@@ -11,6 +11,92 @@ use crate::chat_render::{
 
 const CONTEXT_USAGE_DRAG_THRESHOLD: f64 = 8.0;
 
+#[derive(Clone, Copy)]
+pub(crate) struct ModelViewCtrl {
+    pub(crate) on: RwSignal<bool>,
+    pub(crate) toggle: Callback<()>,
+}
+
+#[component]
+pub(crate) fn TranscriptViewToggle(#[prop(optional)] in_panel: bool) -> impl IntoView {
+    let locale = use_locale();
+    let Some(ctrl) = use_context::<ModelViewCtrl>() else {
+        return ().into_view();
+    };
+    let model_view = ctrl.on;
+    let toggle_full = ctrl.toggle.clone();
+    let toggle_model = ctrl.toggle;
+    let (wrap, full, model) = if in_panel {
+        (
+            "transcript-view-toggle context-usage-view-toggle",
+            "context-usage-view-full",
+            "context-usage-view-model",
+        )
+    } else {
+        (
+            "transcript-view-toggle",
+            "transcript-view-full",
+            "transcript-view-model",
+        )
+    };
+    let wrap_test = if in_panel {
+        "context-usage-view-toggle"
+    } else {
+        "transcript-view-toggle"
+    };
+    view! {
+        <div class=wrap data-testid=wrap_test>
+            <button type="button"
+                class:active=move || !model_view.get()
+                data-testid=full
+                title=move || t(locale.get(), "chat.view_full")
+                on:click=move |_| if model_view.get() { toggle_full.call(()); }>
+                {move || t(locale.get(), "chat.view_full")}
+            </button>
+            <button type="button"
+                class:active=move || model_view.get()
+                data-testid=model
+                title=move || t(locale.get(), "chat.view_model")
+                on:click=move |_| if !model_view.get() { toggle_model.call(()); }>
+                {compose_icon("eye")}
+                {move || t(locale.get(), "chat.view_model")}
+            </button>
+        </div>
+    }
+    .into_view()
+}
+
+pub(crate) fn model_view_active() -> bool {
+    use_context::<ModelViewCtrl>().is_some_and(|ctrl| ctrl.on.get())
+}
+
+pub(crate) fn model_view_active_untracked() -> bool {
+    use_context::<ModelViewCtrl>().is_some_and(|ctrl| ctrl.on.get_untracked())
+}
+
+pub(crate) fn context_epoch_line(
+    locale: Locale,
+    head_epoch: u64,
+    has_checkpoint: bool,
+    kept_turns: usize,
+) -> Option<String> {
+    if head_epoch == 0 {
+        return None;
+    }
+    Some(tf(
+        locale,
+        if has_checkpoint {
+            "context_usage.epoch_line"
+        } else {
+            "context_usage.epoch_line_no_checkpoint"
+        },
+        &[
+            ("epoch", &head_epoch.to_string()),
+            ("turns", &kept_turns.to_string()),
+        ],
+    ))
+}
+
 fn context_usage_event_target(ev: &web_sys::MouseEvent) -> Option<web_sys::Element> {
     ev.target()
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
@@ -259,6 +345,7 @@ pub(crate) fn ContextUsagePanel(
     on_compact: Callback<()>,
     on_new_session: Callback<()>,
     compact_disabled: Signal<bool>,
+    epoch_line: Option<String>,
 ) -> impl IntoView {
     let loc = locale.get();
     let pct = context_percent(snapshot.used, snapshot.max);
@@ -328,6 +415,13 @@ pub(crate) fn ContextUsagePanel(
                 <span>{tf(loc, "context_usage.full", &[("pct", &pct.to_string())])}</span>
                 <span>{total}</span>
             </div>
+            {epoch_line.as_ref().map(|line| {
+                let line = line.clone();
+                view! {
+                    <div class="context-usage-epoch" data-testid="context-usage-epoch">{line}</div>
+                }
+            })}
+            <TranscriptViewToggle in_panel=true />
             {danger.then(|| view! {
                 <div class="context-usage-nudge" data-testid="context-usage-nudge" role="status">
                     <span class="context-usage-nudge-copy">{t(loc, "context_usage.nudge")}</span>
@@ -406,5 +500,28 @@ pub(crate) fn ContextUsagePanel(
                 </button>
             })}
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::context_epoch_line;
+    use crate::i18n::Locale;
+
+    #[test]
+    fn epoch_line_hidden_without_compaction() {
+        assert_eq!(context_epoch_line(Locale::En, 0, true, 3), None);
+    }
+
+    #[test]
+    fn epoch_line_names_checkpoint_and_kept_turns() {
+        assert_eq!(
+            context_epoch_line(Locale::En, 1, true, 1).as_deref(),
+            Some("Epoch 1 · system + checkpoint + 1 kept turns")
+        );
+        assert_eq!(
+            context_epoch_line(Locale::Zh, 2, false, 4).as_deref(),
+            Some("纪元 2 · system + 4 轮 tail")
+        );
     }
 }

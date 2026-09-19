@@ -844,6 +844,57 @@ fn compaction_undone_event_roundtrips_and_chat_item_defaults() {
     .unwrap();
     assert!(page.context_epochs.is_empty());
     assert_eq!(page.head_epoch, 0);
+    assert_eq!(page.in_context_from_user_index, None);
+
+    let marked: wisp_dto::LoadedSessionPage = serde_json::from_value(json!({
+        "items": [],
+        "next_before_seq": null,
+        "user_offset": 0,
+        "in_context_from_user_index": 2
+    }))
+    .unwrap();
+    assert_eq!(marked.in_context_from_user_index, Some(2));
+
+    match (wisp_dto::LoadedItem {
+        role: "system".into(),
+        text: "sys".into(),
+        tool_name: None,
+        ok: None,
+        duration_ms: None,
+        input: String::new(),
+        model_name: None,
+        call_id: None,
+        kind: Some("system".into()),
+        status: None,
+        locations: None,
+        resources: Vec::new(),
+    })
+    .into_chat()
+    {
+        wisp_dto::ChatItem::System(text) => assert_eq!(text, "sys"),
+        _ => panic!("expected ChatItem::System"),
+    }
+    match (wisp_dto::LoadedItem {
+        role: "checkpoint".into(),
+        text: "[context summary checkpoint]\n\nfolded".into(),
+        tool_name: None,
+        ok: None,
+        duration_ms: None,
+        input: String::new(),
+        model_name: None,
+        call_id: None,
+        kind: Some("checkpoint".into()),
+        status: None,
+        locations: None,
+        resources: Vec::new(),
+    })
+    .into_chat()
+    {
+        wisp_dto::ChatItem::Checkpoint(text) => {
+            assert!(text.contains("[context summary checkpoint]"));
+        }
+        _ => panic!("expected ChatItem::Checkpoint"),
+    }
 
     let item = wisp_dto::LoadedItem {
         role: "compaction".into(),

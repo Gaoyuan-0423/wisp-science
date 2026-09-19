@@ -813,6 +813,18 @@ fn App() -> impl IntoView {
     let context_usage_suppress_click = context_usage.suppress_click;
     let context_usage_details = context_usage.details;
     let context_usage_detail_open = context_usage.detail_open;
+    let model_view = create_rw_signal(false);
+    let context_view_items = create_rw_signal::<Vec<ChatItem>>(Vec::new());
+    let in_context_from_user_index = create_rw_signal::<Option<usize>>(None);
+    let head_epoch = create_rw_signal(0u64);
+    let context_epochs = create_rw_signal::<Vec<ContextEpochDto>>(Vec::new());
+    let thread_items = Signal::derive(move || {
+        if model_view.get() && !context_view_items.with(|rows| rows.is_empty()) {
+            context_view_items.get()
+        } else {
+            items.get()
+        }
+    });
     let active_context_usage = create_memo(move |_| {
         let session_id = active_session.get()?;
         if active_acp_agent_id.get().is_some() {
@@ -862,6 +874,11 @@ fn App() -> impl IntoView {
         context_usage_open.set(false);
         context_usage_details.set(None);
         context_usage_detail_open.set(None);
+        model_view.set(false);
+        context_view_items.set(Vec::new());
+        in_context_from_user_index.set(None);
+        head_epoch.set(0);
+        context_epochs.set(Vec::new());
     });
     create_effect(move |_| {
         let open = context_usage_open.get();
@@ -2684,6 +2701,11 @@ fn App() -> impl IntoView {
                             .collect::<Vec<_>>();
                         settle_question_cards(&mut chats);
                         items.set(chats);
+                        context_epochs.set(page.context_epochs);
+                        head_epoch.set(page.head_epoch);
+                        in_context_from_user_index.set(page.in_context_from_user_index);
+                        model_view.set(false);
+                        context_view_items.set(Vec::new());
                     }
                     refresh_session_history();
                 }
@@ -3186,6 +3208,13 @@ fn App() -> impl IntoView {
                 route_items(active_cb, items_cb, transcripts_cb, &frame_id, |items| {
                     apply_compaction_undone(items, epoch);
                 });
+                if active_cb.get().as_deref() == Some(frame_id.as_str()) {
+                    in_context_from_user_index.set(None);
+                    head_epoch.set(0);
+                    context_epochs.set(Vec::new());
+                    model_view.set(false);
+                    context_view_items.set(Vec::new());
+                }
             }
             AgentEvent::ContextWarning {
                 frame_id,
@@ -6243,6 +6272,11 @@ fn App() -> impl IntoView {
                 conversation_outlines.update(|all| {
                     all.insert(id.clone(), page.outline);
                 });
+                context_epochs.set(page.context_epochs);
+                head_epoch.set(page.head_epoch);
+                in_context_from_user_index.set(page.in_context_from_user_index);
+                model_view.set(false);
+                context_view_items.set(Vec::new());
                 transcript_pages.update(|pages| {
                     pages.insert(
                         id.clone(),
@@ -6269,6 +6303,29 @@ fn App() -> impl IntoView {
                 restore_chat_session_scroll(&id);
                 return;
             }
+        });
+    });
+    let toggle_model_view = Callback::new(move |_| {
+        if model_view.get() {
+            model_view.set(false);
+            return;
+        }
+        let Some(id) = active_session.get() else {
+            return;
+        };
+        spawn_local(async move {
+            let args = to_value(&tauri_args::load_session_context_view(&id)).unwrap();
+            let Ok(value) = invoke_checked("load_session_context_view", args).await else {
+                return;
+            };
+            let Ok(rows) = serde_wasm_bindgen::from_value::<Vec<LoadedItem>>(value) else {
+                return;
+            };
+            if active_session.get_untracked().as_deref() != Some(id.as_str()) {
+                return;
+            }
+            context_view_items.set(rows.into_iter().map(LoadedItem::into_chat).collect());
+            model_view.set(true);
         });
     });
     let open_exploration = {
@@ -7834,6 +7891,11 @@ fn App() -> impl IntoView {
                     route_items(active_session, items, transcripts, id, |rows| {
                         apply_compaction_undone(rows, epoch);
                     });
+                    in_context_from_user_index.set(None);
+                    head_epoch.set(0);
+                    context_epochs.set(Vec::new());
+                    model_view.set(false);
+                    context_view_items.set(Vec::new());
                 }
             });
         }),
@@ -10838,6 +10900,10 @@ fn App() -> impl IntoView {
             .unwrap_or_else(|| path.replace('\\', "/"));
         Some((file, revision, display_path))
     });
+    provide_context(ModelViewCtrl {
+        on: model_view,
+        toggle: toggle_model_view,
+    });
 
     view! {
         {is_windows().then(|| view! {
@@ -11344,6 +11410,9 @@ fn App() -> impl IntoView {
                 }}
                 <div class="spacer"></div>
                 <div class="topbar-actions">
+                {move || active_session.get().is_some().then(|| view! {
+                    <TranscriptViewToggle />
+                })}
                 {move || {
                     let count = conversation_outline.with(|rows| rows.len());
                     (count > 0 && (!center_file_open.get() || center_split.get())).then(|| view! {
@@ -12114,7 +12183,7 @@ fn App() -> impl IntoView {
                         selection_popup.set(None);
                     }
                 }>
-                <div class="thread" id=CHAT_THREAD_ID>
+                <div class="thread" id=CHAT_THREAD_ID data-model-view=move || model_view_active().to_string()>
                     {move || active_session.get().and_then(|frame_id| {
                         let rows = explorations.get();
                         if let Some(summary) = rows.iter().find(|row| {
@@ -12186,7 +12255,10 @@ fn App() -> impl IntoView {
                             </div>
                         })
                     })}
-                    {move || active_session.get().and_then(|id| {
+                    {move || (!model_view_active())
+                        .then(|| active_session.get())
+                        .flatten()
+                        .and_then(|id| {
                         transcript_pages.get().get(&id).copied().and_then(|page| {
                             let (_, window_start, _) = items.with(|rows| {
                                 transcript_render_window(
@@ -12233,7 +12305,7 @@ fn App() -> impl IntoView {
                             }
                         })
                     })}
-                    {move || (items.with(|l| l.is_empty()) && !(transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()) && transcript_page_error.get().is_none_or(|(id, _)| active_session.get().as_deref() != Some(id.as_str()))).then(|| view! {
+                    {move || (thread_items.with(|l| l.is_empty()) && !(transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()) && transcript_page_error.get().is_none_or(|(id, _)| active_session.get().as_deref() != Some(id.as_str()))).then(|| view! {
                         <div class="empty">
                             <span class="empty-logo brand-wordmark" role="img" aria-label="Wisp Science"></span>
                             <h1>{move || empty_title(locale.get(), empty_title_idx.get())}</h1>
@@ -12289,7 +12361,9 @@ fn App() -> impl IntoView {
                             // Rows carry message indices, never cloned messages;
                             // `children` clones lazily, so a flush only pays for
                             // rows whose fingerprint key actually changed.
-                            conversation_outline.with(|outline| items.with(|list| {
+                            conversation_outline.with(|outline| {
+                            let list_owned = thread_items.get();
+                            let list = &list_owned;
                             // Queued user turns live after the active turn and
                             // must not make its process group look historical.
                             let queue_start = trailing_queue_start(list);
@@ -12465,10 +12539,10 @@ fn App() -> impl IntoView {
                                 synthetic_start += 1;
                             }
                             anchored
-                            }))
+                            })
                         }
                         key=|(session_id, start, streaming, fp, _)| {
-                            (session_id.clone(), *start, *streaming, *fp)
+                            (session_id.clone(), *start, *streaming, *fp, model_view_active())
                         }
                         children=move |(session_id, start, _, _, row)| {
                             match row {
@@ -12499,7 +12573,7 @@ fn App() -> impl IntoView {
                                     let item = if streaming_reasoning {
                                         ChatItem::Reasoning(String::new())
                                     } else {
-                                        items.with_untracked(|list| list[i].clone())
+                                        thread_items.with_untracked(|list| list[i].clone())
                                     };
                                     let on_resume = Callback::new(resume_turn);
                                     let class = if commentary {
@@ -12507,7 +12581,7 @@ fn App() -> impl IntoView {
                                     } else {
                                         class_for(&item)
                                     };
-                                    let user_index = items
+                                    let user_index = thread_items
                                         .with_untracked(|rows| user_turn_index(rows, i))
                                         .map(|index| {
                                             index
@@ -12517,7 +12591,7 @@ fn App() -> impl IntoView {
                                                     })
                                                     .map_or(0, |page| page.user_offset)
                                         });
-                                    let explore_turn_index = items
+                                    let explore_turn_index = thread_items
                                         .with_untracked(|rows| owning_user_turn_index(rows, i))
                                         .map(|index| {
                                             index
@@ -12527,6 +12601,22 @@ fn App() -> impl IntoView {
                                                     })
                                                     .map_or(0, |page| page.user_offset)
                                         });
+                                    let in_context = model_view_active_untracked()
+                                        || thread_items.with_untracked(|rows| {
+                                            item_in_context(
+                                                rows,
+                                                i,
+                                                transcript_pages
+                                                    .with_untracked(|pages| {
+                                                        pages.get(&session_id).copied()
+                                                    })
+                                                    .map_or(0, |page| page.user_offset),
+                                                in_context_from_user_index.get_untracked(),
+                                            )
+                                        });
+                                    let out_of_context_title = (!in_context).then(|| {
+                                        t(locale.get_untracked(), "chat.out_of_context").to_string()
+                                    });
                                     let data_user_index =
                                         user_index.map(|index| index.to_string());
                                     let branch_anchor = if matches!(&item, ChatItem::User(_)) {
@@ -12565,18 +12655,23 @@ fn App() -> impl IntoView {
                                         Vec::new()
                                     };
                                     let can_undo = Signal::derive(move || {
-                                        !compact_assistant
+                                        !model_view_active()
+                                            && !compact_assistant
                                             && !matches!(active_branch_state.get().as_deref(), Some("merged" | "orphaned"))
                                             && undo_assistant_index.get() == Some(i)
                                     });
-                                    let show_actions = Signal::derive(move || !busy.get());
+                                    let show_actions = Signal::derive(move || !busy.get() && !model_view_active());
                                     let can_branch = Signal::derive(move || {
-                                        active_branch_state.get().is_none()
+                                        !model_view_active()
+                                            && active_branch_state.get().is_none()
                                             && active_acp_agent_id.get().is_none()
                                             && !active_is_exploration.get()
                                             && !busy.get()
                                     });
                                     let show_explore = Signal::derive(move || {
+                                        if model_view_active() {
+                                            return false;
+                                        }
                                         if compact_assistant
                                             || active_acp_agent_id.get().is_some()
                                             || active_branch_state.get().is_some()
@@ -12622,7 +12717,10 @@ fn App() -> impl IntoView {
                                                 conversation_outline_selected.get() == Some(index)
                                             })
                                             data-ui-index=i.to_string()
-                                            data-user-index=data_user_index>
+                                            data-user-index=data_user_index
+                                            data-in-context=in_context.to_string()
+                                            data-testid="transcript-item"
+                                            title=out_of_context_title>
                                             {if streaming_assistant {
                                                 view! {
                                                     <StreamingAssistantMessage
@@ -12645,7 +12743,8 @@ fn App() -> impl IntoView {
                                                 render_item(
                                                     i, &item, timestamp, artifacts, on_artifact_select, on_file_link,
                                                     run_records, run_clock.read_only(), busy.read_only(), compact_assistant,
-                                                    active_acp_agent_id.get().is_none()
+                                                    !model_view_active_untracked()
+                                                        && active_acp_agent_id.get().is_none()
                                                         && !matches!(active_branch_state.get_untracked().as_deref(), Some("merged" | "orphaned")),
                                                     can_branch, show_actions, can_undo, show_explore, can_explore, edit_message, branch_message, undo_message, explore_turn_index.unwrap_or_default(), start_exploration_from_turn, session_id,
                                                     request_turn_memory, request_session_review, respond_confirm, on_resume,
@@ -12656,7 +12755,7 @@ fn App() -> impl IntoView {
                                                     Callback::new(move |detail| branch_merge_detail.set(Some(detail))),
                                                 ).into_view()
                                             }}
-                                            {(!message_branches.is_empty() || !message_explorations.is_empty()).then(|| {
+                                            {(!model_view_active_untracked() && (!message_branches.is_empty() || !message_explorations.is_empty())).then(|| {
                                                 let loc = locale.get();
                                                 let branch_count = message_branches.len();
                                                 let exploration_count = message_explorations.len();
@@ -12873,7 +12972,10 @@ fn App() -> impl IntoView {
                             }
                         })
                     })}
-                    {move || active_session.get().and_then(|id| {
+                    {move || (!model_view_active())
+                        .then(|| active_session.get())
+                        .flatten()
+                        .and_then(|id| {
                         transcript_pages.get().get(&id).copied().and_then(|page| {
                             let (_, start, total) = items.with(|rows| {
                                 transcript_render_window(
@@ -13367,6 +13469,21 @@ fn App() -> impl IntoView {
                                         on_compact=compact_from_usage
                                         on_new_session=new_session_from_usage
                                         compact_disabled=Signal::derive(move || busy.get())
+                                        epoch_line=context_epoch_line(
+                                            locale.get(),
+                                            head_epoch.get(),
+                                            context_epochs.with(|rows| {
+                                                rows.iter().any(|row| {
+                                                    row.epoch == head_epoch.get()
+                                                        && row.checkpoint_seq.is_some()
+                                                })
+                                            }),
+                                            conversation_outline.with(|rows| {
+                                                rows.len().saturating_sub(
+                                                    in_context_from_user_index.get().unwrap_or(0),
+                                                )
+                                            }),
+                                        )
                                     />
                                 </div>
                             }
@@ -16648,6 +16765,21 @@ fn App() -> impl IntoView {
                             on_compact=compact_from_usage
                             on_new_session=new_session_from_usage
                             compact_disabled=Signal::derive(move || busy.get())
+                            epoch_line=context_epoch_line(
+                                locale.get(),
+                                head_epoch.get(),
+                                context_epochs.with(|rows| {
+                                    rows.iter().any(|row| {
+                                        row.epoch == head_epoch.get()
+                                            && row.checkpoint_seq.is_some()
+                                    })
+                                }),
+                                conversation_outline.with(|rows| {
+                                    rows.len().saturating_sub(
+                                        in_context_from_user_index.get().unwrap_or(0),
+                                    )
+                                }),
+                            )
                         />
                     }
                 })

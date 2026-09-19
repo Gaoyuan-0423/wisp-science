@@ -1060,6 +1060,8 @@ struct SessionTranscriptPage {
     context_epochs: Vec<wisp_dto::ContextEpochDto>,
     #[serde(default)]
     head_epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    in_context_from_user_index: Option<usize>,
 }
 
 use wisp_dto::SessionOutlineItem;
@@ -1214,9 +1216,24 @@ fn user_message_start(msgs: &[wisp_llm::Message], user_index: usize) -> usize {
     msgs.len()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MessagesToItemsMode {
+    Transcript,
+    ContextView,
+}
+
 /// Flatten persisted messages into UI transcript items (skips system turns,
 /// splits assistant reasoning into its own row).
 fn messages_to_items(msgs: &[wisp_llm::Message]) -> Vec<UiItem> {
+    messages_to_items_with(msgs, MessagesToItemsMode::Transcript)
+}
+
+/// Head-epoch rows the model actually sees: system, checkpoint, and tail.
+fn messages_to_context_view_items(msgs: &[wisp_llm::Message]) -> Vec<UiItem> {
+    messages_to_items_with(msgs, MessagesToItemsMode::ContextView)
+}
+
+fn messages_to_items_with(msgs: &[wisp_llm::Message], mode: MessagesToItemsMode) -> Vec<UiItem> {
     let tool_inputs: HashMap<&str, String> = msgs
         .iter()
         .flat_map(|message| message.tool_calls.iter())
@@ -1252,21 +1269,40 @@ fn messages_to_items(msgs: &[wisp_llm::Message]) -> Vec<UiItem> {
                         locations: None,
                         resources: Vec::new(),
                     });
-                } else if !t.trim().is_empty() && !wisp_store::is_compaction_checkpoint(&t) {
-                    out.push(UiItem {
-                        role: "user".into(),
-                        text: t,
-                        tool_name: None,
-                        ok: None,
-                        duration_ms: None,
-                        input: None,
-                        model_name: None,
-                        call_id: None,
-                        kind: None,
-                        status: None,
-                        locations: None,
-                        resources: Vec::new(),
-                    });
+                } else if !t.trim().is_empty() {
+                    if wisp_store::is_compaction_checkpoint(&t) {
+                        if mode == MessagesToItemsMode::ContextView {
+                            out.push(UiItem {
+                                role: "checkpoint".into(),
+                                text: t,
+                                tool_name: None,
+                                ok: None,
+                                duration_ms: None,
+                                input: None,
+                                model_name: None,
+                                call_id: None,
+                                kind: Some("checkpoint".into()),
+                                status: None,
+                                locations: None,
+                                resources: Vec::new(),
+                            });
+                        }
+                    } else {
+                        out.push(UiItem {
+                            role: "user".into(),
+                            text: t,
+                            tool_name: None,
+                            ok: None,
+                            duration_ms: None,
+                            input: None,
+                            model_name: None,
+                            call_id: None,
+                            kind: None,
+                            status: None,
+                            locations: None,
+                            resources: Vec::new(),
+                        });
+                    }
                 }
             }
             wisp_llm::Role::Assistant => {
@@ -1400,7 +1436,27 @@ fn messages_to_items(msgs: &[wisp_llm::Message]) -> Vec<UiItem> {
                     });
                 }
             }
-            wisp_llm::Role::System => {}
+            wisp_llm::Role::System => {
+                if mode == MessagesToItemsMode::ContextView {
+                    let t = m.content.as_text();
+                    if !t.trim().is_empty() {
+                        out.push(UiItem {
+                            role: "system".into(),
+                            text: t,
+                            tool_name: None,
+                            ok: None,
+                            duration_ms: None,
+                            input: None,
+                            model_name: None,
+                            call_id: None,
+                            kind: Some("system".into()),
+                            status: None,
+                            locations: None,
+                            resources: Vec::new(),
+                        });
+                    }
+                }
+            }
         }
     }
     out
@@ -7656,6 +7712,7 @@ pub fn run() {
             publication_freeze::freeze_publication_revision,
             publication_freeze::check_publication_revision,
             session_commands::load_session,
+            session_commands::load_session_context_view,
             research_archive::get_research_archive,
             research_archive::prepare_research_archive,
             research_archive::confirm_research_archive,
