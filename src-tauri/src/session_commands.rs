@@ -1044,7 +1044,7 @@ async fn last_user_index(store: &Store, frame_id: &str) -> Result<usize, String>
             message.role == wisp_llm::Role::User
                 && message.tool_name.as_deref() != Some(wisp_store::AGENT_WORKFLOW_COMPLETION_TOOL)
                 && !message.content.as_text().trim().is_empty()
-                && !wisp_store::is_compaction_checkpoint_text(&message.content.as_text())
+                && !wisp_store::is_compaction_checkpoint(&message.content.as_text())
         })
         .count()
         .saturating_sub(1))

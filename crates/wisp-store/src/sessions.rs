@@ -1180,7 +1180,7 @@ async fn visual_retained_turns(
                 let Some(text) = row.try_get::<Option<String>, _>("text")? else {
                     continue;
                 };
-                if crate::is_compaction_checkpoint_text(&text) {
+                if is_compaction_checkpoint(&text) {
                     continue;
                 }
                 turns.push(false);
@@ -1228,7 +1228,7 @@ pub(crate) async fn reconcile_session_branches_after_truncate(
                     .and_then(|content| serde_json::from_str::<wisp_llm::Content>(&content).ok())
                     .is_some_and(|content| {
                         !content.as_text().trim().is_empty()
-                            && !crate::is_compaction_checkpoint_text(&content.as_text())
+                            && !is_compaction_checkpoint(&content.as_text())
                     })
             {
                 retained_turns.push(false);

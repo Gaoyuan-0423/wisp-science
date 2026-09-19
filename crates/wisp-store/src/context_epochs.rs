@@ -322,7 +322,7 @@ impl Store {
                     let Some(text) = row.try_get::<Option<String>, _>("text")? else {
                         continue;
                     };
-                    if is_compaction_checkpoint_text(&text) {
+                    if crate::is_compaction_checkpoint(&text) {
                         continue;
                     }
                     waiting = seen == user_index;
@@ -349,7 +349,7 @@ impl Store {
         Ok(rows
             .into_iter()
             .flatten()
-            .filter(|text| !is_compaction_checkpoint_text(text))
+            .filter(|text| !crate::is_compaction_checkpoint(text))
             .count())
     }
 
@@ -383,11 +383,6 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
-}
-
-/// Synthetic compaction cards are not user-authored questions.
-pub fn is_compaction_checkpoint_text(text: &str) -> bool {
-    text.starts_with("[context summary checkpoint]") || text.starts_with("[compacted;")
 }
 
 #[cfg(test)]
