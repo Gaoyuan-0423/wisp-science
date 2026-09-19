@@ -1230,10 +1230,10 @@ mod tests {
                 .map(|message| message.content.as_text().to_string())
                 .collect::<Vec<_>>(),
             [
-                "sys".into(),
-                "[context summary checkpoint]\n\nsummary".into(),
-                "q2".into(),
-                "a2".into(),
+                "sys".to_string(),
+                "[context summary checkpoint]\n\nsummary".to_string(),
+                "q2".to_string(),
+                "a2".to_string(),
             ]
         );
 
@@ -1248,11 +1248,11 @@ mod tests {
                 .map(|message| message.content.as_text().to_string())
                 .collect::<Vec<_>>(),
             [
-                "sys".into(),
-                "q1".into(),
-                "a1".into(),
-                "q2".into(),
-                "a2".into()
+                "sys".to_string(),
+                "q1".to_string(),
+                "a1".to_string(),
+                "q2".to_string(),
+                "a2".to_string()
             ]
         );
         assert_eq!(
