@@ -795,7 +795,7 @@ fn compaction_event_accepts_missing_and_present_epoch() {
         locations: None,
         resources: Vec::new(),
     };
-    match item.into_chat_item() {
+    match item.into_chat() {
         wisp_dto::ChatItem::Compaction { epoch, .. } => assert_eq!(epoch, None),
         _ => panic!("expected ChatItem::Compaction"),
     }
@@ -813,7 +813,7 @@ fn compaction_event_accepts_missing_and_present_epoch() {
         locations: None,
         resources: Vec::new(),
     };
-    match linked.into_chat_item() {
+    match linked.into_chat() {
         wisp_dto::ChatItem::Compaction {
             epoch, strategy, ..
         } => {
