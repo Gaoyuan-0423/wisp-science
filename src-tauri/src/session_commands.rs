@@ -81,18 +81,21 @@ pub(super) async fn branch_session(
     // as any other non-source mainline conversation during an active round.
     let id = create_session_frame(&state.store, &ap.id).await?;
     if let Some(source) = session_id.as_deref().filter(|s| !s.is_empty()) {
-        let msgs = state
-            .store
-            .load_messages(source)
-            .await
-            .map_err(|e| format!("{e}"))?;
         let checkpoint_kind = checkpoint_kind.as_deref().unwrap_or("after_response");
-        let checkpoint_user_index = user_index.unwrap_or_else(|| {
-            msgs.iter()
-                .filter(|message| message.role == wisp_llm::Role::User)
-                .count()
-                .saturating_sub(1)
-        });
+        if !matches!(checkpoint_kind, "before_user" | "after_response") {
+            return Err("Invalid conversation branch checkpoint kind.".into());
+        }
+        let checkpoint_user_index = match user_index {
+            Some(index) => index,
+            None => last_user_index(&state.store, source).await?,
+        };
+        let (epoch, keep_seq) = resolve_visual_keep(
+            &state.store,
+            source,
+            checkpoint_user_index,
+            checkpoint_kind == "after_response",
+        )
+        .await?;
         state
             .store
             .set_session_branch_point(&id, source, checkpoint_user_index, checkpoint_kind)
@@ -125,12 +128,12 @@ pub(super) async fn branch_session(
             .await
             .map_err(|error| error.to_string())?;
         ssh_hosts::copy_session_default_execution_context(&state.store, source, &id).await?;
-        let keep = match checkpoint_kind {
-            "before_user" => user_message_start(&msgs, checkpoint_user_index),
-            "after_response" => user_message_start(&msgs, checkpoint_user_index.saturating_add(1)),
-            _ => return Err("Invalid conversation branch checkpoint kind.".into()),
-        };
-        for (idx, msg) in msgs.iter().take(keep).enumerate() {
+        let msgs = state
+            .store
+            .load_messages_in_epoch(source, epoch)
+            .await
+            .map_err(|e| format!("{e}"))?;
+        for (idx, (_, msg)) in msgs.iter().filter(|(seq, _)| *seq <= keep_seq).enumerate() {
             state
                 .store
                 .append_message(&id, idx as i64 + 1, msg)
@@ -1010,37 +1013,115 @@ pub(super) async fn rewind_session(
     {
         return Err("ACP sessions cannot be rewound in protocol v1.".into());
     }
-    // `keep` counts head-epoch rows; the durable seq to keep is read off the
-    // persisted rows because seqs run ahead of row indexes once the frame has
-    // a compaction epoch.
-    let rows = state
-        .store
-        .load_messages_with_seq(&frame_id)
-        .await
-        .map_err(|e| format!("{e}"))?;
-    let rt = state.sessions.lock().await.get(&frame_id).cloned();
-    let keep = if let Some(rt) = rt {
-        let mut guard = rt.agent.lock().await;
-        if let Some(agent) = guard.as_mut() {
-            let k = user_message_start(&agent.ctx.messages, user_index);
-            agent.ctx.messages.truncate(k);
-            k
-        } else {
-            user_index_to_keep_after_db(&state.store, &frame_id, user_index).await?
-        }
-    } else {
-        user_index_to_keep_after_db(&state.store, &frame_id, user_index).await?
-    };
-    let keep_seq = head_keep_seq(&rows, keep);
+    let (epoch, keep_seq) = resolve_visual_keep(&state.store, &frame_id, user_index, false).await?;
     state
         .store
-        .truncate_messages(&frame_id, keep_seq)
+        .rewind_to_seq(&frame_id, epoch, keep_seq)
         .await
         .map_err(|e| format!("{e}"))?;
-    if let Some(rt) = state.sessions.lock().await.get(&frame_id) {
+    if let Some(rt) = state.sessions.lock().await.get(&frame_id).cloned() {
+        *rt.agent.lock().await = None;
         rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
     }
     Ok(())
+}
+
+async fn last_user_index(store: &Store, frame_id: &str) -> Result<usize, String> {
+    let visual = store
+        .visual_user_count(frame_id)
+        .await
+        .map_err(|e| format!("{e}"))?;
+    if visual > 0 {
+        return Ok(visual - 1);
+    }
+    let rows = store
+        .load_messages_in_epoch(frame_id, 0)
+        .await
+        .map_err(|e| format!("{e}"))?;
+    Ok(rows
+        .iter()
+        .filter(|(_, message)| {
+            message.role == wisp_llm::Role::User
+                && message.tool_name.as_deref() != Some(wisp_store::AGENT_WORKFLOW_COMPLETION_TOOL)
+                && !message.content.as_text().trim().is_empty()
+                && !wisp_store::is_compaction_checkpoint(&message.content.as_text())
+        })
+        .count()
+        .saturating_sub(1))
+}
+
+/// Map a visual user turn to `(epoch, keep_seq)`.
+/// `after_response` keeps that turn's reply; otherwise the cut is just before it.
+/// Legacy sessions without User events fall back to epoch-0 row indexes.
+pub(super) async fn resolve_visual_keep(
+    store: &Store,
+    frame_id: &str,
+    user_index: usize,
+    after_response: bool,
+) -> Result<(i64, i64), String> {
+    if after_response {
+        if let Some(next) = store
+            .visual_turn_anchor(frame_id, user_index.saturating_add(1))
+            .await
+            .map_err(|e| format!("{e}"))?
+        {
+            let epoch = store
+                .resolve_message_epoch(frame_id, next.saturating_sub(1).max(1))
+                .await
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(0);
+            return Ok((epoch, next - 1));
+        }
+        if let Some(anchor) = store
+            .visual_turn_anchor(frame_id, user_index)
+            .await
+            .map_err(|e| format!("{e}"))?
+        {
+            let epoch = store
+                .resolve_message_epoch(frame_id, anchor)
+                .await
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(0);
+            let keep_seq = store
+                .load_messages_in_epoch(frame_id, epoch)
+                .await
+                .map_err(|e| format!("{e}"))?
+                .last()
+                .map(|(seq, _)| *seq)
+                .unwrap_or(anchor);
+            return Ok((epoch, keep_seq));
+        }
+    } else if let Some(anchor) = store
+        .visual_turn_anchor(frame_id, user_index)
+        .await
+        .map_err(|e| format!("{e}"))?
+    {
+        let keep_seq = anchor - 1;
+        let epoch = if keep_seq <= 0 {
+            0
+        } else {
+            store
+                .resolve_message_epoch(frame_id, keep_seq)
+                .await
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(0)
+        };
+        return Ok((epoch, keep_seq));
+    }
+    let rows = store
+        .load_messages_in_epoch(frame_id, 0)
+        .await
+        .map_err(|e| format!("{e}"))?;
+    let msgs = rows
+        .iter()
+        .map(|(_, message)| message.clone())
+        .collect::<Vec<_>>();
+    let keep = if after_response {
+        user_message_start(&msgs, user_index.saturating_add(1))
+    } else {
+        user_message_start(&msgs, user_index)
+    };
+    Ok((0, head_keep_seq(&rows, keep)))
 }
 
 /// Durable seq below which the first `keep` head-epoch rows are retained.
@@ -1054,20 +1135,6 @@ pub(super) fn head_keep_seq(rows: &[(i64, wisp_llm::Message)], keep: usize) -> i
             .or(rows.last())
             .map_or(0, |(seq, _)| *seq),
     }
-}
-
-/// Compute the `keep` index purely from persisted messages when no in-memory
-/// agent exists for the session yet.
-pub(super) async fn user_index_to_keep_after_db(
-    store: &Store,
-    frame_id: &str,
-    user_index: usize,
-) -> Result<usize, String> {
-    let msgs = store
-        .load_messages(frame_id)
-        .await
-        .map_err(|e| format!("{e}"))?;
-    Ok(user_message_start(&msgs, user_index))
 }
 
 /// The frame's ACP `ask_user` rows, appended after the transcript (a pending

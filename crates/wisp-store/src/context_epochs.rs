@@ -292,6 +292,97 @@ impl Store {
                 .await?,
         )
     }
+
+    /// Seq of the model-context row that starts the `user_index`-th visual
+    /// user turn (0-based, checkpoint User events skipped). `None` when the
+    /// transcript has no User events yet (legacy message-only prefix) or the
+    /// index is past the log.
+    pub async fn visual_turn_anchor(
+        &self,
+        frame_id: &str,
+        user_index: usize,
+    ) -> Result<Option<i64>> {
+        let rows = sqlx::query(
+            "SELECT json_extract(event_json,'$.kind') AS kind, \
+             json_extract(event_json,'$.text') AS text, \
+             json_extract(event_json,'$.seq') AS message_seq \
+             FROM session_ui_events WHERE frame_id=? \
+             AND json_extract(event_json,'$.kind') IN ('User','MessageBoundary') \
+             ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut seen = 0usize;
+        let mut waiting = false;
+        for row in rows {
+            let kind: String = row.try_get("kind")?;
+            match kind.as_str() {
+                "User" => {
+                    let Some(text) = row.try_get::<Option<String>, _>("text")? else {
+                        continue;
+                    };
+                    if crate::is_compaction_checkpoint(&text) {
+                        continue;
+                    }
+                    waiting = seen == user_index;
+                    seen += 1;
+                }
+                "MessageBoundary" if waiting => {
+                    return Ok(row.try_get::<Option<i64>, _>("message_seq")?);
+                }
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
+    /// Visual user turns in the live transcript (checkpoint cards omitted).
+    pub async fn visual_user_count(&self, frame_id: &str) -> Result<usize> {
+        let rows: Vec<Option<String>> = sqlx::query_scalar(
+            "SELECT json_extract(event_json,'$.text') FROM session_ui_events \
+             WHERE frame_id=? AND json_extract(event_json,'$.kind')='User' ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .flatten()
+            .filter(|text| !crate::is_compaction_checkpoint(text))
+            .count())
+    }
+
+    /// Make `epoch` the head and drop every model-context row after
+    /// `keep_seq`. Later epochs (higher seqs and their `context_epochs`
+    /// records) disappear. The visual transcript is cut at the last
+    /// `MessageBoundary` whose message seq is `<= keep_seq`.
+    pub async fn rewind_to_seq(&self, frame_id: &str, epoch: i64, keep_seq: i64) -> Result<()> {
+        let mut tx = self.begin_write().await?;
+        let current: Option<i64> = sqlx::query_scalar("SELECT head_epoch FROM frames WHERE id=?")
+            .bind(frame_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let current = current.ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+        if epoch < 0 || epoch > current {
+            anyhow::bail!("context epoch {epoch} is not in this session");
+        }
+        sqlx::query("UPDATE frames SET head_epoch=? WHERE id=?")
+            .bind(epoch)
+            .bind(frame_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM context_epochs WHERE frame_id=? AND epoch>?")
+            .bind(frame_id)
+            .bind(epoch)
+            .execute(&mut *tx)
+            .await?;
+        crate::Store::truncate_message_rows(&mut tx, frame_id, keep_seq).await?;
+        crate::sessions::reconcile_session_branches_after_truncate(&mut tx, frame_id, keep_seq)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -733,5 +824,131 @@ mod tests {
                 .ui_event_seq,
             Some(42)
         );
+    }
+
+    async fn persist_visual_turn(store: &Store, event_seq: &mut i64, message_seq: i64, text: &str) {
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"User","frame_id":"f","text":"{text}"}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{message_seq}}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"Text","frame_id":"f","delta":"answer {text}"}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(
+                    r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{}}}"#,
+                    message_seq + 1
+                ),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+    }
+
+    #[tokio::test]
+    async fn visual_turn_anchor_skips_checkpoints_and_legacy_prefix() {
+        let store = store().await;
+        seed(
+            &store,
+            &[
+                ("system", "sys"),
+                ("user", "legacy"),
+                ("assistant", "old"),
+                ("user", "q1"),
+                ("assistant", "a1"),
+            ],
+        )
+        .await;
+        assert_eq!(store.visual_turn_anchor("f", 0).await.unwrap(), None);
+
+        let mut event_seq = 1i64;
+        persist_visual_turn(&store, &mut event_seq, 4, "q1").await;
+        store
+            .append_session_ui_event(
+                "f",
+                event_seq,
+                r#"{"kind":"User","frame_id":"f","text":"[context summary checkpoint]\n\nfolded"}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(store.visual_turn_anchor("f", 0).await.unwrap(), Some(4));
+        assert_eq!(store.visual_turn_anchor("f", 1).await.unwrap(), None);
+        assert_eq!(store.visual_user_count("f").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn rewind_to_seq_restores_an_older_epoch() {
+        let store = store().await;
+        seed(
+            &store,
+            &[
+                ("system", "sys"),
+                ("user", "q1"),
+                ("assistant", "a1"),
+                ("user", "q2"),
+                ("assistant", "a2"),
+            ],
+        )
+        .await;
+        let mut event_seq = 1i64;
+        persist_visual_turn(&store, &mut event_seq, 2, "q1").await;
+        persist_visual_turn(&store, &mut event_seq, 4, "q2").await;
+        store
+            .save_turn_file_undo(
+                "f",
+                2,
+                "notes.md",
+                true,
+                None,
+                Some("a"),
+                Some("b"),
+                true,
+                None,
+            )
+            .await
+            .unwrap();
+        let messages = compacted();
+        store
+            .open_context_epoch("f", open_input(&messages))
+            .await
+            .unwrap();
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 1);
+
+        store.rewind_to_seq("f", 0, 3).await.unwrap();
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 0);
+        assert!(store.context_epochs("f").await.unwrap().is_empty());
+        let head = store.load_messages_with_seq("f").await.unwrap();
+        assert_eq!(
+            head.iter()
+                .map(|(seq, message)| (*seq, message.content.as_text().to_string()))
+                .collect::<Vec<_>>(),
+            [(1, "sys".into()), (2, "q1".into()), (3, "a1".into()),]
+        );
+        assert_eq!(store.list_turn_file_undo("f", 2).await.unwrap().len(), 1);
+        assert_eq!(store.visual_user_count("f").await.unwrap(), 1);
+        assert!(store.visual_turn_anchor("f", 1).await.unwrap().is_none());
     }
 }

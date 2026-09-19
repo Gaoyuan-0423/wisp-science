@@ -1188,6 +1188,7 @@ struct UiItem {
 }
 
 /// Index in `msgs` where the `user_index`‑th user turn starts (0-based user count).
+/// Legacy fallback only: rewind/branch resolve visual User events first.
 fn user_message_start(msgs: &[wisp_llm::Message], user_index: usize) -> usize {
     let mut seen = 0usize;
     for (i, m) in msgs.iter().enumerate() {
