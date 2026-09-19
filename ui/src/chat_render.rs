@@ -5,11 +5,18 @@ use crate::dto::*;
 use crate::i18n::{self, t, tf, use_locale, Locale};
 use crate::research;
 use crate::text::{event_target_value, format_duration_ms, md_to_html, tool_card_label};
+use crate::window_capture_escape;
 use leptos::*;
 use serde_wasm_bindgen::to_value;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+#[derive(Clone, Copy)]
+pub(crate) struct CompactionRowActions {
+    pub undo: Callback<u64>,
+    pub rewind_before: Callback<usize>,
+}
 
 /// The submission result is the durable link between a transcript row and a Run.
 /// Never infer ownership from a command, title, or nearby timestamp.
@@ -1208,59 +1215,199 @@ fn render_process_metadata(item: &ChatItem, locale: ReadSignal<Locale>) -> View 
             before,
             after,
             strategy,
-            ..
-        } => {
-            if strategy == "auto_continue" {
-                let count = before.to_string();
-                let limit = after.to_string();
-                view! {
-                    <div class="context-compaction-flag auto" data-testid="auto-continue-flag">
-                        {compose_icon("sync")}
-                        <span>{move || tf(
-                            locale.get(),
-                            "chat.auto_continued",
-                            &[("count", count.as_str()), ("limit", limit.as_str())],
-                        )}</span>
-                    </div>
-                }
-                .into_view()
-            } else {
-                let automatic = strategy == "auto";
-                let counts = format!(
-                    "{} → {} tokens",
-                    fmt_tokens(*before as u64),
-                    fmt_tokens(*after as u64)
-                );
-                let reduction = (*before > *after).then(|| {
-                    let percent = ((*before - *after) as f64 / *before as f64 * 100.0).round();
-                    format!("{percent:.0}")
-                });
-                view! {
-                    <div class="context-compaction-status context-compaction-complete" data-testid="context-compaction-flag">
-                        <span class="context-compaction-mark" aria-hidden="true">{compose_icon("check")}</span>
-                        <span class="context-compaction-copy">
-                        <strong>{move || t(
-                            locale.get(),
-                            if automatic {
-                                "chat.context_auto_compacted"
-                            } else {
-                                "chat.context_compacted"
-                            },
-                        )}</strong>
-                        <span class="context-compaction-detail">
-                            <span class="context-compaction-count">{counts}</span>
-                            {reduction.map(|percent| view! {
-                                <span class="context-compaction-reduction">{move || tf(locale.get(), "chat.compaction_reduction", &[("percent", &percent)])}</span>
-                            })}
-                        </span>
-                        </span>
-                        <span class="context-compaction-rule" aria-hidden="true"></span>
-                    </div>
-                }.into_view()
-            }
-        }
+            epoch,
+            checkpoint,
+            kept_from_user_index,
+            undone,
+            can_undo,
+            undo_reason,
+        } => render_compaction_row(
+            *before,
+            *after,
+            strategy,
+            *epoch,
+            checkpoint.clone(),
+            *kept_from_user_index,
+            *undone,
+            *can_undo,
+            undo_reason.clone(),
+            locale,
+        ),
         _ => view! {}.into_view(),
     }
+}
+
+fn render_compaction_row(
+    before: usize,
+    after: usize,
+    strategy: &str,
+    epoch: Option<u64>,
+    checkpoint: Option<String>,
+    kept_from_user_index: Option<usize>,
+    undone: bool,
+    can_undo: bool,
+    undo_reason: Option<String>,
+    locale: ReadSignal<Locale>,
+) -> View {
+    if strategy == "auto_continue" {
+        let count = before.to_string();
+        let limit = after.to_string();
+        return view! {
+            <div class="context-compaction-flag auto" data-testid="auto-continue-flag">
+                {compose_icon("sync")}
+                <span>{move || tf(
+                    locale.get(),
+                    "chat.auto_continued",
+                    &[("count", count.as_str()), ("limit", limit.as_str())],
+                )}</span>
+            </div>
+        }
+        .into_view();
+    }
+    let automatic = strategy == "auto";
+    let strategy_key = if automatic {
+        "chat.compaction_strategy_auto"
+    } else {
+        "chat.compaction_strategy_manual"
+    };
+    let counts = format!(
+        "{} → {} tokens",
+        fmt_tokens(before as u64),
+        fmt_tokens(after as u64)
+    );
+    let reduction = (before > after).then(|| {
+        let percent = ((before - after) as f64 / before as f64 * 100.0).round();
+        format!("{percent:.0}")
+    });
+    let checkpoint_html = checkpoint
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+        .map(md_to_html);
+    let expanded = create_rw_signal(false);
+    window_capture_escape(move || {
+        if !expanded.get() {
+            return false;
+        }
+        expanded.set(false);
+        true
+    });
+    let undo_reason_key = undo_reason
+        .as_deref()
+        .map(compaction_undo_reason_key);
+    let actions = use_context::<CompactionRowActions>();
+    let undo_compaction = actions.map(|actions| actions.undo);
+    let rewind_before = actions.map(|actions| actions.rewind_before);
+    view! {
+        <div
+            class="context-compaction-status context-compaction-complete"
+            class:undone=undone
+            data-testid="context-compaction-flag"
+            data-undone=undone.to_string()
+        >
+            <button
+                type="button"
+                class="context-compaction-toggle"
+                data-testid="context-compaction-expand"
+                aria-expanded=move || expanded.get().to_string()
+                title=move || t(
+                    locale.get(),
+                    if expanded.get() { "chat.compaction_collapse" } else { "chat.compaction_expand" },
+                )
+                on:click=move |_| expanded.update(|open| *open = !*open)
+            >
+                <span class="context-compaction-mark" aria-hidden="true">{compose_icon("check")}</span>
+                <span class="context-compaction-copy">
+                    <strong>{move || t(
+                        locale.get(),
+                        if undone {
+                            "chat.compaction_undone"
+                        } else if automatic {
+                            "chat.context_auto_compacted"
+                        } else {
+                            "chat.context_compacted"
+                        },
+                    )}</strong>
+                    <span class="context-compaction-detail">
+                        <span class="context-compaction-count">{counts}</span>
+                        {reduction.map(|percent| view! {
+                            <span class="context-compaction-reduction">{move || tf(locale.get(), "chat.compaction_reduction", &[("percent", &percent)])}</span>
+                        })}
+                    </span>
+                </span>
+                <span class="context-compaction-chevron" aria-hidden="true">
+                    {move || compose_icon(if expanded.get() { "chevron-up" } else { "chevron-down" })}
+                </span>
+                <span class="context-compaction-rule" aria-hidden="true"></span>
+            </button>
+            {move || expanded.get().then(|| {
+                let checkpoint_html = checkpoint_html.clone();
+                let undo_reason_key = undo_reason_key;
+                view! {
+                    <div class="context-compaction-details" data-testid="context-compaction-details">
+                        {checkpoint_html.map(|html| view! {
+                            <div class="context-compaction-checkpoint">
+                                <span class="context-compaction-checkpoint-label">{move || t(locale.get(), "chat.compaction_checkpoint")}</span>
+                                <div class="md" inner_html=html></div>
+                            </div>
+                        })}
+                        <div class="context-compaction-meta">
+                            <span>{move || tf(
+                                locale.get(),
+                                "chat.compaction_strategy",
+                                &[("strategy", &t(locale.get(), strategy_key))],
+                            )}</span>
+                            {epoch.map(|epoch| view! {
+                                <span>{move || tf(locale.get(), "chat.compaction_epoch", &[("epoch", &epoch.to_string())])}</span>
+                            })}
+                            {kept_from_user_index.map(|index| {
+                                let turn = (index + 1).to_string();
+                                view! {
+                                    <span>{move || tf(locale.get(), "chat.compaction_kept_from", &[("turn", turn.as_str())])}</span>
+                                }
+                            })}
+                        </div>
+                        <div class="context-compaction-actions">
+                            <button
+                                type="button"
+                                class="tool-btn"
+                                data-testid="undo-compaction"
+                                disabled=!can_undo
+                                title=move || undo_reason_key.map(|key| t(locale.get(), key)).unwrap_or_default()
+                                on:click=move |ev| {
+                                    ev.stop_propagation();
+                                    if !can_undo {
+                                        return;
+                                    }
+                                    if let Some(undo) = undo_compaction {
+                                        undo.call(epoch.unwrap_or(0));
+                                    }
+                                }
+                            >
+                                {compose_icon("undo-compact")}
+                                <span>{move || t(locale.get(), "chat.compaction_undo")}</span>
+                            </button>
+                            {kept_from_user_index.and_then(|index| rewind_before.map(|rewind| view! {
+                                <button
+                                    type="button"
+                                    class="tool-btn"
+                                    data-testid="rewind-before-compact"
+                                    disabled=undone
+                                    on:click=move |ev| {
+                                        ev.stop_propagation();
+                                        rewind.call(index);
+                                    }
+                                >
+                                    {compose_icon("arrow-left")}
+                                    <span>{move || t(locale.get(), "chat.compaction_rewind")}</span>
+                                </button>
+                            }))}
+                        </div>
+                    </div>
+                }
+            })}
+        </div>
+    }
+    .into_view()
 }
 
 /// Latest step of a live run as "name · detail", shown in the collapsed

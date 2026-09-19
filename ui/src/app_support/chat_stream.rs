@@ -735,12 +735,7 @@ mod start_user_turn_tests {
         );
         recorded.insert(
             5,
-            ChatItem::Compaction {
-                before: 100,
-                after: 50,
-                strategy: "auto".into(),
-                epoch: Some(1),
-            },
+            ChatItem::compaction(100, 50, "auto", Some(1)),
         );
         assert_eq!(completed_activity_end(&recorded, 1, false), Some(8));
         assert_eq!(completed_activity_end(&recorded, 1, true), None);
@@ -809,12 +804,7 @@ mod start_user_turn_tests {
                 model: None,
             });
             if phase == 3 {
-                items.push(ChatItem::Compaction {
-                    before: 1000,
-                    after: 500,
-                    strategy: "auto".into(),
-                    epoch: Some(1),
-                });
+                items.push(ChatItem::compaction(1000, 500, "auto", Some(1)));
             }
         }
         items.push(tool(None));
