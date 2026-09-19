@@ -90,7 +90,7 @@ test("undo compaction invokes the command and marks the row undone", async ({ pa
   await page.getByTestId("context-compaction-expand").click();
   await page.getByTestId("undo-compaction").click();
   await expect.poll(() => lastInvokeArgs(page, "undo_compaction")).toMatchObject({
-    sessionId: null,
+    sessionId: "s-compact",
   });
   const flag = page.getByTestId("context-compaction-flag");
   await expect(flag).toHaveAttribute("data-undone", "true");
