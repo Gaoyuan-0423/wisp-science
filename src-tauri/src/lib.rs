@@ -1877,7 +1877,7 @@ async fn append_ui_event(store: &Store, frame_id: &str, seq: &mut i64, event: Ag
 /// context updates are UI/model-context events, not user messages and not
 /// tool calls; keeping this path explicit prevents them from accidentally
 /// starting a turn or entering external channel output.
-pub(super) async fn persist_and_emit_app_context_update(
+pub(crate) async fn persist_and_emit_app_context_update(
     state: &AppState,
     app: &AppHandle,
     frame_id: &str,
