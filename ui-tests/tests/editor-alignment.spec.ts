@@ -70,3 +70,36 @@ for (const variant of [
     }
   });
 }
+
+// #1301: the mirror, the selection layer and the textarea must all be as wide
+// as the widest line, so `.rp-code` is the only horizontal scroller. When they
+// collapse to the pane width the textarea becomes a nested `overflow: hidden`
+// scroller sitting on top, and horizontal panning stops working entirely.
+test("long source lines pan horizontally in a single scroller", async ({ page }) => {
+  await page.addInitScript(tauriMock);
+  await page.goto("/");
+  await page.locator(".proj-card-main").first().click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await page.locator('[data-workspace-path="analysis.R"]').click({ button: "right" });
+  await page.locator(".ctx-menu").getByRole("button", { name: "Open in center" }).click();
+  const editor = page.getByRole("textbox", { name: "Source editor" });
+  await expect(editor).toBeVisible();
+  await editor.fill(`make_figure(${'"n_samples_COPD_PH", '.repeat(24)}1)\nshort\n`);
+
+  const metrics = await page.locator(".rp-code-editor").evaluate(root => {
+    const scroller = root.querySelector(".rp-code") as HTMLElement;
+    const input = root.querySelector(".rp-code-input") as HTMLElement;
+    const layer = root.querySelector(".rp-code-selection-layer") as HTMLElement;
+    scroller.scrollLeft = scroller.scrollWidth;
+    return {
+      pan: scroller.scrollLeft,
+      overflow: scroller.scrollWidth - scroller.clientWidth,
+      inputClipped: input.scrollWidth - input.clientWidth,
+      layerClipped: layer.scrollWidth - layer.clientWidth,
+    };
+  });
+  expect(metrics.overflow).toBeGreaterThan(0);
+  expect(metrics.pan).toBe(metrics.overflow);
+  expect(metrics.inputClipped).toBe(0);
+  expect(metrics.layerClipped).toBe(0);
+});
