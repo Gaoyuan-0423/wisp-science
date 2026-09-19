@@ -3381,13 +3381,24 @@ async fn side_chat_snapshot_survives_compaction_and_stops_at_completed_boundary(
         .append_message("f", 1, &Message::user("old decision"))
         .await
         .unwrap();
+    let compacted = [
+        Message::system("compacted checkpoint"),
+        Message::user("recent tail"),
+    ];
     store
-        .replace_messages(
+        .open_context_epoch(
             "f",
-            &[
-                Message::system("compacted checkpoint"),
-                Message::user("recent tail"),
-            ],
+            OpenContextEpoch {
+                messages: &compacted,
+                strategy: "manual",
+                kind: "semantic",
+                before_tokens: 10,
+                after_tokens: 4,
+                checkpoint_index: None,
+                first_kept_seq: None,
+                archive_ref: None,
+                ui_event_seq: None,
+            },
         )
         .await
         .unwrap();

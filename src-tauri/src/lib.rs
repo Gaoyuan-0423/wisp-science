@@ -235,6 +235,10 @@ enum AgentEvent {
         before: usize,
         after: usize,
         strategy: String,
+        /// Context epoch the compacted working set was persisted as. `None`
+        /// while a mid-turn compaction has not been persisted yet.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        epoch: Option<u64>,
     },
     CompactionStarted {
         frame_id: String,
@@ -1547,6 +1551,7 @@ fn events_to_items(events: &[AgentEvent]) -> (Vec<UiItem>, HashMap<i64, usize>) 
                 before,
                 after,
                 strategy,
+                epoch,
                 ..
             } => items.push(UiItem {
                 role: "compaction".into(),
@@ -1554,6 +1559,7 @@ fn events_to_items(events: &[AgentEvent]) -> (Vec<UiItem>, HashMap<i64, usize>) 
                     "before": before,
                     "after": after,
                     "strategy": strategy,
+                    "epoch": epoch,
                 })
                 .to_string(),
                 tool_name: None,
@@ -2977,9 +2983,17 @@ struct TauriOutput {
     /// IM turns force Ask on mutating tools and skip Full Permission
     /// auto-approval so an unattended Feishu/WeChat message cannot write/shell.
     force_ask_mutations: bool,
+    /// Strategy label of the last compaction the agent loop reported during
+    /// this turn (`auto` / `overflow`); read when the turn's context epoch is
+    /// persisted.
+    last_compaction_strategy: StdMutex<Option<String>>,
 }
 
 impl TauriOutput {
+    fn take_last_compaction_strategy(&self) -> Option<String> {
+        self.last_compaction_strategy.lock().unwrap().take()
+    }
+
     fn full_permission(&self) -> bool {
         self.full_permission_sessions
             .read()
@@ -3244,11 +3258,19 @@ impl Output for TauriOutput {
         });
     }
     fn compaction(&self, before: usize, after: usize, strategy: &str) {
+        // Mid-turn: the epoch is opened at the end of the turn, after the
+        // incremental persist task has flushed; `context_epochs.ui_event_seq`
+        // links the two afterwards. `auto_continue` reuses this event for
+        // truncated-output continuation and is not a context rewrite.
+        if strategy != "auto_continue" {
+            *self.last_compaction_strategy.lock().unwrap() = Some(strategy.to_string());
+        }
         self.emit(AgentEvent::Compaction {
             frame_id: self.frame_id.clone(),
             before,
             after,
             strategy: strategy.into(),
+            epoch: None,
         });
     }
     fn compaction_started(&self, strategy: &str) {

@@ -3159,6 +3159,7 @@ fn App() -> impl IntoView {
                 before,
                 after,
                 strategy,
+                epoch,
             } => {
                 finish_compaction(&frame_id);
                 let auto_continue = strategy == "auto_continue";
@@ -3167,6 +3168,7 @@ fn App() -> impl IntoView {
                         before,
                         after,
                         strategy,
+                        epoch,
                     });
                 });
                 if active_cb.get().as_deref() == Some(&frame_id) {

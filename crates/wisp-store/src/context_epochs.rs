@@ -268,6 +268,20 @@ impl Store {
         Ok(())
     }
 
+    /// `session_ui_events.seq` of the newest persisted context-compaction
+    /// event, if any. `auto_continue` reuses the Compaction event for
+    /// truncated-output continuation and is not a context rewrite.
+    pub async fn latest_compaction_ui_event_seq(&self, frame_id: &str) -> Result<Option<i64>> {
+        Ok(sqlx::query_scalar(
+            "SELECT MAX(seq) FROM session_ui_events WHERE frame_id=? \
+             AND json_extract(event_json,'$.kind')='Compaction' \
+             AND COALESCE(json_extract(event_json,'$.strategy'),'')<>'auto_continue'",
+        )
+        .bind(frame_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// The epoch that owns `(frame_id, seq)`, or `None` when no such row.
     pub async fn resolve_message_epoch(&self, frame_id: &str, seq: i64) -> Result<Option<i64>> {
         Ok(

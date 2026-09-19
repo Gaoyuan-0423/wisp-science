@@ -327,20 +327,22 @@ messages or visible assistant answers — protection is counted in agent rounds
 hundreds of tool calls still leaves old rounds prunable; oversized recent tool
 payloads become bounded excerpts that point to the archive. If semantic turns
 must be removed, Wisp summarizes a sanitized projection of the original
-history before deleting them, then retains one incrementally updated summary
-checkpoint plus at most two recent turns in an 8K-token tail. Raw images and
-large tool results are not replayed to the summary model. The internal summary
-instruction is never added to the conversation, and a failed compaction rolls
-back the rewrite and stops before Wisp can send the known-oversized main
-request; after such a failure, automatic retries are suppressed until the
-estimate grows by another tenth of the window, so a doomed compaction is not
-repaid at every model boundary. Tool
+history, then retains one incrementally updated summary checkpoint plus at
+most two recent turns in an 8K-token tail. The compacted working set is
+appended as a new context epoch; earlier message rows stay frozen so rewind,
+branch, and file-undo anchors still resolve. Raw images and large tool
+results are not replayed to the summary model. The internal summary
+instruction is never added to the conversation, and a failed compaction
+leaves the previous epoch as head and stops before Wisp can send the
+known-oversized main request; after such a failure, automatic retries are
+suppressed until the estimate grows by another tenth of the window, so a
+doomed compaction is not repaid at every model boundary. Tool
 results are also capped to a 16 KiB head/tail excerpt when they enter model
 context (the full result is still shown in the tool event), preventing one
 read, grep, browser, or MCP response from consuming the whole window. Each
-automatic or manual rewrite leaves a persistent **Context automatically
+automatic or manual compaction leaves a persistent **Context automatically
 compacted** / **Context compacted** flag in the conversation with the before
-and after request-token estimates. Turning the setting off keeps the warning,
+and after request-token estimates and the new epoch number. Turning the setting off keeps the warning,
 manual `/compact`, and overflow recovery dialog available. ACP agents are not
 modified because their remote transcripts are owned by the ACP process.
 

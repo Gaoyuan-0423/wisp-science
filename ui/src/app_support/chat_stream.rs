@@ -739,6 +739,7 @@ mod start_user_turn_tests {
                 before: 100,
                 after: 50,
                 strategy: "auto".into(),
+                epoch: Some(1),
             },
         );
         assert_eq!(completed_activity_end(&recorded, 1, false), Some(8));
@@ -812,6 +813,7 @@ mod start_user_turn_tests {
                     before: 1000,
                     after: 500,
                     strategy: "auto".into(),
+                    epoch: Some(1),
                 });
             }
         }

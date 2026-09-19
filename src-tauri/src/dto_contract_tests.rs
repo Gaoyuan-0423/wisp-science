@@ -737,6 +737,94 @@ fn native_approval_snapshot_and_resolution_share_the_request_contract() {
 }
 
 #[test]
+fn compaction_event_accepts_missing_and_present_epoch() {
+    let legacy: wisp_dto::AgentEvent = serde_json::from_value(json!({
+        "kind": "Compaction",
+        "frame_id": "f",
+        "before": 100,
+        "after": 40,
+        "strategy": "auto"
+    }))
+    .unwrap();
+    match legacy {
+        wisp_dto::AgentEvent::Compaction {
+            epoch, strategy, ..
+        } => {
+            assert_eq!(epoch, None);
+            assert_eq!(strategy, "auto");
+        }
+        _ => panic!("expected Compaction"),
+    }
+
+    let backend = super::AgentEvent::Compaction {
+        frame_id: "f".into(),
+        before: 100,
+        after: 40,
+        strategy: "manual".into(),
+        epoch: Some(2),
+    };
+    let wire = serde_json::to_value(&backend).unwrap();
+    assert_eq!(wire["epoch"], 2);
+    let ui: wisp_dto::AgentEvent = roundtrip(&backend);
+    match ui {
+        wisp_dto::AgentEvent::Compaction {
+            epoch,
+            strategy,
+            before,
+            after,
+            ..
+        } => {
+            assert_eq!(epoch, Some(2));
+            assert_eq!(strategy, "manual");
+            assert_eq!((before, after), (100, 40));
+        }
+        _ => panic!("expected Compaction"),
+    }
+
+    let item = wisp_dto::LoadedItem {
+        role: "compaction".into(),
+        text: r#"{"before":100,"after":40,"strategy":"auto"}"#.into(),
+        tool_name: None,
+        ok: None,
+        duration_ms: None,
+        input: String::new(),
+        model_name: None,
+        call_id: None,
+        kind: None,
+        status: None,
+        locations: None,
+        resources: Vec::new(),
+    };
+    match item.into_chat_item() {
+        wisp_dto::ChatItem::Compaction { epoch, .. } => assert_eq!(epoch, None),
+        _ => panic!("expected ChatItem::Compaction"),
+    }
+    let linked = wisp_dto::LoadedItem {
+        role: "compaction".into(),
+        text: r#"{"before":100,"after":40,"strategy":"manual","epoch":2}"#.into(),
+        tool_name: None,
+        ok: None,
+        duration_ms: None,
+        input: String::new(),
+        model_name: None,
+        call_id: None,
+        kind: None,
+        status: None,
+        locations: None,
+        resources: Vec::new(),
+    };
+    match linked.into_chat_item() {
+        wisp_dto::ChatItem::Compaction {
+            epoch, strategy, ..
+        } => {
+            assert_eq!(epoch, Some(2));
+            assert_eq!(strategy, "manual");
+        }
+        _ => panic!("expected ChatItem::Compaction"),
+    }
+}
+
+#[test]
 fn project_summary_star_defaults_for_older_payloads_and_roundtrips() {
     let legacy = json!({"id": "p", "name": "Project"});
     let mut summary: wisp_dto::ProjectSummary = serde_json::from_value(legacy).unwrap();
