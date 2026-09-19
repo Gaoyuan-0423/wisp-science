@@ -825,6 +825,60 @@ fn compaction_event_accepts_missing_and_present_epoch() {
 }
 
 #[test]
+fn compaction_undone_event_roundtrips_and_chat_item_defaults() {
+    let backend = super::AgentEvent::CompactionUndone {
+        frame_id: "f".into(),
+        epoch: 2,
+    };
+    let ui: wisp_dto::AgentEvent = roundtrip(&backend);
+    match ui {
+        wisp_dto::AgentEvent::CompactionUndone { frame_id, epoch } => {
+            assert_eq!(frame_id, "f");
+            assert_eq!(epoch, 2);
+        }
+        _ => panic!("expected CompactionUndone"),
+    }
+    let page: wisp_dto::LoadedSessionPage = serde_json::from_value(json!({
+        "items": [], "next_before_seq": null, "user_offset": 0
+    }))
+    .unwrap();
+    assert!(page.context_epochs.is_empty());
+    assert_eq!(page.head_epoch, 0);
+
+    let item = wisp_dto::LoadedItem {
+        role: "compaction".into(),
+        text: r#"{"before":10,"after":4,"strategy":"manual","epoch":1,"checkpoint":"folded","kept_from_user_index":2,"undone":true,"can_undo":false,"undo_reason":"undone"}"#.into(),
+        tool_name: None,
+        ok: None,
+        duration_ms: None,
+        input: String::new(),
+        model_name: None,
+        call_id: None,
+        kind: None,
+        status: None,
+        locations: None,
+        resources: Vec::new(),
+    };
+    match item.into_chat() {
+        wisp_dto::ChatItem::Compaction {
+            checkpoint,
+            kept_from_user_index,
+            undone,
+            can_undo,
+            undo_reason,
+            ..
+        } => {
+            assert_eq!(checkpoint.as_deref(), Some("folded"));
+            assert_eq!(kept_from_user_index, Some(2));
+            assert!(undone);
+            assert!(!can_undo);
+            assert_eq!(undo_reason.as_deref(), Some("undone"));
+        }
+        _ => panic!("expected ChatItem::Compaction"),
+    }
+}
+
+#[test]
 fn project_summary_star_defaults_for_older_payloads_and_roundtrips() {
     let legacy = json!({"id": "p", "name": "Project"});
     let mut summary: wisp_dto::ProjectSummary = serde_json::from_value(legacy).unwrap();

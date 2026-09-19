@@ -6549,6 +6549,11 @@ export function parallelMock(): void {
             return null;
           }
           case "queued_turn_action": return null;
+          case "undo_compaction": {
+            const frameId = String(arg("sessionId") ?? arg("session_id") ?? "");
+            emit("agent", { kind: "CompactionUndone", frame_id: frameId, epoch: 1 });
+            return 1;
+          }
           case "open_external_url":
             if (arg("url")) window.open(String(arg("url")), "_blank", "noopener,noreferrer");
             return null;

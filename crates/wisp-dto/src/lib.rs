@@ -295,6 +295,11 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         epoch: Option<u64>,
     },
+    /// The head context epoch was rolled back to its parent.
+    CompactionUndone {
+        frame_id: String,
+        epoch: u64,
+    },
     CompactionStarted {
         frame_id: String,
     },
@@ -464,6 +469,11 @@ pub enum ChatItem {
         after: usize,
         strategy: String,
         epoch: Option<u64>,
+        checkpoint: Option<String>,
+        kept_from_user_index: Option<usize>,
+        undone: bool,
+        can_undo: bool,
+        undo_reason: Option<String>,
     },
     /// A visible handoff between the main agent and the independent reviewer.
     ReviewTransition {
@@ -477,6 +487,27 @@ pub enum ChatItem {
     AppContextNotice(AppContextNotice),
     Plan(PlanCard),
     Question(QuestionCard),
+}
+
+impl ChatItem {
+    pub fn compaction(
+        before: usize,
+        after: usize,
+        strategy: impl Into<String>,
+        epoch: Option<u64>,
+    ) -> Self {
+        Self::Compaction {
+            before,
+            after,
+            strategy: strategy.into(),
+            epoch,
+            checkpoint: None,
+            kept_from_user_index: None,
+            undone: false,
+            can_undo: false,
+            undo_reason: None,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -682,7 +713,24 @@ impl ChatItem {
                 after,
                 strategy,
                 epoch,
-            } => (13u8, before, after, strategy, epoch).hash(&mut h),
+                checkpoint,
+                kept_from_user_index,
+                undone,
+                can_undo,
+                undo_reason,
+            } => (
+                13u8,
+                before,
+                after,
+                strategy,
+                epoch,
+                checkpoint,
+                kept_from_user_index,
+                undone,
+                can_undo,
+                undo_reason,
+            )
+                .hash(&mut h),
             Self::ReviewTransition { phase, model } => (11u8, phase, model).hash(&mut h),
             Self::Review(report) => (5u8, report).hash(&mut h),
             Self::Plan(plan) => (7u8, plan).hash(&mut h),
@@ -2535,6 +2583,30 @@ pub struct LoadedSessionPage {
     pub branch_state: Option<String>,
     #[serde(default)]
     pub pending_approvals: Vec<PendingToolApproval>,
+    #[serde(default)]
+    pub context_epochs: Vec<ContextEpochDto>,
+    #[serde(default)]
+    pub head_epoch: u64,
+}
+
+/// One persisted context epoch, as returned by `load_session`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ContextEpochDto {
+    pub epoch: u64,
+    pub parent_epoch: u64,
+    pub strategy: String,
+    pub kind: String,
+    pub before_tokens: u64,
+    pub after_tokens: u64,
+    pub initial_head_seq: i64,
+    #[serde(default)]
+    pub first_kept_seq: Option<i64>,
+    #[serde(default)]
+    pub checkpoint_seq: Option<i64>,
+    #[serde(default)]
+    pub ui_event_seq: Option<i64>,
+    #[serde(default)]
+    pub has_new_turns: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -2655,6 +2727,26 @@ impl LoadedItem {
                         .unwrap_or("manual")
                         .to_string(),
                     epoch: value.get("epoch").and_then(serde_json::Value::as_u64),
+                    checkpoint: value
+                        .get("checkpoint")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    kept_from_user_index: value
+                        .get("kept_from_user_index")
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|index| index as usize),
+                    undone: value
+                        .get("undone")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                    can_undo: value
+                        .get("can_undo")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                    undo_reason: value
+                        .get("undo_reason")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
                 }
             }
             _ => ChatItem::Assistant {

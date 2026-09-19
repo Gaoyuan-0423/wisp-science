@@ -1026,6 +1026,85 @@ pub(super) async fn rewind_session(
     Ok(())
 }
 
+/// Roll back the latest context epoch when the user has not continued after
+/// compact. The compaction card stays in the transcript and is marked undone.
+#[tauri::command]
+pub(super) async fn undo_compaction(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    window: crate::workspace_surface::WorkspaceSurface,
+    session_id: Option<String>,
+) -> Result<u64, String> {
+    let frame_id = match session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(id) => id.to_string(),
+        None => state
+            .active_frame(window.label())
+            .ok_or_else(|| "No active session to undo compaction.".to_string())?,
+    };
+    let project_id = state
+        .store
+        .frame_project_id(&frame_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Session project was not found.".to_string())?;
+    let _project_activity = state.begin_project_activity(&project_id)?;
+    state
+        .store
+        .require_unarchived_session(&frame_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if matches!(
+        state
+            .store
+            .session_branch_state(&frame_id)
+            .await
+            .map_err(|error| error.to_string())?,
+        Some("merged" | "orphaned")
+    ) {
+        return Err("Frozen conversation branches cannot undo compaction.".into());
+    }
+    let scope = state
+        .store
+        .frame_state_scope(&frame_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Session state scope was not found.".to_string())?;
+    exploration_commands::require_writable_scope(&state.store, &scope).await?;
+    if state
+        .store
+        .get_acp_session(&frame_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        return Err("ACP sessions cannot undo compaction.".into());
+    }
+    if state.running_turns.lock().await.contains(&frame_id) {
+        return Err("Stop the running turn before undoing compaction.".into());
+    }
+    let epoch = state
+        .store
+        .undo_context_epoch(&frame_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(rt) = state.sessions.lock().await.get(&frame_id).cloned() {
+        *rt.agent.lock().await = None;
+        rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
+    }
+    persist_and_emit_app_context_update(
+        &state,
+        &app,
+        &frame_id,
+        Some(&project_id),
+        AgentEvent::CompactionUndone {
+            frame_id: frame_id.clone(),
+            epoch: u64::try_from(epoch).unwrap_or(0),
+        },
+    )
+    .await;
+    Ok(u64::try_from(epoch).unwrap_or(0))
+}
+
 async fn last_user_index(store: &Store, frame_id: &str) -> Result<usize, String> {
     let visual = store
         .visual_user_count(frame_id)
@@ -1439,6 +1518,8 @@ pub(super) async fn load_session(
     if before_seq.is_none() {
         items.extend(ask_user_items(&state, &id).await);
     }
+    let (context_epochs, head_epoch) =
+        load_context_epoch_page(&state.store, &id, &mut items).await?;
     Ok(SessionTranscriptPage {
         archived: state
             .store
@@ -1453,6 +1534,8 @@ pub(super) async fn load_session(
         presentations,
         branches,
         branch_state,
+        context_epochs,
+        head_epoch,
         pending_approvals: if before_seq.is_none() {
             state
                 .confirms
@@ -1477,6 +1560,113 @@ pub(super) async fn load_session(
     })
 }
 
+async fn load_context_epoch_page(
+    store: &Store,
+    frame_id: &str,
+    items: &mut [UiItem],
+) -> Result<(Vec<wisp_dto::ContextEpochDto>, u64), String> {
+    let head_epoch = store
+        .frame_head_epoch(frame_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let records = store
+        .context_epochs(frame_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let undone = store
+        .undone_context_epochs(frame_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let head_max = store
+        .load_messages_with_seq(frame_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .last()
+        .map(|(seq, _)| *seq)
+        .unwrap_or(0);
+    let mut dtos = Vec::with_capacity(records.len());
+    for record in &records {
+        let has_new_turns = record.epoch == head_epoch && head_max > record.initial_head_seq;
+        dtos.push(wisp_dto::ContextEpochDto {
+            epoch: u64::try_from(record.epoch).unwrap_or(0),
+            parent_epoch: u64::try_from(record.parent_epoch).unwrap_or(0),
+            strategy: record.strategy.clone(),
+            kind: record.kind.clone(),
+            before_tokens: u64::try_from(record.before_tokens).unwrap_or(0),
+            after_tokens: u64::try_from(record.after_tokens).unwrap_or(0),
+            initial_head_seq: record.initial_head_seq,
+            first_kept_seq: record.first_kept_seq,
+            checkpoint_seq: record.checkpoint_seq,
+            ui_event_seq: record.ui_event_seq,
+            has_new_turns,
+        });
+    }
+    enrich_compaction_items(store, frame_id, items, &dtos, &undone, head_epoch).await?;
+    Ok((dtos, u64::try_from(head_epoch).unwrap_or(0)))
+}
+
+async fn enrich_compaction_items(
+    store: &Store,
+    frame_id: &str,
+    items: &mut [UiItem],
+    epochs: &[wisp_dto::ContextEpochDto],
+    undone: &[i64],
+    head_epoch: i64,
+) -> Result<(), String> {
+    for item in items.iter_mut().filter(|item| item.role == "compaction") {
+        let mut value: serde_json::Value = serde_json::from_str(&item.text).unwrap_or_default();
+        let epoch = value.get("epoch").and_then(serde_json::Value::as_u64);
+        let Some(epoch) = epoch else {
+            continue;
+        };
+        let record = epochs.iter().find(|row| row.epoch == epoch);
+        let is_undone = undone
+            .iter()
+            .any(|undone_epoch| *undone_epoch as u64 == epoch);
+        if let Some(record) = record {
+            if let Some(seq) = record.checkpoint_seq {
+                if let Some((_, message)) = store
+                    .load_messages_in_epoch(frame_id, i64::try_from(epoch).unwrap_or(0))
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .find(|(message_seq, _)| *message_seq == seq)
+                {
+                    value["checkpoint"] = serde_json::Value::String(message.content.as_text());
+                }
+            }
+            if let Some(seq) = record.first_kept_seq {
+                if let Some(index) = store
+                    .visual_user_index_for_seq(frame_id, seq)
+                    .await
+                    .map_err(|error| error.to_string())?
+                {
+                    value["kept_from_user_index"] = serde_json::json!(index);
+                }
+            }
+            let (can_undo, undo_reason) = if is_undone {
+                (false, Some("undone"))
+            } else if i64::try_from(record.epoch).unwrap_or(0) != head_epoch {
+                (false, Some("not_head"))
+            } else if record.has_new_turns {
+                (false, Some("has_new_turns"))
+            } else {
+                (true, None)
+            };
+            value["can_undo"] = serde_json::json!(can_undo);
+            if let Some(reason) = undo_reason {
+                value["undo_reason"] = serde_json::Value::String(reason.into());
+            }
+        } else if is_undone {
+            value["can_undo"] = serde_json::json!(false);
+            value["undo_reason"] = serde_json::Value::String("undone".into());
+        }
+        value["undone"] = serde_json::json!(is_undone);
+        item.text = value.to_string();
+    }
+    Ok(())
+}
+
 /// Bounded native refresh: no full outline, branch list or window selection
 /// writes on every tick. Shares the flush and fold path with load_session.
 pub(crate) async fn native_transcript(
@@ -1491,6 +1681,7 @@ pub(crate) async fn native_transcript(
     if before_seq.is_none() {
         items.extend(ask_user_items(state, id).await);
     }
+    let _ = load_context_epoch_page(&state.store, id, &mut items).await?;
     let frozen = state
         .store
         .research_archive(id)
@@ -1752,5 +1943,126 @@ mod hydration_tests {
             .await
             .unwrap();
         assert_eq!(runtime.last_seq(), 42);
+    }
+}
+
+#[cfg(test)]
+mod compaction_undo_tests {
+    use super::*;
+
+    async fn store_with_compacted_frame() -> Store {
+        let tmp = std::env::temp_dir().join(format!(
+            "wisp_undo_compaction_{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Store::open(&tmp).await.unwrap();
+        store.create_project("p", "proj", "").await.unwrap();
+        store.create_frame("f", "p", "OPERON", "m").await.unwrap();
+        for (seq, role, text) in [
+            (1, "system", "sys"),
+            (2, "user", "q1"),
+            (3, "assistant", "a1"),
+            (4, "user", "q2"),
+            (5, "assistant", "a2"),
+        ] {
+            let message = match role {
+                "system" => wisp_llm::Message::system(text),
+                "user" => wisp_llm::Message::user(text),
+                _ => wisp_llm::Message::assistant(text),
+            };
+            store.append_message("f", seq, &message).await.unwrap();
+        }
+        store
+            .open_context_epoch(
+                "f",
+                wisp_store::OpenContextEpoch {
+                    messages: &[
+                        wisp_llm::Message::system("sys"),
+                        wisp_llm::Message::user("[context summary checkpoint]\n\nfolded"),
+                        wisp_llm::Message::user("q2"),
+                        wisp_llm::Message::assistant("a2"),
+                    ],
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 1000,
+                    after_tokens: 200,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: Some(4),
+                    archive_ref: None,
+                    ui_event_seq: Some(9),
+                },
+            )
+            .await
+            .unwrap();
+        store
+    }
+
+    #[tokio::test]
+    async fn load_context_epoch_page_merges_checkpoint_and_undo_flags() {
+        let store = store_with_compacted_frame().await;
+        let mut items = vec![UiItem {
+            role: "compaction".into(),
+            text: r#"{"before":1000,"after":200,"strategy":"manual","epoch":1}"#.into(),
+            tool_name: None,
+            ok: None,
+            duration_ms: None,
+            input: None,
+            model_name: None,
+            call_id: None,
+            kind: None,
+            status: None,
+            locations: None,
+            resources: Vec::new(),
+        }];
+        let (epochs, head) = load_context_epoch_page(&store, "f", &mut items)
+            .await
+            .unwrap();
+        assert_eq!(head, 1);
+        assert_eq!(epochs.len(), 1);
+        assert!(!epochs[0].has_new_turns);
+        let value: serde_json::Value = serde_json::from_str(&items[0].text).unwrap();
+        assert_eq!(value["can_undo"], true);
+        assert_eq!(value["undone"], false);
+        assert!(value["checkpoint"]
+            .as_str()
+            .unwrap()
+            .contains("[context summary checkpoint]"));
+    }
+
+    #[tokio::test]
+    async fn load_context_epoch_page_marks_undone_after_store_undo() {
+        let store = store_with_compacted_frame().await;
+        store.undo_context_epoch("f").await.unwrap();
+        store
+            .append_session_ui_event(
+                "f",
+                20,
+                r#"{"kind":"CompactionUndone","frame_id":"f","epoch":1}"#,
+            )
+            .await
+            .unwrap();
+        let mut items = vec![UiItem {
+            role: "compaction".into(),
+            text: r#"{"before":1000,"after":200,"strategy":"manual","epoch":1}"#.into(),
+            tool_name: None,
+            ok: None,
+            duration_ms: None,
+            input: None,
+            model_name: None,
+            call_id: None,
+            kind: None,
+            status: None,
+            locations: None,
+            resources: Vec::new(),
+        }];
+        let (epochs, head) = load_context_epoch_page(&store, "f", &mut items)
+            .await
+            .unwrap();
+        assert_eq!(head, 0);
+        assert!(epochs.is_empty());
+        let value: serde_json::Value = serde_json::from_str(&items[0].text).unwrap();
+        assert_eq!(value["undone"], true);
+        assert_eq!(value["can_undo"], false);
+        assert_eq!(value["undo_reason"], "undone");
     }
 }

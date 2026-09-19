@@ -327,6 +327,34 @@
   animation: context-gather-bottom 2s ease-in-out infinite;
 }
 .context-compaction-complete { animation: context-settle .28s ease-out both; }
+.context-compaction-complete.undone { opacity: .55; }
+.context-compaction-complete.undone .context-compaction-copy strong { text-decoration: line-through; }
+.context-compaction-toggle {
+  display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;
+  margin: 0; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.context-compaction-toggle:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+.context-compaction-chevron { display: grid; place-items: center; flex: 0 0 auto; color: var(--text-faint); }
+.context-compaction-row svg { width: 16px; height: 16px; }
+.context-compaction-mark svg { width: 18px; height: 18px; }
+.context-compaction-actions svg { width: 16px; height: 16px; }
+.context-compaction-details {
+  display: grid; gap: 10px; width: 100%;
+  padding: 0 0 8px 44px;
+}
+.context-compaction-meta {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+  color: var(--text-muted); font-size: 11px; line-height: 1.4;
+}
+.context-compaction-checkpoint { min-width: 0; }
+.context-compaction-checkpoint-label {
+  display: block; margin-bottom: 4px;
+  color: var(--text-faint); font-size: 11px;
+}
+.context-compaction-checkpoint .md { font-size: 13px; line-height: 1.5; }
+.context-compaction-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.context-compaction-actions .tool-btn { display: inline-flex; align-items: center; gap: 6px; }
 @keyframes context-gather-top { 50% { transform: translateY(4px); opacity: .4; } }
 @keyframes context-gather-bottom { 50% { transform: translateY(-4px); opacity: .4; } }
 @keyframes context-settle { from { opacity: 0; transform: translateY(3px); } }
