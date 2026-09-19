@@ -337,6 +337,82 @@ impl Store {
         Ok(None)
     }
 
+    /// Last completed `MessageBoundary` of the `user_index`-th visual user
+    /// turn, plus that turn's last UI-event seq. Checkpoint User cards are
+    /// skipped and also close the turn (so a pre-compact clone does not
+    /// inherit the compaction card). `None` when the transcript has no such
+    /// completed turn (legacy prefix, missing boundary, or past the log).
+    pub async fn visual_turn_end(
+        &self,
+        frame_id: &str,
+        user_index: usize,
+    ) -> Result<Option<(i64, i64)>> {
+        let rows = sqlx::query(
+            "SELECT seq AS ui_seq, \
+             json_extract(event_json,'$.kind') AS kind, \
+             json_extract(event_json,'$.text') AS text, \
+             json_extract(event_json,'$.seq') AS message_seq \
+             FROM session_ui_events WHERE frame_id=? ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut seen = 0usize;
+        let mut waiting = false;
+        let mut last_message_seq = None;
+        let mut last_ui_seq = None;
+        for row in rows {
+            let kind: String = row.try_get("kind")?;
+            let ui_seq: i64 = row.try_get("ui_seq")?;
+            match kind.as_str() {
+                "User" => {
+                    let text = row
+                        .try_get::<Option<String>, _>("text")?
+                        .unwrap_or_default();
+                    if crate::is_compaction_checkpoint(&text) {
+                        if waiting {
+                            break;
+                        }
+                        continue;
+                    }
+                    if waiting {
+                        break;
+                    }
+                    if seen == user_index {
+                        waiting = true;
+                        last_ui_seq = Some(ui_seq);
+                    }
+                    seen += 1;
+                }
+                _ if waiting => {
+                    last_ui_seq = Some(ui_seq);
+                    if kind == "MessageBoundary" {
+                        if let Some(seq) = row.try_get::<Option<i64>, _>("message_seq")? {
+                            last_message_seq = Some(seq);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(match (last_message_seq, last_ui_seq) {
+            (Some(message_seq), Some(ui_seq)) => Some((message_seq, ui_seq)),
+            _ => None,
+        })
+    }
+
+    /// [`visual_turn_end`] message seq only.
+    pub async fn visual_turn_end_seq(
+        &self,
+        frame_id: &str,
+        user_index: usize,
+    ) -> Result<Option<i64>> {
+        Ok(self
+            .visual_turn_end(frame_id, user_index)
+            .await?
+            .map(|(seq, _)| seq))
+    }
+
     /// Visual user turns in the live transcript (checkpoint cards omitted).
     pub async fn visual_user_count(&self, frame_id: &str) -> Result<usize> {
         let rows: Vec<Option<String>> = sqlx::query_scalar(
@@ -897,6 +973,53 @@ mod tests {
         assert_eq!(store.visual_turn_anchor("f", 0).await.unwrap(), Some(4));
         assert_eq!(store.visual_turn_anchor("f", 1).await.unwrap(), None);
         assert_eq!(store.visual_user_count("f").await.unwrap(), 1);
+        // persist_visual_turn writes User, Boundary(user), Text, Boundary(asst).
+        // The explore/after-response cut is the last boundary, not the first.
+        assert_eq!(store.visual_turn_end_seq("f", 0).await.unwrap(), Some(5));
+        assert_eq!(store.visual_turn_end("f", 0).await.unwrap(), Some((5, 4)));
+        assert_eq!(store.visual_turn_end("f", 1).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn visual_turn_end_stops_before_the_next_user_or_checkpoint() {
+        let store = store().await;
+        seed(
+            &store,
+            &[
+                ("system", "sys"),
+                ("user", "q1"),
+                ("assistant", "a1"),
+                ("user", "q2"),
+                ("assistant", "a2"),
+            ],
+        )
+        .await;
+        let mut event_seq = 1i64;
+        persist_visual_turn(&store, &mut event_seq, 2, "q1").await;
+        persist_visual_turn(&store, &mut event_seq, 4, "q2").await;
+        store
+            .append_session_ui_event(
+                "f",
+                event_seq,
+                r#"{"kind":"User","frame_id":"f","text":"[context summary checkpoint]\n\nfolded"}"#,
+            )
+            .await
+            .unwrap();
+        // Turn 0 ends at assistant seq 3, last UI event before turn 1's User.
+        assert_eq!(store.visual_turn_end("f", 0).await.unwrap(), Some((3, 4)));
+        // Turn 1 ends at assistant seq 5, last UI event before the checkpoint card.
+        assert_eq!(store.visual_turn_end("f", 1).await.unwrap(), Some((5, 8)));
+        assert_eq!(store.visual_turn_end("f", 2).await.unwrap(), None);
+
+        store
+            .append_session_ui_event(
+                "f",
+                event_seq + 1,
+                r#"{"kind":"User","frame_id":"f","text":"orphan"}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(store.visual_turn_end("f", 2).await.unwrap(), None);
     }
 
     #[tokio::test]

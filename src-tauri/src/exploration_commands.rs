@@ -38,6 +38,13 @@ fn coded_error(code: &str, message: impl AsRef<str>) -> String {
 /// may append synthetic results for skipped sibling calls after it. Validate
 /// the latest user turn using the same visible completion semantics instead of
 /// requiring the physical tail row to be Assistant.
+fn counts_as_user_turn(message: &wisp_llm::Message) -> bool {
+    message.role == wisp_llm::Role::User
+        && message.tool_name.as_deref() != Some(AGENT_WORKFLOW_COMPLETION_TOOL)
+        && !message.content.as_text().trim().is_empty()
+        && !wisp_store::is_compaction_checkpoint(&message.content.as_text())
+}
+
 fn latest_native_turn_is_complete(messages: &[wisp_llm::Message]) -> bool {
     let Some(turn_start) = messages.iter().rposition(|message| {
         message.role == wisp_llm::Role::User
@@ -143,7 +150,7 @@ impl ExplorationService {
                 "finish or cancel active mainline Runs before checkpointing",
             ));
         }
-        let (message_seqs, mut current_messages): (Vec<_>, Vec<_>) = self
+        let (message_seqs, current_messages): (Vec<_>, Vec<_>) = self
             .store
             .load_messages_with_seq(source_frame_id)
             .await
@@ -162,16 +169,12 @@ impl ExplorationService {
             .map_err(|error| error.to_string())?;
         let visual_turn_count = self
             .store
-            .frame_visual_user_turn_count(source_frame_id)
+            .visual_user_count(source_frame_id)
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.to_string())? as i64;
         let fallback_turn_count = current_messages
             .iter()
-            .filter(|message| {
-                message.role == wisp_llm::Role::User
-                    && message.tool_name.as_deref() != Some(AGENT_WORKFLOW_COMPLETION_TOOL)
-                    && !message.content.as_text().trim().is_empty()
-            })
+            .filter(|message| counts_as_user_turn(message))
             .count() as i64;
         let current_turn_index = visual_turn_count
             .max(fallback_turn_count)
@@ -189,33 +192,26 @@ impl ExplorationService {
                 "the selected turn is outside the available conversation history",
             ));
         }
-        // Compaction can renumber model rows independently of the visual history.
-        // Never silently map an old visual index onto a newer model turn.
         let historical = selected_turn_index != current_turn_index;
-        if historical
-            && (visual_turn_count > fallback_turn_count
-                || current_messages.iter().any(|message| {
-                    let text = message.content.as_text();
-                    text.starts_with("[context summary checkpoint]")
-                }))
-        {
-            return Err(coded_error(
-                ERR_HISTORY_UNAVAILABLE,
-                "the selected conversation context was compacted and cannot be restored safely",
-            ));
-        }
-        let user_positions = current_messages
-            .iter()
-            .enumerate()
-            .filter(|(_, message)| {
-                message.role == wisp_llm::Role::User
-                    && message.tool_name.as_deref() != Some(AGENT_WORKFLOW_COMPLETION_TOOL)
-                    && !message.content.as_text().trim().is_empty()
-            })
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        let prefix_len = if historical {
-            user_positions
+        // Older conversations can have a model-message prefix from before UI
+        // events were persisted. Those turns have no visual anchor.
+        let legacy_turn_count = (fallback_turn_count - visual_turn_count).max(0);
+        let (selected_message_head, selected_messages, selected_ui_event_head) = if !historical {
+            let head = message_seqs.last().copied().unwrap_or(current_message_head);
+            (head, current_messages, current_ui_event_head)
+        } else if selected_turn_index < legacy_turn_count {
+            let rows = self
+                .store
+                .load_messages_in_epoch(source_frame_id, 0)
+                .await
+                .map_err(|error| error.to_string())?;
+            let user_positions = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, message))| counts_as_user_turn(message))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let prefix_len = user_positions
                 .get(selected_turn_index as usize + 1)
                 .copied()
                 .ok_or_else(|| {
@@ -223,35 +219,64 @@ impl ExplorationService {
                         ERR_HISTORY_UNAVAILABLE,
                         "the selected turn boundary is unavailable",
                     )
-                })?
+                })?;
+            let selected_message_head =
+                rows.get(prefix_len - 1)
+                    .map(|(seq, _)| *seq)
+                    .ok_or_else(|| {
+                        coded_error(
+                            ERR_HISTORY_UNAVAILABLE,
+                            "the selected turn boundary is unavailable",
+                        )
+                    })?;
+            let selected_messages = rows
+                .into_iter()
+                .take(prefix_len)
+                .map(|(_, message)| message)
+                .collect();
+            (selected_message_head, selected_messages, 0)
         } else {
-            current_messages.len()
+            let visual_index = usize::try_from(selected_turn_index - legacy_turn_count)
+                .map_err(|error| error.to_string())?;
+            let (keep_seq, ui_seq) = self
+                .store
+                .visual_turn_end(source_frame_id, visual_index)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    coded_error(
+                        ERR_HISTORY_UNAVAILABLE,
+                        "the selected turn has no completed visual boundary",
+                    )
+                })?;
+            let epoch = self
+                .store
+                .resolve_message_epoch(source_frame_id, keep_seq)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    coded_error(
+                        ERR_HISTORY_UNAVAILABLE,
+                        "the selected turn boundary is unavailable",
+                    )
+                })?;
+            let selected_messages = self
+                .store
+                .load_messages_in_epoch(source_frame_id, epoch)
+                .await
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .filter(|(seq, _)| *seq <= keep_seq)
+                .map(|(_, message)| message)
+                .collect::<Vec<_>>();
+            (keep_seq, selected_messages, ui_seq)
         };
-        current_messages.truncate(prefix_len);
-        let selected_messages = current_messages;
         if !latest_native_turn_is_complete(&selected_messages) {
             return Err(coded_error(
                 ERR_SOURCE_INCOMPLETE,
                 "the selected turn has no completed assistant response",
             ));
         }
-        let selected_message_head = message_seqs[prefix_len - 1];
-        // Older conversations can have a model-message prefix from before UI
-        // events were persisted. Such turns have no events to inherit.
-        let legacy_turn_count = (fallback_turn_count - visual_turn_count).max(0);
-        let selected_ui_event_head = if historical && selected_turn_index < legacy_turn_count {
-            0
-        } else if historical {
-            self.store
-                .frame_ui_event_head_after_turn(
-                    source_frame_id,
-                    selected_turn_index - legacy_turn_count,
-                )
-                .await
-                .map_err(|error| error.to_string())?
-        } else {
-            current_ui_event_head
-        };
         let (_, workspace_dir) = self
             .store
             .get_project(project_id)
@@ -1467,6 +1492,158 @@ mod tests {
             .await
             .unwrap_err()
             .contains(ERR_HISTORY_UNAVAILABLE));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    async fn seed_compacted_turns(service: &ExplorationService) {
+        service
+            .store
+            .append_message("main", 3, &wisp_llm::Message::user("q1"))
+            .await
+            .unwrap();
+        service
+            .store
+            .append_message("main", 4, &wisp_llm::Message::assistant("a1"))
+            .await
+            .unwrap();
+        service
+            .store
+            .append_message("main", 5, &wisp_llm::Message::user("q2"))
+            .await
+            .unwrap();
+        service
+            .store
+            .append_message("main", 6, &wisp_llm::Message::assistant("a2"))
+            .await
+            .unwrap();
+        for (seq, event) in [
+            (2, r#"{"kind":"Text","frame_id":"main","delta":"answer"}"#),
+            (3, r#"{"kind":"MessageBoundary","frame_id":"main","seq":2}"#),
+            (4, r#"{"kind":"User","frame_id":"main","text":"q1"}"#),
+            (5, r#"{"kind":"Text","frame_id":"main","delta":"a1"}"#),
+            (6, r#"{"kind":"MessageBoundary","frame_id":"main","seq":4}"#),
+            (7, r#"{"kind":"User","frame_id":"main","text":"q2"}"#),
+            (8, r#"{"kind":"Text","frame_id":"main","delta":"a2"}"#),
+            (9, r#"{"kind":"MessageBoundary","frame_id":"main","seq":6}"#),
+        ] {
+            service
+                .store
+                .append_session_ui_event("main", seq, event)
+                .await
+                .unwrap();
+        }
+        let first = vec![
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("[context summary checkpoint]\n\nsummary"),
+            wisp_llm::Message::user("q2"),
+            wisp_llm::Message::assistant("a2"),
+        ];
+        service
+            .store
+            .open_context_epoch(
+                "main",
+                wisp_store::OpenContextEpoch {
+                    messages: &first,
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 1000,
+                    after_tokens: 200,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: Some(5),
+                    archive_ref: None,
+                    ui_event_seq: None,
+                },
+            )
+            .await
+            .unwrap();
+        let second = vec![
+            wisp_llm::Message::system("sys"),
+            wisp_llm::Message::user("[context summary checkpoint]\n\nsummary 2"),
+            wisp_llm::Message::user("q2"),
+            wisp_llm::Message::assistant("a2"),
+        ];
+        service
+            .store
+            .open_context_epoch(
+                "main",
+                wisp_store::OpenContextEpoch {
+                    messages: &second,
+                    strategy: "manual",
+                    kind: "semantic",
+                    before_tokens: 1000,
+                    after_tokens: 200,
+                    checkpoint_index: Some(1),
+                    first_kept_seq: Some(5),
+                    archive_ref: None,
+                    ui_event_seq: None,
+                },
+            )
+            .await
+            .unwrap();
+        service
+            .store
+            .append_session_ui_event(
+                "main",
+                10,
+                r#"{"kind":"User","frame_id":"main","text":"[context summary checkpoint]\n\nsummary 2"}"#,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn historical_exploration_after_compaction_clones_frozen_epoch_prefix() {
+        let (service, base, _) = fixture("historical_compact").await;
+        seed_compacted_turns(&service).await;
+        let historical = service
+            .create_checkpoint_at("p", "main", Some(0))
+            .await
+            .unwrap();
+        assert_eq!(historical.source_message_seq, 2);
+        let exploration = service
+            .create_exploration(&historical.id, "Pre-compact")
+            .await
+            .unwrap();
+        let cloned = service
+            .store
+            .load_messages(&exploration.frame_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            cloned
+                .iter()
+                .map(|message| message.content.as_text().to_string())
+                .collect::<Vec<_>>(),
+            ["question", "answer"]
+        );
+        assert!(latest_native_turn_is_complete(&cloned));
+        assert!(cloned
+            .iter()
+            .all(|message| !wisp_store::is_compaction_checkpoint(&message.content.as_text())));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[tokio::test]
+    async fn latest_exploration_after_compaction_clones_head_epoch() {
+        let (service, base, _) = fixture("latest_compact").await;
+        seed_compacted_turns(&service).await;
+        let latest = service.create_checkpoint("p", "main").await.unwrap();
+        let exploration = service
+            .create_exploration(&latest.id, "Head")
+            .await
+            .unwrap();
+        let cloned = service
+            .store
+            .load_messages(&exploration.frame_id)
+            .await
+            .unwrap();
+        assert!(latest_native_turn_is_complete(&cloned));
+        assert!(cloned
+            .iter()
+            .any(|message| wisp_store::is_compaction_checkpoint(&message.content.as_text())));
+        assert!(cloned
+            .iter()
+            .any(|message| message.content.as_text() == "q2"));
         let _ = std::fs::remove_dir_all(base);
     }
 
