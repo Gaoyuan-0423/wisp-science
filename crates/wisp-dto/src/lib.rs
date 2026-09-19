@@ -290,6 +290,10 @@ pub enum AgentEvent {
         before: usize,
         after: usize,
         strategy: String,
+        /// Context epoch the compacted working set was persisted as. `None`
+        /// while a mid-turn compaction has not been persisted yet.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        epoch: Option<u64>,
     },
     CompactionStarted {
         frame_id: String,
@@ -451,13 +455,15 @@ pub enum ChatItem {
         max_context: usize,
         context_usage: ContextUsage,
     },
-    /// Persistent timeline marker emitted whenever the model context is
-    /// rewritten. `strategy == "auto"` distinguishes the default 80%
-    /// threshold path from an explicit `/compact`.
+    /// Persistent timeline marker emitted whenever a context epoch opens.
+    /// `strategy == "auto"` distinguishes the default 80% threshold path
+    /// from an explicit `/compact`. `epoch` is the new head epoch once
+    /// persisted (`None` for a mid-turn flag that has not been linked yet).
     Compaction {
         before: usize,
         after: usize,
         strategy: String,
+        epoch: Option<u64>,
     },
     /// A visible handoff between the main agent and the independent reviewer.
     ReviewTransition {
@@ -675,7 +681,8 @@ impl ChatItem {
                 before,
                 after,
                 strategy,
-            } => (13u8, before, after, strategy).hash(&mut h),
+                epoch,
+            } => (13u8, before, after, strategy, epoch).hash(&mut h),
             Self::ReviewTransition { phase, model } => (11u8, phase, model).hash(&mut h),
             Self::Review(report) => (5u8, report).hash(&mut h),
             Self::Plan(plan) => (7u8, plan).hash(&mut h),
@@ -2647,6 +2654,7 @@ impl LoadedItem {
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or("manual")
                         .to_string(),
+                    epoch: value.get("epoch").and_then(serde_json::Value::as_u64),
                 }
             }
             _ => ChatItem::Assistant {

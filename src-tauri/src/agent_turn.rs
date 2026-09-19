@@ -32,6 +32,62 @@ impl TurnOrigin {
     }
 }
 
+/// Persist the agent's compacted context as a new context epoch and return
+/// its number. The previous head rows are left frozen; `context_epochs`
+/// records what the compaction did (`ContextManager::last_compaction`).
+///
+/// `aligned` says whether the list the compaction started from was
+/// row-aligned with the head epoch (true for `/compact` and for a single
+/// mid-turn compaction). Only then can `kept_from_index` be mapped to the
+/// durable seq of the first retained-tail message; otherwise the UI-only
+/// `first_kept_seq` is left unknown.
+pub(crate) async fn persist_compaction_epoch(
+    store: &Store,
+    frame_id: &str,
+    ctx: &wisp_core::ContextManager,
+    strategy: &str,
+    aligned: bool,
+) -> Result<i64, String> {
+    let outcome = ctx.last_compaction();
+    let first_kept_seq = match outcome.and_then(|outcome| outcome.kept_from_index) {
+        Some(index) if aligned => store
+            .load_messages_with_seq(frame_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .get(index)
+            .map(|(seq, _)| *seq),
+        _ => None,
+    };
+    let epoch = store
+        .open_context_epoch(
+            frame_id,
+            wisp_store::OpenContextEpoch {
+                messages: &ctx.messages,
+                strategy,
+                kind: outcome.map_or("prune_only", |outcome| outcome.kind.as_str()),
+                before_tokens: outcome.map_or(0, |outcome| outcome.before),
+                after_tokens: outcome.map_or(0, |outcome| outcome.after),
+                checkpoint_index: outcome.and_then(|outcome| outcome.checkpoint_index),
+                first_kept_seq,
+                archive_ref: outcome.map(|outcome| outcome.archive_reference.as_str()),
+                ui_event_seq: None,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    // Mid-turn compactions emit their Compaction event before the epoch
+    // exists; attach the newest one now. `/compact` appends its own event
+    // afterwards and links it itself.
+    if strategy != "manual" {
+        if let Ok(Some(seq)) = store.latest_compaction_ui_event_seq(frame_id).await {
+            if let Err(error) = store.set_context_epoch_ui_event(frame_id, epoch, seq).await {
+                tracing::warn!("link compaction event to epoch failed: {error}");
+            }
+        }
+    }
+    Ok(epoch)
+}
+
 #[tauri::command]
 pub(crate) async fn send_message(
     state: State<'_, AppState>,
@@ -913,10 +969,25 @@ pub(crate) async fn send_message_inner(
         let interrupted = rt.interrupted_turn_start.lock().unwrap().take();
         if let Some(start) = interrupted {
             if start < agent.ctx.messages.len() {
+                // The in-memory list is row-aligned with the head epoch, so
+                // the row before `start` gives the durable seq to keep.
+                // Frozen epochs sit below every head seq and stay intact.
+                let rows = state
+                    .store
+                    .load_messages_with_seq(&frame_id)
+                    .await
+                    .map_err(|e| format!("replace: loading the context failed: {e}"))?;
+                let keep_seq = match start {
+                    0 => rows.first().map_or(0, |(seq, _)| seq - 1),
+                    _ => rows
+                        .get(start - 1)
+                        .map(|(seq, _)| *seq)
+                        .ok_or_else(|| "replace: interrupted turn is out of range".to_string())?,
+                };
                 agent.ctx.messages.truncate(start);
                 state
                     .store
-                    .replace_messages(&frame_id, &agent.ctx.messages)
+                    .truncate_model_context(&frame_id, keep_seq)
                     .await
                     .map_err(|e| format!("replace: rolling back the context failed: {e}"))?;
                 rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
@@ -927,32 +998,42 @@ pub(crate) async fn send_message_inner(
         .device_hub
         .mark_working(&frame_id, Some(ap.id.as_str()));
     // User-triggered /compact — never part of a model turn. Archive + fold the
-    // in-memory context, rewrite only the persisted message rows (the visual
-    // transcript in session_ui_events keeps the full history), and report via
-    // the existing Compaction event.
+    // in-memory context, persist the compacted working set as a new context
+    // epoch (the previous rows and the visual transcript in session_ui_events
+    // stay intact), and report via the existing Compaction event.
     if !resume && message.trim() == "/compact" {
         match agent.compact().await {
             Ok((before, after, _archive)) => {
-                state
-                    .store
-                    .replace_messages(&frame_id, &agent.ctx.messages)
-                    .await
-                    .map_err(|e| {
-                        format!("compact: persisting the rewritten context failed: {e}")
-                    })?;
+                let epoch =
+                    persist_compaction_epoch(&state.store, &frame_id, &agent.ctx, "manual", true)
+                        .await
+                        .map_err(|e| {
+                            format!("compact: persisting the compacted context failed: {e}")
+                        })?;
                 rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
                 let event = AgentEvent::Compaction {
                     frame_id: frame_id.clone(),
                     before,
                     after,
                     strategy: "manual".into(),
+                    epoch: Some(epoch as u64),
                 };
                 let mut event_seq = state
                     .store
                     .next_session_ui_event_seq(&frame_id)
                     .await
                     .map_err(|error| error.to_string())?;
+                let compaction_event_seq = event_seq;
                 append_ui_event(&state.store, &frame_id, &mut event_seq, event.clone()).await;
+                if event_seq > compaction_event_seq {
+                    if let Err(error) = state
+                        .store
+                        .set_context_epoch_ui_event(&frame_id, epoch, compaction_event_seq)
+                        .await
+                    {
+                        tracing::warn!("link compaction event to epoch failed: {error}");
+                    }
+                }
                 emit_agent_event_in(&app, event, Some(ap.id.as_str()));
                 persist_and_emit_terminal_event(
                     state,
@@ -1062,7 +1143,14 @@ pub(crate) async fn send_message_inner(
     // what a later reload expects. Stop at the first append failure so later
     // rows cannot be written after a hole.
     let start_seq = {
-        let start = rt.last_seq() as usize;
+        // Compare against the head-epoch row count, not `last_seq`: after a
+        // compaction the seq space runs ahead of the row count.
+        let start = state
+            .store
+            .message_count(&frame_id)
+            .await
+            .map_err(|error| format!("incremental persist failed: {error}"))?
+            as usize;
         if start < agent.ctx.messages.len() {
             let mut seq = rt.last_seq();
             for m in &agent.ctx.messages[start..] {
@@ -1271,6 +1359,7 @@ pub(crate) async fn send_message_inner(
         provenance_scope,
         turn_id: browser_turn_id.clone(),
         force_ask_mutations: origin.force_ask_mutations(),
+        last_compaction_strategy: StdMutex::new(None),
     };
 
     let turn_start = agent.ctx.messages.len();
@@ -1336,6 +1425,7 @@ pub(crate) async fn send_message_inner(
     // Close the persist channel and wait for the task to flush (abort + join on
     // timeout so a late INSERT cannot race replace/compaction). last_seq then
     // comes from durable MAX(seq), never from the in-memory message count.
+    let compaction_strategy = output.take_last_compaction_strategy();
     drop(output);
     // Drain the live coalescer before the direct Done/Error emit below so the
     // final buffered deltas cannot arrive after the turn boundary.
@@ -1361,19 +1451,36 @@ pub(crate) async fn send_message_inner(
         tracing::warn!("{error}");
     }
     let _ = tokio::time::timeout(std::time::Duration::from_secs(10), prov_handle).await;
-    // replace/compaction must not start until the persist task has finished
-    // or been aborted and joined — a late INSERT would race the rewrite.
+    // The epoch must not open until the persist task has finished or been
+    // aborted and joined — a late INSERT would land inside the new epoch's
+    // seq range. Rows appended during this turn stay in the old epoch, where
+    // their visual MessageBoundary anchors still resolve; the compacted
+    // working set becomes the new head epoch on top of them.
     if agent.ctx.compaction_revision() != compaction_revision {
-        if let Err(error) = state
-            .store
-            .replace_messages(&frame_id, &agent.ctx.messages)
-            .await
+        // `kept_from_index` indexes the list the compaction started from. That
+        // list is row-aligned with the old head epoch only for a single
+        // compaction; after two in one turn it indexes an already compacted
+        // list, so the (UI-only) tail origin is left unknown.
+        let single_compaction = agent.ctx.compaction_revision() == compaction_revision + 1;
+        match persist_compaction_epoch(
+            &state.store,
+            &frame_id,
+            &agent.ctx,
+            compaction_strategy.as_deref().unwrap_or("auto"),
+            single_compaction,
+        )
+        .await
         {
-            result = Err(anyhow::anyhow!(
-                "automatic compact: persisting the rewritten context failed: {error}"
-            ));
-        } else if let Err(error) = rt.sync_last_seq_from_store(&state.store, &frame_id).await {
-            tracing::warn!("{error}");
+            Ok(_) => {
+                if let Err(error) = rt.sync_last_seq_from_store(&state.store, &frame_id).await {
+                    tracing::warn!("{error}");
+                }
+            }
+            Err(error) => {
+                result = Err(anyhow::anyhow!(
+                    "automatic compact: persisting the compacted context failed: {error}"
+                ));
+            }
         }
     }
     // Resume is already mid-turn. A normal send is mid-turn once the loop
@@ -1858,5 +1965,330 @@ mod queue_tests {
     fn queued_turn_origin_carries_the_backend_id() {
         assert_eq!(TurnOrigin::Queued(42).queue_id(), Some(42));
         assert_eq!(TurnOrigin::Desktop.queue_id(), None);
+    }
+}
+
+#[cfg(test)]
+mod context_epoch_tests {
+    use super::*;
+    use wisp_llm::{Completion, LlmError, Provider};
+
+    struct SummaryProvider(&'static str);
+
+    #[async_trait::async_trait]
+    impl Provider for SummaryProvider {
+        fn name(&self) -> &str {
+            "fake"
+        }
+        fn model(&self) -> &str {
+            "fake-summary"
+        }
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[wisp_llm::ToolSchema],
+        ) -> wisp_llm::Result<Completion> {
+            Ok(Completion {
+                content: self.0.to_string(),
+                finish_reason: Some("stop".into()),
+                ..Default::default()
+            })
+        }
+        async fn stream(
+            &self,
+            messages: &[Message],
+            tools: &[wisp_llm::ToolSchema],
+            _sink: &mut dyn wisp_llm::StreamSink,
+        ) -> wisp_llm::Result<Completion> {
+            self.complete(messages, tools).await
+        }
+    }
+
+    struct NoSummaryProvider;
+
+    #[async_trait::async_trait]
+    impl Provider for NoSummaryProvider {
+        fn name(&self) -> &str {
+            "fake"
+        }
+        fn model(&self) -> &str {
+            "fake-none"
+        }
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[wisp_llm::ToolSchema],
+        ) -> wisp_llm::Result<Completion> {
+            Err(LlmError::Incomplete)
+        }
+        async fn stream(
+            &self,
+            messages: &[Message],
+            tools: &[wisp_llm::ToolSchema],
+            _sink: &mut dyn wisp_llm::StreamSink,
+        ) -> wisp_llm::Result<Completion> {
+            self.complete(messages, tools).await
+        }
+    }
+
+    async fn store_with_frame() -> Store {
+        let tmp =
+            std::env::temp_dir().join(format!("wisp_agent_turn_epoch_{}.sqlite", Uuid::new_v4()));
+        let store = Store::open(&tmp).await.unwrap();
+        store.create_project("p", "proj", "").await.unwrap();
+        store.create_frame("f", "p", "OPERON", "m").await.unwrap();
+        store
+    }
+
+    /// Persist `messages` as the frame's epoch-0 rows and load them into a
+    /// context the way `send_message` builds the agent.
+    async fn seeded_context(
+        store: &Store,
+        messages: Vec<Message>,
+        max_context: usize,
+    ) -> wisp_core::ContextManager {
+        for (index, message) in messages.iter().enumerate() {
+            store
+                .append_message("f", index as i64 + 1, message)
+                .await
+                .unwrap();
+        }
+        let mut ctx = wisp_core::ContextManager::new(max_context);
+        ctx.messages = store.load_messages("f").await.unwrap();
+        ctx
+    }
+
+    fn long_turns(count: usize) -> Vec<Message> {
+        let mut messages = vec![Message::system("sys")];
+        for turn in 0..count {
+            messages.push(Message::user(format!(
+                "question {turn} {}",
+                "u".repeat(1_400)
+            )));
+            messages.push(Message::assistant(format!(
+                "answer {turn} {}",
+                "a".repeat(1_400)
+            )));
+        }
+        messages
+    }
+
+    fn archive(name: &str) -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("wisp-agent-turn-epoch-{}", std::process::id()))
+            .join(name)
+    }
+
+    #[tokio::test]
+    async fn semantic_compaction_opens_an_epoch_and_keeps_old_rows_and_undo() {
+        let store = store_with_frame().await;
+        let mut ctx = seeded_context(&store, long_turns(12), 10_000).await;
+        let original_rows = store.load_messages_with_seq("f").await.unwrap();
+        // A file change recorded against the third user turn (seq 6).
+        store
+            .save_turn_file_undo(
+                "f",
+                6,
+                "notes.md",
+                true,
+                None,
+                Some("a"),
+                Some("b"),
+                true,
+                None,
+            )
+            .await
+            .unwrap();
+
+        ctx.compact(
+            &SummaryProvider("Objective\nkeep going"),
+            &archive("semantic.json"),
+        )
+        .await
+        .unwrap();
+        let outcome = ctx.last_compaction().unwrap().clone();
+        assert_eq!(outcome.kind, wisp_core::CompactionKind::Semantic);
+
+        let epoch = persist_compaction_epoch(&store, "f", &ctx, "manual", true)
+            .await
+            .unwrap();
+        assert_eq!(epoch, 1);
+
+        // Old rows are frozen, not rewritten.
+        let epoch0 = store.load_messages_in_epoch("f", 0).await.unwrap();
+        assert_eq!(epoch0.len(), original_rows.len());
+        for ((seq, row), (original_seq, original)) in epoch0.iter().zip(&original_rows) {
+            assert_eq!(seq, original_seq);
+            assert_eq!(row.content.as_text(), original.content.as_text());
+        }
+        // The head epoch is exactly the compacted in-memory context.
+        let head = store.load_messages_with_seq("f").await.unwrap();
+        assert_eq!(head.len(), ctx.messages.len());
+        for ((_, row), message) in head.iter().zip(&ctx.messages) {
+            assert_eq!(row.content.as_text(), message.content.as_text());
+        }
+        assert_eq!(head[0].0, original_rows.len() as i64 + 1);
+
+        let record = store.context_epoch("f", 1).await.unwrap().unwrap();
+        assert_eq!(record.kind, "semantic");
+        assert_eq!(record.strategy, "manual");
+        assert_eq!(record.parent_epoch, 0);
+        assert_eq!(
+            (record.before_tokens, record.after_tokens),
+            (outcome.before as i64, outcome.after as i64)
+        );
+        assert!(record
+            .archive_ref
+            .as_deref()
+            .unwrap()
+            .ends_with("semantic.json"));
+        // Checkpoint follows the system row; the retained tail's origin is the
+        // epoch-0 row whose content reappears right after the checkpoint.
+        assert_eq!(record.checkpoint_seq, Some(head[0].0 + 1));
+        let kept_seq = record.first_kept_seq.expect("tail origin mapped");
+        let (_, kept_row) = original_rows
+            .iter()
+            .find(|(seq, _)| *seq == kept_seq)
+            .unwrap();
+        assert_eq!(kept_row.content.as_text(), head[2].1.content.as_text());
+        assert!(kept_row.content.as_text().starts_with("question 1"));
+
+        // Seq-anchored undo rows survive the compaction.
+        assert_eq!(store.list_turn_file_undo("f", 6).await.unwrap().len(), 1);
+        assert_eq!(store.resolve_message_epoch("f", 6).await.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn prune_only_compaction_opens_an_epoch_without_checkpoint() {
+        let store = store_with_frame().await;
+        let mut messages = vec![Message::system("sys")];
+        for turn in 0..12 {
+            messages.push(Message::user(format!("question {turn}")));
+            messages.push(Message::assistant(format!("answer {turn}")));
+            messages.push(Message::tool(
+                format!("call{turn}"),
+                "shell",
+                format!("tool-output-{turn} {}", "x".repeat(50)),
+            ));
+        }
+        let mut ctx = seeded_context(&store, messages, 1_000_000).await;
+        ctx.compact(&NoSummaryProvider, &archive("prune.json"))
+            .await
+            .unwrap();
+
+        let epoch = persist_compaction_epoch(&store, "f", &ctx, "auto", true)
+            .await
+            .unwrap();
+        let record = store.context_epoch("f", epoch).await.unwrap().unwrap();
+        assert_eq!(record.kind, "prune_only");
+        assert_eq!(record.strategy, "auto");
+        assert_eq!(record.checkpoint_seq, None);
+        assert_eq!(record.first_kept_seq, None);
+        assert_eq!(
+            store.load_messages("f").await.unwrap().len(),
+            ctx.messages.len()
+        );
+        assert_eq!(
+            store.load_messages_in_epoch("f", 0).await.unwrap().len(),
+            37
+        );
+    }
+
+    #[tokio::test]
+    async fn unaligned_persist_leaves_the_tail_origin_unknown_but_links_the_event() {
+        let store = store_with_frame().await;
+        let mut ctx = seeded_context(&store, long_turns(12), 10_000).await;
+        ctx.compact(
+            &SummaryProvider("Objective\nkeep going"),
+            &archive("unaligned.json"),
+        )
+        .await
+        .unwrap();
+        // The turn already persisted its Compaction flag (mid-turn path).
+        let mut seq = store.next_session_ui_event_seq("f").await.unwrap();
+        let event_seq = seq;
+        append_ui_event(
+            &store,
+            "f",
+            &mut seq,
+            AgentEvent::Compaction {
+                frame_id: "f".into(),
+                before: 10,
+                after: 5,
+                strategy: "auto".into(),
+                epoch: None,
+            },
+        )
+        .await;
+        append_ui_event(
+            &store,
+            "f",
+            &mut seq,
+            AgentEvent::Compaction {
+                frame_id: "f".into(),
+                before: 1,
+                after: 3,
+                strategy: "auto_continue".into(),
+                epoch: None,
+            },
+        )
+        .await;
+
+        let epoch = persist_compaction_epoch(&store, "f", &ctx, "auto", false)
+            .await
+            .unwrap();
+        let record = store.context_epoch("f", epoch).await.unwrap().unwrap();
+        assert_eq!(record.first_kept_seq, None);
+        assert_eq!(record.ui_event_seq, Some(event_seq));
+    }
+
+    #[tokio::test]
+    async fn consecutive_compactions_form_a_parent_epoch_chain() {
+        let store = store_with_frame().await;
+        let mut ctx = seeded_context(&store, long_turns(12), 10_000).await;
+        let epoch0_len = store.load_messages_in_epoch("f", 0).await.unwrap().len();
+        ctx.compact(
+            &SummaryProvider("Objective\nfirst fold"),
+            &archive("chain-1.json"),
+        )
+        .await
+        .unwrap();
+        let first = persist_compaction_epoch(&store, "f", &ctx, "manual", true)
+            .await
+            .unwrap();
+        ctx.compact(
+            &SummaryProvider("Objective\nsecond fold"),
+            &archive("chain-2.json"),
+        )
+        .await
+        .unwrap();
+        let second = persist_compaction_epoch(&store, "f", &ctx, "auto", true)
+            .await
+            .unwrap();
+        assert_eq!((first, second), (1, 2));
+        let first_record = store.context_epoch("f", 1).await.unwrap().unwrap();
+        let second_record = store.context_epoch("f", 2).await.unwrap().unwrap();
+        assert_eq!(first_record.parent_epoch, 0);
+        assert_eq!(second_record.parent_epoch, 1);
+        assert_eq!(second_record.strategy, "auto");
+        assert_eq!(
+            store.load_messages_in_epoch("f", 0).await.unwrap().len(),
+            epoch0_len
+        );
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 2);
+    }
+
+    #[test]
+    fn head_keep_seq_maps_row_counts_onto_durable_seqs() {
+        let rows = vec![
+            (7, Message::system("sys")),
+            (8, Message::user("q")),
+            (9, Message::assistant("a")),
+        ];
+        assert_eq!(crate::session_commands::head_keep_seq(&rows, 0), 6);
+        assert_eq!(crate::session_commands::head_keep_seq(&rows, 1), 7);
+        assert_eq!(crate::session_commands::head_keep_seq(&rows, 3), 9);
+        assert_eq!(crate::session_commands::head_keep_seq(&rows, 9), 9);
+        assert_eq!(crate::session_commands::head_keep_seq(&[], 0), 0);
     }
 }

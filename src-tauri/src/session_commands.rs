@@ -1010,6 +1010,14 @@ pub(super) async fn rewind_session(
     {
         return Err("ACP sessions cannot be rewound in protocol v1.".into());
     }
+    // `keep` counts head-epoch rows; the durable seq to keep is read off the
+    // persisted rows because seqs run ahead of row indexes once the frame has
+    // a compaction epoch.
+    let rows = state
+        .store
+        .load_messages_with_seq(&frame_id)
+        .await
+        .map_err(|e| format!("{e}"))?;
     let rt = state.sessions.lock().await.get(&frame_id).cloned();
     let keep = if let Some(rt) = rt {
         let mut guard = rt.agent.lock().await;
@@ -1023,15 +1031,29 @@ pub(super) async fn rewind_session(
     } else {
         user_index_to_keep_after_db(&state.store, &frame_id, user_index).await?
     };
+    let keep_seq = head_keep_seq(&rows, keep);
     state
         .store
-        .truncate_messages(&frame_id, keep as i64)
+        .truncate_messages(&frame_id, keep_seq)
         .await
         .map_err(|e| format!("{e}"))?;
     if let Some(rt) = state.sessions.lock().await.get(&frame_id) {
         rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
     }
     Ok(())
+}
+
+/// Durable seq below which the first `keep` head-epoch rows are retained.
+/// Keeping zero rows lands just below the head epoch's first row so frozen
+/// epochs (all lower seqs) survive; keeping more than exist keeps everything.
+pub(super) fn head_keep_seq(rows: &[(i64, wisp_llm::Message)], keep: usize) -> i64 {
+    match keep {
+        0 => rows.first().map_or(0, |(seq, _)| seq - 1),
+        _ => rows
+            .get(keep - 1)
+            .or(rows.last())
+            .map_or(0, |(seq, _)| *seq),
+    }
 }
 
 /// Compute the `keep` index purely from persisted messages when no in-memory

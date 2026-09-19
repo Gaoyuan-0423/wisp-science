@@ -1212,6 +1212,7 @@ fn persisted_ui_events_restore_context_compaction_flags() {
         before: 812_000,
         after: 236_000,
         strategy: "auto".into(),
+        epoch: None,
     };
     assert!(should_persist_ui_event(&event));
     let events = vec![event];
@@ -1223,6 +1224,17 @@ fn persisted_ui_events_restore_context_compaction_flags() {
     assert_eq!(payload["before"], 812_000);
     assert_eq!(payload["after"], 236_000);
     assert_eq!(payload["strategy"], "auto");
+    assert!(payload["epoch"].is_null());
+
+    let (linked, _) = events_to_items(&[AgentEvent::Compaction {
+        frame_id: "f".into(),
+        before: 100,
+        after: 40,
+        strategy: "manual".into(),
+        epoch: Some(2),
+    }]);
+    let linked_payload: serde_json::Value = serde_json::from_str(&linked[0].text).unwrap();
+    assert_eq!(linked_payload["epoch"], 2);
 }
 
 #[test]

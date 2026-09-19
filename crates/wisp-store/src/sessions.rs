@@ -982,6 +982,28 @@ impl Store {
         )
     }
 
+    /// Drop model-context rows with `seq > keep_seq` and the seq-anchored
+    /// records that pointed at them, leaving the visual transcript alone.
+    /// Used to roll an interrupted turn out of the context while its rows stay
+    /// visible as history. `keep_seq` must lie in the head epoch; frozen
+    /// epochs always sit below it and are never touched.
+    pub async fn truncate_model_context(&self, frame_id: &str, keep_seq: i64) -> Result<()> {
+        let mut tx = self.begin_write().await?;
+        for statement in [
+            "DELETE FROM message_resource_links WHERE frame_id=? AND message_seq>?",
+            "DELETE FROM turn_file_undo WHERE frame_id=? AND user_message_seq>?",
+            "DELETE FROM messages WHERE frame_id=? AND seq>?",
+        ] {
+            sqlx::query(statement)
+                .bind(frame_id)
+                .bind(keep_seq)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Drop persisted turns after `keep` (seq is 1-based; keep=3 retains seq 1..=3).
     pub async fn truncate_messages(&self, frame_id: &str, keep: i64) -> Result<()> {
         let mut tx = self.begin_write().await?;

@@ -21,8 +21,9 @@ pub use agent::{
     agent_loop, agent_loop_continue, bound_tool_results_in_history, AgentLoopOutcome, GuidanceQueue,
 };
 pub use context::{
-    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, ContextManager,
-    ContextToolDetail, ContextUsage, ContextUsageDetails, UNPAIRED_ON_LOAD_RESULT,
+    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, CompactionKind,
+    CompactionOutcome, ContextManager, ContextToolDetail, ContextUsage, ContextUsageDetails,
+    COMPACTION_SUMMARY_PREFIX, UNPAIRED_ON_LOAD_RESULT,
 };
 pub use delegation::{
     degraded_delivery_marker, is_degraded_delivery, AgentArtifact, AgentAuthorizationSnapshot,

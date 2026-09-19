@@ -1208,6 +1208,7 @@ fn render_process_metadata(item: &ChatItem, locale: ReadSignal<Locale>) -> View 
             before,
             after,
             strategy,
+            ..
         } => {
             if strategy == "auto_continue" {
                 let count = before.to_string();
