@@ -45,6 +45,7 @@ async function openCompactedSession(page: Page, payload = compactionPayload()) {
     w.__TAURI__.core.invoke = async (cmd: string, args: any) => {
       const arg = (key: string) => args instanceof Map ? args.get(key) : args?.[key];
       if (cmd === "load_session_context_view" && (arg("sessionId") === "s-compact" || arg("id") === "s-compact")) {
+        (w.__skillInvokeLog ??= []).push({ cmd, args });
         return [
           { role: "system", text: "You are wisp-science", kind: "system" },
           { role: "checkpoint", text: "[context summary checkpoint]\n\nFolded older turns.", kind: "checkpoint" },
@@ -138,28 +139,33 @@ test("compacted bubbles are marked out of context and model view is read-only", 
   await expect(first).toHaveAttribute("data-in-context", "false");
   await expect(first).toHaveAttribute("title", "Not in the current context; represented by the summary");
   await expect(second).toHaveAttribute("data-in-context", "true");
-  await expect(page.getByTestId("context-compaction-flag")).toHaveAttribute("data-in-context", "true");
-
-  await page.getByTestId("context-usage-trigger").click();
-  const panel = page.getByTestId("context-usage-panel");
-  await expect(panel.getByTestId("context-usage-epoch")).toHaveText(
-    "Epoch 1 · system + checkpoint + 1 kept turns",
-  );
+  await expect(
+    page.locator("[data-testid='transcript-item']").filter({
+      has: page.getByTestId("context-compaction-flag"),
+    }),
+  ).toHaveAttribute("data-in-context", "true");
 
   await page.getByTestId("transcript-view-model").click();
   await expect.poll(() => lastInvokeArgs(page, "load_session_context_view")).toMatchObject({
     sessionId: "s-compact",
   });
   await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
+  const thread = page.locator(".thread");
   await expect(page.getByTestId("context-system-row")).toBeVisible();
   await expect(page.getByTestId("context-checkpoint-row")).toContainText("Folded older turns.");
-  await expect(page.getByText("second question")).toBeVisible();
-  await expect(page.getByText("first question")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Rewind" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Branch" })).toHaveCount(0);
+  await expect(thread.getByText("second question")).toBeVisible();
+  await expect(thread.getByText("first question")).toHaveCount(0);
+  await expect(thread.getByRole("button", { name: "Rewind" })).toHaveCount(0);
+  await expect(thread.getByRole("button", { name: "Branch" })).toHaveCount(0);
 
   await page.getByTestId("transcript-view-full").click();
-  await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "false");
-  await expect(page.getByText("first question")).toBeVisible();
+  await expect(thread).toHaveAttribute("data-model-view", "false");
+  await expect(thread.getByText("first question")).toBeVisible();
   await expect(page.getByTestId("context-system-row")).toHaveCount(0);
+
+  await page.getByTestId("context-usage-trigger").click();
+  const panel = page.getByTestId("context-usage-panel");
+  await expect(panel.getByTestId("context-usage-epoch")).toHaveText(
+    "Epoch 1 · system + checkpoint + 1 kept turns",
+  );
 });
