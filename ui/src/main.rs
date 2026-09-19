@@ -7497,6 +7497,7 @@ fn App() -> impl IntoView {
         // Reset before the fetch: otherwise the previous session's flag shows
         // on the new one for as long as the round trip takes.
         local_plan_mode.set(Some(false));
+        auto_review_enabled.set(false);
         agent_completion.set(AgentCompletionSettings::default());
         agent_completion_busy.set(false);
         let Some(session_id) = active_session.get() else {
@@ -7516,17 +7517,22 @@ fn App() -> impl IntoView {
                 .await
                 .ok()
                 .and_then(|value| value.as_bool());
-            let completion = invoke_checked("get_session_agent_completion", args)
+            let completion = invoke_checked("get_session_agent_completion", args.clone())
                 .await
                 .ok()
                 .and_then(|value| {
                     serde_wasm_bindgen::from_value::<AgentCompletionSettings>(value).ok()
                 });
+            let auto_review = invoke_checked("get_auto_review_enabled", args)
+                .await
+                .ok()
+                .and_then(|value| value.as_bool());
             if active_session.get_untracked().as_deref() == Some(session_id.as_str()) {
                 delegation_enabled.set(enabled.unwrap_or(false));
                 full_permission_enabled.set(full_permission.unwrap_or(false));
                 local_plan_mode.set(plan.unwrap_or(None));
                 agent_completion.set(completion.unwrap_or_default());
+                auto_review_enabled.set(auto_review.unwrap_or(false));
             }
         });
     });
@@ -7659,12 +7665,6 @@ fn App() -> impl IntoView {
                 agent_completion_busy.set(false);
             }
         });
-    });
-    spawn_local(async move {
-        let value = invoke("get_auto_review_enabled", JsValue::UNDEFINED).await;
-        if let Some(enabled) = value.as_bool() {
-            auto_review_enabled.set(enabled);
-        }
     });
     spawn_local(async move {
         let value = invoke("get_auto_failure_analysis_settings", JsValue::UNDEFINED).await;
@@ -13958,9 +13958,34 @@ fn App() -> impl IntoView {
                                                     let enabled = event_target_checked(&ev);
                                                     auto_review_enabled.set(enabled);
                                                     spawn_local(async move {
-                                                        let arg = to_value(&serde_json::json!({ "enabled": enabled })).unwrap();
-                                                        if invoke_checked("set_auto_review_enabled", arg).await.is_err() {
-                                                            auto_review_enabled.set(!enabled);
+                                                        let (session_id, created_session) = match active_session.get_untracked() {
+                                                            Some(session_id) => (session_id, false),
+                                                            None if enabled => {
+                                                                let Some(session_id) = invoke("new_session", JsValue::UNDEFINED).await.as_string() else {
+                                                                    auto_review_enabled.set(false);
+                                                                    return;
+                                                                };
+                                                                (session_id, true)
+                                                            }
+                                                            None => {
+                                                                auto_review_enabled.set(false);
+                                                                return;
+                                                            }
+                                                        };
+                                                        let args = to_value(&serde_json::json!({
+                                                            "sessionId": session_id.clone(),
+                                                            "enabled": enabled,
+                                                        })).unwrap();
+                                                        let saved = invoke_checked("set_auto_review_enabled", args).await
+                                                            .ok()
+                                                            .and_then(|value| value.as_bool());
+                                                        if created_session {
+                                                            active_session.set(Some(session_id.clone()));
+                                                            items.set(vec![]);
+                                                            refresh_session_history();
+                                                        }
+                                                        if active_session.get_untracked().as_deref() == Some(session_id.as_str()) {
+                                                            auto_review_enabled.set(saved.unwrap_or(!enabled));
                                                         }
                                                     });
                                                 } />

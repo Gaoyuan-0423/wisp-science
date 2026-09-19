@@ -462,7 +462,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
     },
   ];
   let memoryEnabled = true;
-  let autoReviewEnabled = false;
+  const sessionAutoReviewEnabled: Record<string, boolean> = {};
   let autoFailureAnalysis = {
     enabled: false,
     failure_rate_threshold: 30,
@@ -4901,10 +4901,12 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
             globalMemories = globalMemories.filter((memory) => memory.id !== String(arg("id") ?? ""));
             return null;
           case "get_auto_review_enabled":
-            return autoReviewEnabled;
-          case "set_auto_review_enabled":
-            autoReviewEnabled = !!args?.enabled;
-            return autoReviewEnabled;
+            return sessionAutoReviewEnabled[String(arg("sessionId") ?? "")] ?? false;
+          case "set_auto_review_enabled": {
+            const sessionId = String(arg("sessionId") ?? "");
+            sessionAutoReviewEnabled[sessionId] = Boolean(arg("enabled"));
+            return sessionAutoReviewEnabled[sessionId];
+          }
           case "get_session_delegation_enabled":
             return sessionDelegationEnabled[String(arg("sessionId") ?? "")] ?? false;
           case "set_session_delegation_enabled": {

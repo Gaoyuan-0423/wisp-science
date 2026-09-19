@@ -377,7 +377,7 @@ pub(crate) async fn send_message_inner(
                         .mark_agent_workflow_deliveries_presented(&completion_delivery_ids)
                         .await;
                 }
-                if !resume && load_auto_review_enabled(&state.store).await {
+                if !resume && load_auto_review_enabled(&state.store, &frame_id).await {
                     automatic_review_acp(state, &app, &ap, &frame_id, &runtime.cancel, turn_start)
                         .await;
                 }
@@ -1313,7 +1313,7 @@ pub(crate) async fn send_message_inner(
             let is_reviewer = specialist
                 .as_ref()
                 .is_some_and(|specialist| specialist.id == "reviewer");
-            if !resume && !is_reviewer && load_auto_review_enabled(&state.store).await {
+            if !resume && !is_reviewer && load_auto_review_enabled(&state.store, &frame_id).await {
                 automatic_review(
                     state,
                     &app,

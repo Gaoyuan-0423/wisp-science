@@ -710,9 +710,22 @@ async fn auto_review_is_off_by_default_and_persists_changes() {
         .await
         .unwrap();
 
-    assert!(!super::load_auto_review_enabled(&store).await);
-    super::save_auto_review_enabled(&store, true).await.unwrap();
-    assert!(super::load_auto_review_enabled(&store).await);
+    assert!(!super::load_auto_review_enabled(&store, "a").await);
+    super::save_auto_review_enabled(&store, "a", true)
+        .await
+        .unwrap();
+    assert!(super::load_auto_review_enabled(&store, "a").await);
+    // The whole point: session "a" stays on its own.
+    assert!(!super::load_auto_review_enabled(&store, "b").await);
+    // The settings-pane default only applies to sessions without their own flag.
+    super::save_default_auto_review_enabled(&store, true)
+        .await
+        .unwrap();
+    assert!(super::load_auto_review_enabled(&store, "b").await);
+    super::save_auto_review_enabled(&store, "b", false)
+        .await
+        .unwrap();
+    assert!(!super::load_auto_review_enabled(&store, "b").await);
     drop(store);
     let _ = std::fs::remove_dir_all(dir);
 }
