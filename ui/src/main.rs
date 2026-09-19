@@ -7820,14 +7820,21 @@ fn App() -> impl IntoView {
         dismissed: dismissed_run_cards,
     });
     provide_context(chat_render::CompactionRowActions {
-        undo: Callback::new(move |_| {
+        undo: Callback::new(move |epoch: u64| {
             if busy.get() {
                 return;
             }
             let sid = active_session.get();
             spawn_local(async move {
                 let args = to_value(&tauri_args::undo_compaction(&sid)).unwrap();
-                let _ = invoke_checked("undo_compaction", args).await;
+                if invoke_checked("undo_compaction", args).await.is_err() {
+                    return;
+                }
+                if let Some(id) = sid.as_deref() {
+                    route_items(active_session, items, transcripts, id, |rows| {
+                        apply_compaction_undone(rows, epoch);
+                    });
+                }
             });
         }),
         rewind_before: Callback::new(move |kept_from: usize| {

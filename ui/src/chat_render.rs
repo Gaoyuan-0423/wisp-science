@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 #[derive(Clone, Copy)]
 pub(crate) struct CompactionRowActions {
-    pub undo: Callback<()>,
+    pub undo: Callback<u64>,
     pub rewind_before: Callback<usize>,
 }
 
@@ -1379,7 +1379,7 @@ fn render_compaction_row(
                                         return;
                                     }
                                     if let Some(undo) = undo_compaction {
-                                        undo.call(());
+                                        undo.call(epoch.unwrap_or(0));
                                     }
                                 }
                             >
