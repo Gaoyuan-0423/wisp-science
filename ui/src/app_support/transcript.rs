@@ -655,8 +655,9 @@ pub(crate) fn item_in_context(
             | ChatItem::System(_)
             | ChatItem::Checkpoint(_),
         ) => true,
-        Some(_) => owning_user_turn_index(items, ui_index)
-            .is_none_or(|turn| user_offset + turn >= from),
+        Some(_) => {
+            owning_user_turn_index(items, ui_index).is_none_or(|turn| user_offset + turn >= from)
+        }
         None => true,
     }
 }

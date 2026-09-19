@@ -733,10 +733,7 @@ mod start_user_turn_tests {
                 context_usage: ContextUsage::default(),
             },
         );
-        recorded.insert(
-            5,
-            ChatItem::compaction(100, 50, "auto", Some(1)),
-        );
+        recorded.insert(5, ChatItem::compaction(100, 50, "auto", Some(1)));
         assert_eq!(completed_activity_end(&recorded, 1, false), Some(8));
         assert_eq!(completed_activity_end(&recorded, 1, true), None);
         // Final report and trailing metadata stay outside the disclosure.

@@ -10900,6 +10900,10 @@ fn App() -> impl IntoView {
             .unwrap_or_else(|| path.replace('\\', "/"));
         Some((file, revision, display_path))
     });
+    provide_context(ModelViewCtrl {
+        on: model_view,
+        toggle: toggle_model_view,
+    });
 
     view! {
         {is_windows().then(|| view! {
@@ -11406,30 +11410,9 @@ fn App() -> impl IntoView {
                 }}
                 <div class="spacer"></div>
                 <div class="topbar-actions">
-                {move || {
-                    active_session.get().is_some().then(|| {
-                        let toggle = toggle_model_view;
-                        view! {
-                            <div class="transcript-view-toggle" data-testid="transcript-view-toggle">
-                                <button type="button"
-                                    class:active=move || !model_view.get()
-                                    data-testid="transcript-view-full"
-                                    title=move || t(locale.get(), "chat.view_full")
-                                    on:click=move |_| if model_view.get() { toggle.call(()); }>
-                                    {move || t(locale.get(), "chat.view_full")}
-                                </button>
-                                <button type="button"
-                                    class:active=move || model_view.get()
-                                    data-testid="transcript-view-model"
-                                    title=move || t(locale.get(), "chat.view_model")
-                                    on:click=move |_| if !model_view.get() { toggle.call(()); }>
-                                    {compose_icon("eye")}
-                                    {move || t(locale.get(), "chat.view_model")}
-                                </button>
-                            </div>
-                        }
-                    })
-                }}
+                {move || active_session.get().is_some().then(|| view! {
+                    <TranscriptViewToggle />
+                })}
                 {move || {
                     let count = conversation_outline.with(|rows| rows.len());
                     (count > 0 && (!center_file_open.get() || center_split.get())).then(|| view! {
@@ -12200,7 +12183,7 @@ fn App() -> impl IntoView {
                         selection_popup.set(None);
                     }
                 }>
-                <div class="thread" id=CHAT_THREAD_ID data-model-view=move || model_view.get().to_string()>
+                <div class="thread" id=CHAT_THREAD_ID data-model-view=move || model_view_active().to_string()>
                     {move || active_session.get().and_then(|frame_id| {
                         let rows = explorations.get();
                         if let Some(summary) = rows.iter().find(|row| {
@@ -12272,7 +12255,10 @@ fn App() -> impl IntoView {
                             </div>
                         })
                     })}
-                    {move || (!model_view.get()).then(|| active_session.get()).and_then(|id| {
+                    {move || (!model_view_active())
+                        .then(|| active_session.get())
+                        .flatten()
+                        .and_then(|id| {
                         transcript_pages.get().get(&id).copied().and_then(|page| {
                             let (_, window_start, _) = items.with(|rows| {
                                 transcript_render_window(
@@ -12556,7 +12542,7 @@ fn App() -> impl IntoView {
                             })
                         }
                         key=|(session_id, start, streaming, fp, _)| {
-                            (session_id.clone(), *start, *streaming, *fp, model_view.get())
+                            (session_id.clone(), *start, *streaming, *fp, model_view_active())
                         }
                         children=move |(session_id, start, _, _, row)| {
                             match row {
@@ -12615,7 +12601,7 @@ fn App() -> impl IntoView {
                                                     })
                                                     .map_or(0, |page| page.user_offset)
                                         });
-                                    let in_context = model_view.get_untracked()
+                                    let in_context = model_view_active_untracked()
                                         || thread_items.with_untracked(|rows| {
                                             item_in_context(
                                                 rows,
@@ -12669,21 +12655,21 @@ fn App() -> impl IntoView {
                                         Vec::new()
                                     };
                                     let can_undo = Signal::derive(move || {
-                                        !model_view.get()
+                                        !model_view_active()
                                             && !compact_assistant
                                             && !matches!(active_branch_state.get().as_deref(), Some("merged" | "orphaned"))
                                             && undo_assistant_index.get() == Some(i)
                                     });
-                                    let show_actions = Signal::derive(move || !busy.get() && !model_view.get());
+                                    let show_actions = Signal::derive(move || !busy.get() && !model_view_active());
                                     let can_branch = Signal::derive(move || {
-                                        !model_view.get()
+                                        !model_view_active()
                                             && active_branch_state.get().is_none()
                                             && active_acp_agent_id.get().is_none()
                                             && !active_is_exploration.get()
                                             && !busy.get()
                                     });
                                     let show_explore = Signal::derive(move || {
-                                        if model_view.get() {
+                                        if model_view_active() {
                                             return false;
                                         }
                                         if compact_assistant
@@ -12757,7 +12743,7 @@ fn App() -> impl IntoView {
                                                 render_item(
                                                     i, &item, timestamp, artifacts, on_artifact_select, on_file_link,
                                                     run_records, run_clock.read_only(), busy.read_only(), compact_assistant,
-                                                    !model_view.get_untracked()
+                                                    !model_view_active_untracked()
                                                         && active_acp_agent_id.get().is_none()
                                                         && !matches!(active_branch_state.get_untracked().as_deref(), Some("merged" | "orphaned")),
                                                     can_branch, show_actions, can_undo, show_explore, can_explore, edit_message, branch_message, undo_message, explore_turn_index.unwrap_or_default(), start_exploration_from_turn, session_id,
@@ -12769,7 +12755,7 @@ fn App() -> impl IntoView {
                                                     Callback::new(move |detail| branch_merge_detail.set(Some(detail))),
                                                 ).into_view()
                                             }}
-                                            {(!model_view.get_untracked() && (!message_branches.is_empty() || !message_explorations.is_empty())).then(|| {
+                                            {(!model_view_active_untracked() && (!message_branches.is_empty() || !message_explorations.is_empty())).then(|| {
                                                 let loc = locale.get();
                                                 let branch_count = message_branches.len();
                                                 let exploration_count = message_explorations.len();
@@ -12986,7 +12972,10 @@ fn App() -> impl IntoView {
                             }
                         })
                     })}
-                    {move || active_session.get().and_then(|id| {
+                    {move || (!model_view_active())
+                        .then(|| active_session.get())
+                        .flatten()
+                        .and_then(|id| {
                         transcript_pages.get().get(&id).copied().and_then(|page| {
                             let (_, start, total) = items.with(|rows| {
                                 transcript_render_window(
@@ -13495,8 +13484,6 @@ fn App() -> impl IntoView {
                                                 )
                                             }),
                                         )
-                                        model_view=model_view
-                                        on_toggle_model_view=toggle_model_view
                                     />
                                 </div>
                             }
@@ -16793,8 +16780,6 @@ fn App() -> impl IntoView {
                                     )
                                 }),
                             )
-                            model_view=model_view
-                            on_toggle_model_view=toggle_model_view
                         />
                     }
                 })

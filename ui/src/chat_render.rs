@@ -1293,9 +1293,7 @@ fn render_compaction_row(
         expanded.set(false);
         true
     });
-    let undo_reason_key = undo_reason
-        .as_deref()
-        .map(compaction_undo_reason_key);
+    let undo_reason_key = undo_reason.as_deref().map(compaction_undo_reason_key);
     let actions = use_context::<CompactionRowActions>();
     let undo_compaction = actions.map(|actions| actions.undo);
     let rewind_before = actions.map(|actions| actions.rewind_before);
