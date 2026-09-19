@@ -34,6 +34,15 @@ Reopening a session replaces its paging request. A superseded request cannot
 insert older rows, show an error, or clear the newer request's loading state,
 even when both requests use the same history cursor.
 
+## Compaction row and undo
+
+A successful context compact leaves a timeline row. Expand it to read the
+checkpoint summary, token counts, strategy, epoch, and the first kept turn.
+If you have not continued the conversation, **Undo compaction** restores the
+previous model context and marks the row undone. After new turns, undo is
+disabled and **Rewind to before compact** uses the existing rewind confirmation
+to cut the conversation at that kept turn. Escape closes only the open summary.
+
 ## Manual smoke checks
 
 - Leave a native tool waiting for approval, open that running conversation in a

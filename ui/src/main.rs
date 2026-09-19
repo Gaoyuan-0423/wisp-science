@@ -3164,12 +3164,11 @@ fn App() -> impl IntoView {
                 finish_compaction(&frame_id);
                 let auto_continue = strategy == "auto_continue";
                 route_items(active_cb, items_cb, transcripts_cb, &frame_id, |items| {
-                    items.push(ChatItem::Compaction {
-                        before,
-                        after,
-                        strategy,
-                        epoch,
-                    });
+                    let mut item = ChatItem::compaction(before, after, strategy, epoch);
+                    if let ChatItem::Compaction { can_undo, .. } = &mut item {
+                        *can_undo = epoch.is_some();
+                    }
+                    items.push(item);
                 });
                 if active_cb.get().as_deref() == Some(&frame_id) {
                     let before = before.to_string();
@@ -3182,6 +3181,11 @@ fn App() -> impl IntoView {
                         ));
                     }
                 }
+            }
+            AgentEvent::CompactionUndone { frame_id, epoch } => {
+                route_items(active_cb, items_cb, transcripts_cb, &frame_id, |items| {
+                    apply_compaction_undone(items, epoch);
+                });
             }
             AgentEvent::ContextWarning {
                 frame_id,
@@ -7814,6 +7818,39 @@ fn App() -> impl IntoView {
         runs: run_records,
         clock: run_clock.read_only(),
         dismissed: dismissed_run_cards,
+    });
+    provide_context(chat_render::CompactionRowActions {
+        undo: Callback::new(move |epoch: u64| {
+            if busy.get() {
+                return;
+            }
+            let sid = active_session.get();
+            spawn_local(async move {
+                let args = to_value(&tauri_args::undo_compaction(&sid)).unwrap();
+                if invoke_checked("undo_compaction", args).await.is_err() {
+                    return;
+                }
+                if let Some(id) = sid.as_deref() {
+                    route_items(active_session, items, transcripts, id, |rows| {
+                        apply_compaction_undone(rows, epoch);
+                    });
+                }
+            });
+        }),
+        rewind_before: Callback::new(move |kept_from: usize| {
+            if busy.get() {
+                return;
+            }
+            let list = items.get();
+            let offset = active_session
+                .get()
+                .as_deref()
+                .and_then(|id| transcript_pages.with(|pages| pages.get(id).copied()))
+                .map_or(0, |page| page.user_offset);
+            if let Some(ui_index) = compaction_rewind_ui_index(&list, offset, kept_from) {
+                edit_confirm.set(Some(ui_index));
+            }
+        }),
     });
     // The transfer tray needs the shared clock only while the active session
     // has an active or briefly lingering transfer. Once the last card expires,

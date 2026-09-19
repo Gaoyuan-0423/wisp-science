@@ -429,6 +429,117 @@ impl Store {
             .count())
     }
 
+    /// Visual user index whose turn contains `seq`, or `None` when no
+    /// completed visual turn covers it (legacy prefix / unknown seq).
+    pub async fn visual_user_index_for_seq(
+        &self,
+        frame_id: &str,
+        seq: i64,
+    ) -> Result<Option<usize>> {
+        let rows = sqlx::query(
+            "SELECT json_extract(event_json,'$.kind') AS kind, \
+             json_extract(event_json,'$.text') AS text, \
+             json_extract(event_json,'$.seq') AS message_seq \
+             FROM session_ui_events WHERE frame_id=? \
+             AND json_extract(event_json,'$.kind') IN ('User','MessageBoundary') \
+             ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut seen = 0usize;
+        let mut current: Option<usize> = None;
+        let mut found = None;
+        for row in rows {
+            let kind: String = row.try_get("kind")?;
+            match kind.as_str() {
+                "User" => {
+                    let Some(text) = row.try_get::<Option<String>, _>("text")? else {
+                        continue;
+                    };
+                    if crate::is_compaction_checkpoint(&text) {
+                        continue;
+                    }
+                    current = Some(seen);
+                    seen += 1;
+                }
+                "MessageBoundary" => {
+                    if let (Some(index), Some(message_seq)) =
+                        (current, row.try_get::<Option<i64>, _>("message_seq")?)
+                    {
+                        if message_seq <= seq {
+                            found = Some(index);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(found)
+    }
+
+    /// Roll the head epoch back to its parent. Allowed only when the head
+    /// has no rows past `initial_head_seq` (the user has not continued).
+    /// Returns the undone epoch number.
+    pub async fn undo_context_epoch(&self, frame_id: &str) -> Result<i64> {
+        let mut tx = self.begin_write().await?;
+        let head: Option<i64> = sqlx::query_scalar("SELECT head_epoch FROM frames WHERE id=?")
+            .bind(frame_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let head = head.ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+        if head <= 0 {
+            anyhow::bail!("context_epoch_none: no compaction to undo");
+        }
+        let row = sqlx::query(&format!("{SELECT_EPOCH} WHERE frame_id=? AND epoch=?"))
+            .bind(frame_id)
+            .bind(head)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("context_epoch_none: no compaction to undo"))?;
+        let record = record_from_row(&row)?;
+        let max_seq: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(seq),0) FROM messages WHERE frame_id=? AND epoch=?",
+        )
+        .bind(frame_id)
+        .bind(head)
+        .fetch_one(&mut *tx)
+        .await?;
+        if max_seq != record.initial_head_seq {
+            anyhow::bail!("context_epoch_has_new_turns: conversation continued after compaction");
+        }
+        sqlx::query("DELETE FROM messages WHERE frame_id=? AND epoch=?")
+            .bind(frame_id)
+            .bind(head)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM context_epochs WHERE frame_id=? AND epoch=?")
+            .bind(frame_id)
+            .bind(head)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE frames SET head_epoch=? WHERE id=?")
+            .bind(record.parent_epoch)
+            .bind(frame_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(head)
+    }
+
+    /// Epochs named by persisted `CompactionUndone` UI events.
+    pub async fn undone_context_epochs(&self, frame_id: &str) -> Result<Vec<i64>> {
+        let rows: Vec<Option<i64>> = sqlx::query_scalar(
+            "SELECT json_extract(event_json,'$.epoch') FROM session_ui_events \
+             WHERE frame_id=? AND json_extract(event_json,'$.kind')='CompactionUndone' \
+             ORDER BY seq",
+        )
+        .bind(frame_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().flatten().collect())
+    }
+
     /// Make `epoch` the head and drop every model-context row after
     /// `keep_seq`. Later epochs (higher seqs and their `context_epochs`
     /// records) disappear. The visual transcript is cut at the last
@@ -1073,5 +1184,108 @@ mod tests {
         assert_eq!(store.list_turn_file_undo("f", 2).await.unwrap().len(), 1);
         assert_eq!(store.visual_user_count("f").await.unwrap(), 1);
         assert!(store.visual_turn_anchor("f", 1).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn undo_context_epoch_restores_the_parent_when_head_is_unmodified() {
+        let store = store().await;
+        seed(
+            &store,
+            &[
+                ("system", "sys"),
+                ("user", "q1"),
+                ("assistant", "a1"),
+                ("user", "q2"),
+                ("assistant", "a2"),
+            ],
+        )
+        .await;
+        let mut event_seq = 1i64;
+        persist_visual_turn(&store, &mut event_seq, 2, "q1").await;
+        persist_visual_turn(&store, &mut event_seq, 4, "q2").await;
+        let first = compacted();
+        store
+            .open_context_epoch("f", open_input(&first))
+            .await
+            .unwrap();
+        let second = vec![
+            Message::system("sys"),
+            Message::user("[context summary checkpoint]\n\nsummary 2"),
+            Message::user("q2"),
+            Message::assistant("a2"),
+        ];
+        store
+            .open_context_epoch("f", open_input(&second))
+            .await
+            .unwrap();
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 2);
+
+        let undone = store.undo_context_epoch("f").await.unwrap();
+        assert_eq!(undone, 2);
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 1);
+        assert_eq!(store.context_epochs("f").await.unwrap().len(), 1);
+        let head = store.load_messages("f").await.unwrap();
+        assert_eq!(
+            head.iter()
+                .map(|message| message.content.as_text().to_string())
+                .collect::<Vec<_>>(),
+            [
+                "sys".to_string(),
+                "[context summary checkpoint]\n\nsummary".to_string(),
+                "q2".to_string(),
+                "a2".to_string(),
+            ]
+        );
+
+        let undone = store.undo_context_epoch("f").await.unwrap();
+        assert_eq!(undone, 1);
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 0);
+        assert!(store.context_epochs("f").await.unwrap().is_empty());
+        let original = store.load_messages("f").await.unwrap();
+        assert_eq!(
+            original
+                .iter()
+                .map(|message| message.content.as_text().to_string())
+                .collect::<Vec<_>>(),
+            [
+                "sys".to_string(),
+                "q1".to_string(),
+                "a1".to_string(),
+                "q2".to_string(),
+                "a2".to_string()
+            ]
+        );
+        assert_eq!(
+            store.visual_user_index_for_seq("f", 4).await.unwrap(),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn undo_context_epoch_rejects_new_turns_without_side_effects() {
+        let store = store().await;
+        seed(
+            &store,
+            &[("system", "sys"), ("user", "q1"), ("assistant", "a1")],
+        )
+        .await;
+        store
+            .open_context_epoch("f", open_input(&compacted()))
+            .await
+            .unwrap();
+        store
+            .append_message("f", 10, &Message::user("after"))
+            .await
+            .unwrap();
+        let err = store.undo_context_epoch("f").await.unwrap_err().to_string();
+        assert!(err.contains("context_epoch_has_new_turns"), "{err}");
+        assert_eq!(store.frame_head_epoch("f").await.unwrap(), 1);
+        assert_eq!(store.context_epochs("f").await.unwrap().len(), 1);
+        assert!(store
+            .load_messages("f")
+            .await
+            .unwrap()
+            .iter()
+            .any(|message| message.content.as_text() == "after"));
     }
 }

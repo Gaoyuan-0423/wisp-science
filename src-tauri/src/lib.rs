@@ -240,6 +240,10 @@ enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         epoch: Option<u64>,
     },
+    CompactionUndone {
+        frame_id: String,
+        epoch: u64,
+    },
     CompactionStarted {
         frame_id: String,
         #[serde(default)]
@@ -321,6 +325,7 @@ impl AgentEvent {
             | Self::AppContextUpdate { frame_id, .. }
             | Self::Usage { frame_id, .. }
             | Self::Compaction { frame_id, .. }
+            | Self::CompactionUndone { frame_id, .. }
             | Self::CompactionStarted { frame_id, .. }
             | Self::ContextWarning { frame_id, .. }
             | Self::Diff { frame_id, .. }
@@ -1051,6 +1056,10 @@ struct SessionTranscriptPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     branch_state: Option<String>,
     pending_approvals: Vec<wisp_dto::PendingToolApproval>,
+    #[serde(default)]
+    context_epochs: Vec<wisp_dto::ContextEpochDto>,
+    #[serde(default)]
+    head_epoch: u64,
 }
 
 use wisp_dto::SessionOutlineItem;
@@ -1868,7 +1877,7 @@ async fn append_ui_event(store: &Store, frame_id: &str, seq: &mut i64, event: Ag
 /// context updates are UI/model-context events, not user messages and not
 /// tool calls; keeping this path explicit prevents them from accidentally
 /// starting a turn or entering external channel output.
-async fn persist_and_emit_app_context_update(
+pub(crate) async fn persist_and_emit_app_context_update(
     state: &AppState,
     app: &AppHandle,
     frame_id: &str,
@@ -3144,6 +3153,7 @@ fn should_persist_ui_event(event: &AgentEvent) -> bool {
             | AgentEvent::Stdout { .. }
             | AgentEvent::Usage { .. }
             | AgentEvent::Compaction { .. }
+            | AgentEvent::CompactionUndone { .. }
             | AgentEvent::Done { .. }
             | AgentEvent::Error { .. }
     )
@@ -7654,6 +7664,7 @@ pub fn run() {
             session_commands::load_session_trajectory,
             trajectory_export::export_session_trajectory,
             session_commands::rewind_session,
+            session_commands::undo_compaction,
             turn_undo::preview_turn_undo,
             turn_undo::undo_turn,
             skill_store::list_community_skills,
