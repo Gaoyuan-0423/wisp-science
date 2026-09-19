@@ -1005,12 +1005,11 @@ impl Store {
     }
 
     /// Drop persisted turns after `keep` (seq is 1-based; keep=3 retains seq 1..=3).
+    /// `keep` is a durable message seq in the current head epoch. After a
+    /// compaction, use `rewind_to_seq` to restore an older epoch.
     pub async fn truncate_messages(&self, frame_id: &str, keep: i64) -> Result<()> {
-        let mut tx = self.begin_write().await?;
-        reconcile_session_branches_after_truncate(&mut tx, frame_id, keep).await?;
-        truncate_message_rows(&mut tx, frame_id, keep).await?;
-        tx.commit().await?;
-        Ok(())
+        let epoch = self.frame_head_epoch(frame_id).await?;
+        self.rewind_to_seq(frame_id, epoch, keep).await
     }
 
     pub(crate) async fn truncate_message_rows(
@@ -1160,6 +1159,43 @@ async fn replace_message_rows(
 /// the merge. A checkpoint itself remains valid only while its concrete anchor
 /// is retained: `before_user` needs that user message, while `after_response`
 /// also needs a retained assistant reply for the turn.
+async fn visual_retained_turns(
+    tx: &mut Transaction<'_, Sqlite>,
+    frame_id: &str,
+) -> Result<Vec<bool>> {
+    let rows = sqlx::query(
+        "SELECT json_extract(event_json,'$.kind') AS kind, \
+         json_extract(event_json,'$.text') AS text \
+         FROM session_ui_events WHERE frame_id=? \
+         AND json_extract(event_json,'$.kind') IN ('User','Text') ORDER BY seq",
+    )
+    .bind(frame_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut turns = Vec::<bool>::new();
+    for row in rows {
+        let kind: String = row.try_get("kind")?;
+        match kind.as_str() {
+            "User" => {
+                let Some(text) = row.try_get::<Option<String>, _>("text")? else {
+                    continue;
+                };
+                if crate::is_compaction_checkpoint_text(&text) {
+                    continue;
+                }
+                turns.push(false);
+            }
+            "Text" => {
+                if let Some(has_reply) = turns.last_mut() {
+                    *has_reply = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(turns)
+}
+
 pub(crate) async fn reconcile_session_branches_after_truncate(
     tx: &mut Transaction<'_, Sqlite>,
     frame_id: &str,
@@ -1173,28 +1209,33 @@ pub(crate) async fn reconcile_session_branches_after_truncate(
     .execute(&mut **tx)
     .await?;
 
-    let retained = sqlx::query(
-        "SELECT role,content,tool_name FROM messages WHERE frame_id=? AND seq<=? ORDER BY seq",
-    )
-    .bind(frame_id)
-    .bind(keep)
-    .fetch_all(&mut **tx)
-    .await?;
-    let mut retained_turns = Vec::<bool>::new();
-    for row in retained {
-        let role: String = row.try_get("role")?;
-        let tool_name: Option<String> = row.try_get("tool_name")?;
-        if role == "user"
-            && tool_name.as_deref() != Some(crate::AGENT_WORKFLOW_COMPLETION_TOOL)
-            && row
-                .try_get::<Option<String>, _>("content")?
-                .and_then(|content| serde_json::from_str::<wisp_llm::Content>(&content).ok())
-                .is_some_and(|content| !content.as_text().trim().is_empty())
-        {
-            retained_turns.push(false);
-        } else if role == "assistant" {
-            if let Some(has_reply) = retained_turns.last_mut() {
-                *has_reply = true;
+    let mut retained_turns = visual_retained_turns(tx, frame_id).await?;
+    if retained_turns.is_empty() {
+        let retained = sqlx::query(
+            "SELECT role,content,tool_name FROM messages WHERE frame_id=? AND seq<=? ORDER BY seq",
+        )
+        .bind(frame_id)
+        .bind(keep)
+        .fetch_all(&mut **tx)
+        .await?;
+        for row in retained {
+            let role: String = row.try_get("role")?;
+            let tool_name: Option<String> = row.try_get("tool_name")?;
+            if role == "user"
+                && tool_name.as_deref() != Some(crate::AGENT_WORKFLOW_COMPLETION_TOOL)
+                && row
+                    .try_get::<Option<String>, _>("content")?
+                    .and_then(|content| serde_json::from_str::<wisp_llm::Content>(&content).ok())
+                    .is_some_and(|content| {
+                        !content.as_text().trim().is_empty()
+                            && !crate::is_compaction_checkpoint_text(&content.as_text())
+                    })
+            {
+                retained_turns.push(false);
+            } else if role == "assistant" {
+                if let Some(has_reply) = retained_turns.last_mut() {
+                    *has_reply = true;
+                }
             }
         }
     }

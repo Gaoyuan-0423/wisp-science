@@ -55,7 +55,7 @@ pub use agent_workflows::{
 };
 pub use artifacts::{logical_artifact_id, scoped_logical_artifact_id};
 pub use ask_user_requests::AskUserPoll;
-pub use context_epochs::{ContextEpochRecord, OpenContextEpoch};
+pub use context_epochs::{is_compaction_checkpoint_text, ContextEpochRecord, OpenContextEpoch};
 pub use execution_contexts::FRAME_DEFAULT_EXECUTION_CONTEXT_PREFIX;
 pub use explorations::{
     ArtifactHead, ContextArchiveRecord, Exploration, ExplorationBaselineArtifactHead,

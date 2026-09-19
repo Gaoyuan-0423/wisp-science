@@ -2278,6 +2278,90 @@ mod context_epoch_tests {
         assert_eq!(store.frame_head_epoch("f").await.unwrap(), 2);
     }
 
+    async fn persist_visual_turn(store: &Store, event_seq: &mut i64, message_seq: i64, text: &str) {
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"User","frame_id":"f","text":"{text}"}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{message_seq}}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(r#"{{"kind":"Text","frame_id":"f","delta":"a {text}"}}"#),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+        store
+            .append_session_ui_event(
+                "f",
+                *event_seq,
+                &format!(
+                    r#"{{"kind":"MessageBoundary","frame_id":"f","seq":{}}}"#,
+                    message_seq + 1
+                ),
+            )
+            .await
+            .unwrap();
+        *event_seq += 1;
+    }
+
+    #[tokio::test]
+    async fn resolve_visual_keep_uses_pre_compact_anchors() {
+        let store = store_with_frame().await;
+        let mut ctx = seeded_context(&store, long_turns(4), 10_000).await;
+        let mut event_seq = 1i64;
+        // system + (user, assistant) * 4 → user seqs 2,4,6,8
+        persist_visual_turn(&store, &mut event_seq, 2, "q0").await;
+        persist_visual_turn(&store, &mut event_seq, 4, "q1").await;
+        persist_visual_turn(&store, &mut event_seq, 6, "q2").await;
+        persist_visual_turn(&store, &mut event_seq, 8, "q3").await;
+        ctx.compact(
+            &SummaryProvider("Objective\nkeep going"),
+            &archive("rewind.json"),
+        )
+        .await
+        .unwrap();
+        persist_compaction_epoch(&store, "f", &ctx, "manual", true)
+            .await
+            .unwrap();
+
+        let before = crate::session_commands::resolve_visual_keep(&store, "f", 1, false)
+            .await
+            .unwrap();
+        assert_eq!(before, (0, 3));
+        let after = crate::session_commands::resolve_visual_keep(&store, "f", 1, true)
+            .await
+            .unwrap();
+        assert_eq!(after, (0, 5));
+
+        store.rewind_to_seq("f", before.0, before.1).await.unwrap();
+        let head = store.load_messages("f").await.unwrap();
+        assert!(head
+            .iter()
+            .any(|m| m.content.as_text().starts_with("question 0")));
+        assert!(head
+            .iter()
+            .all(|m| !m.content.as_text().starts_with("question 1")));
+        assert!(!head
+            .iter()
+            .any(wisp_core::ContextManager::is_summary_checkpoint));
+    }
+
     #[test]
     fn head_keep_seq_maps_row_counts_onto_durable_seqs() {
         let rows = vec![
