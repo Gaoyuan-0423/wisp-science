@@ -51,6 +51,12 @@ summary. **Full transcript | Model view** in the conversation header (and the
 context-usage panel) switches the thread to the head epoch the model sees:
 folded system prompt, the checkpoint, and the kept tail. Model view is
 read-only — rewind, branch, edit, and explore stay on the full transcript.
+New turns appear after that epoch's retained context, including live answers
+and tool steps. Completing a turn refreshes the saved working set even when
+the epoch number has not changed. Loading or failed model-context reads show
+their own status and retry action; they never substitute the full transcript.
+The epoch's system prompt and checkpoint remain at the start regardless of
+the full transcript's history paging position.
 The usage panel adds a line such as `Epoch n · system + checkpoint + k kept
 turns` while a compaction is active. Switching conversations resets the view.
 
@@ -74,6 +80,11 @@ durable it closes and switches to Model view so the resulting checkpoint and
 retained tail can be reviewed before continuing. The usage panel receives a
 fresh post-compaction context estimate and breakdown rather than retaining the
 pre-compaction conversation total.
+The percentage measures the current context against the model's window;
+the reduction on a compaction row compares before and after that compaction.
+They have different denominators. Compaction immediately updates the context
+estimate, including when reopening older sessions without a following usage
+event. Cumulative input/output billing totals remain unchanged.
 Retained-tail markers follow copied messages through earlier epochs; when a
 legacy or ambiguous copy has no reliable origin, the marker remains unknown.
 

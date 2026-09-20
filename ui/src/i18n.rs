@@ -2526,6 +2526,8 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
             Some("Not in the current context; represented by the summary")
         }
         (Locale::En, "chat.context_system") => Some("System prompt"),
+        (Locale::En, "chat.context_view_loading") => Some("Loading model context…"),
+        (Locale::En, "chat.context_view_changed") => Some("The context changed while loading. Retry to see the latest epoch."),
         (Locale::En, "msg.usage") => Some("{in} in · {out} out tokens"),
         (Locale::En, "msg.usage.cached") => Some(" · {c} cached"),
         (Locale::En, "msg.usage.reasoning") => Some(" · {r} reasoning"),
@@ -5260,6 +5262,8 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "chat.view_model") => Some("模型视角"),
         (Locale::Zh, "chat.out_of_context") => Some("不在当前上下文，已由摘要代表"),
         (Locale::Zh, "chat.context_system") => Some("系统提示词"),
+        (Locale::Zh, "chat.context_view_loading") => Some("正在加载模型上下文…"),
+        (Locale::Zh, "chat.context_view_changed") => Some("加载期间上下文发生了变化，请重试以查看最新纪元。"),
         (Locale::Zh, "msg.usage") => Some("输入 {in} · 输出 {out} tokens"),
         (Locale::Zh, "msg.usage.cached") => Some(" · 缓存 {c}"),
         (Locale::Zh, "msg.usage.reasoning") => Some(" · 思考 {r}"),

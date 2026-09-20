@@ -816,6 +816,9 @@ fn App() -> impl IntoView {
     let context_usage_detail_open = context_usage.detail_open;
     let model_view = create_rw_signal(false);
     let context_view_items = create_rw_signal::<Vec<ChatItem>>(Vec::new());
+    let context_view_live_from = create_rw_signal::<Option<usize>>(None);
+    let context_view_loading = create_rw_signal(false);
+    let context_view_error = create_rw_signal::<Option<String>>(None);
     let in_context_from_user_index = create_rw_signal::<Option<usize>>(None);
     let head_epoch = create_rw_signal(0u64);
     let context_epochs = create_rw_signal::<Vec<ContextEpochDto>>(Vec::new());
@@ -826,73 +829,100 @@ fn App() -> impl IntoView {
         }
         context_refresh_generation.update(|generation| *generation = generation.wrapping_add(1));
         let generation = context_refresh_generation.get_untracked();
+        if model_view.get_untracked() {
+            context_view_loading.set(true);
+            context_view_error.set(None);
+        }
         spawn_local(async move {
             for _ in 0..3 {
                 let revision =
                     transcript_event_revisions.with_untracked(|all| all.get(&id).copied());
+                // Include optimistic turns inserted while the read is pending
+                // in the live suffix rather than swallowing them into a
+                // snapshot that was requested before they existed.
+                let user_offset = transcript_pages
+                    .with_untracked(|pages| pages.get(&id).map_or(0, |page| page.user_offset));
+                let next_user = user_offset
+                    + items.with_untracked(|rows| {
+                        rows.iter()
+                            .filter(|row| matches!(row, ChatItem::User(_)))
+                            .count()
+                    });
                 let args = to_value(&serde_json::json!({ "sessionId": id })).unwrap();
-                let Ok(value) = invoke_checked("load_session_context_state", args).await else {
-                    return;
-                };
-                let Ok(snapshot) = serde_wasm_bindgen::from_value::<SessionContextState>(value)
-                else {
-                    return;
-                };
+                let result = async {
+                    let value = invoke_checked("load_session_context_state", args)
+                        .await
+                        .map_err(js_error_text)?;
+                    let snapshot = serde_wasm_bindgen::from_value::<SessionContextState>(value)
+                        .map_err(|error| error.to_string())?;
+                    let rows = if model_view.get_untracked() {
+                        let args = to_value(&tauri_args::load_session_context_view(&id)).unwrap();
+                        let value = invoke_checked("load_session_context_view", args)
+                            .await
+                            .map_err(js_error_text)?;
+                        Some(
+                            serde_wasm_bindgen::from_value::<Vec<LoadedItem>>(value)
+                                .map_err(|error| error.to_string())?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok::<_, String>((snapshot, rows))
+                }
+                .await;
                 if active_session.get_untracked().as_deref() != Some(id.as_str())
                     || context_refresh_generation.get_untracked() != generation
                 {
                     return;
                 }
+                let Ok((snapshot, context_rows)) = result else {
+                    context_view_loading.set(false);
+                    context_view_error.set(result.err());
+                    return;
+                };
+                // Validate the whole read, including the model rows. Publishing
+                // the epoch before the second await let a superseding Done
+                // refresh skip the missing model snapshot as "unchanged".
                 if transcript_event_revisions.with_untracked(|all| all.get(&id).copied())
                     != revision
                 {
                     continue;
                 }
                 let previous_epoch = head_epoch.get_untracked();
-                let changed_epoch = previous_epoch != snapshot.head_epoch;
-                let refresh_visible_model_view = model_view.get_untracked();
                 context_epochs.set(snapshot.context_epochs.clone());
                 head_epoch.set(snapshot.head_epoch);
                 in_context_from_user_index.set(snapshot.in_context_from_user_index);
                 items.update(|rows| {
                     apply_context_state(rows, &snapshot, snapshot.head_epoch > previous_epoch)
                 });
-                if changed_epoch && refresh_visible_model_view {
-                    // The persisted model context changed. Keep the visible
-                    // transcript aligned with it instead of leaving the
-                    // header on a stale full-transcript view.
-                    let context_args =
-                        to_value(&tauri_args::load_session_context_view(&id)).unwrap();
-                    let Ok(context_value) =
-                        invoke_checked("load_session_context_view", context_args).await
-                    else {
-                        return;
-                    };
-                    let Ok(context_rows) =
-                        serde_wasm_bindgen::from_value::<Vec<LoadedItem>>(context_value)
-                    else {
-                        return;
-                    };
-                    if active_session.get_untracked().as_deref() != Some(id.as_str())
-                        || context_refresh_generation.get_untracked() != generation
-                    {
-                        return;
-                    }
-                    context_view_items.set(
-                        context_rows
-                            .into_iter()
-                            .map(LoadedItem::into_chat)
-                            .collect(),
-                    );
-                    model_view.set(true);
+                if let Some(rows) = context_rows.filter(|_| model_view.get_untracked()) {
+                    context_view_live_from.set(Some(next_user));
+                    context_view_items.set(rows.into_iter().map(LoadedItem::into_chat).collect());
                 }
+                context_view_loading.set(false);
                 return;
             }
+            context_view_loading.set(false);
+            context_view_error.set(Some(
+                t(locale.get_untracked(), "chat.context_view_changed").into(),
+            ));
         });
     });
     let thread_items = Signal::derive(move || {
-        if model_view.get() && !context_view_items.with(|rows| rows.is_empty()) {
-            context_view_items.get()
+        if model_view.get() {
+            let user_offset = active_session.get().map_or(0, |id| {
+                transcript_pages.with(|pages| pages.get(&id).map_or(0, |page| page.user_offset))
+            });
+            context_view_items.with(|snapshot| {
+                items.with(|live| {
+                    model_context_with_live_turns(
+                        snapshot,
+                        live,
+                        user_offset,
+                        context_view_live_from.get(),
+                    )
+                })
+            })
         } else {
             items.get()
         }
@@ -949,6 +979,9 @@ fn App() -> impl IntoView {
         context_usage_detail_open.set(None);
         model_view.set(false);
         context_view_items.set(Vec::new());
+        context_view_live_from.set(None);
+        context_view_loading.set(false);
+        context_view_error.set(None);
         in_context_from_user_index.set(None);
         head_epoch.set(0);
         context_epochs.set(Vec::new());
@@ -3328,6 +3361,7 @@ fn App() -> impl IntoView {
                 route_items(active_cb, items_cb, transcripts_cb, &frame_id, |items| {
                     items.push(ChatItem::compaction(before, after, strategy, epoch));
                 });
+                refresh_transcript_projections(&frame_id);
                 if !auto_continue && epoch.is_some() {
                     let reveal_manual_context = manual_compaction
                         && compact_dialog_cb.get_untracked().as_deref() == Some(frame_id.as_str())
@@ -3339,6 +3373,7 @@ fn App() -> impl IntoView {
                         // retained tail before the user continues typing.
                         model_view_cb.set(true);
                         context_view_items_cb.set(Vec::new());
+                        context_view_live_from.set(None);
                     }
                     refresh_context_state.call(frame_id.clone());
                 }
@@ -6423,20 +6458,10 @@ fn App() -> impl IntoView {
         let Some(id) = active_session.get() else {
             return;
         };
-        spawn_local(async move {
-            let args = to_value(&tauri_args::load_session_context_view(&id)).unwrap();
-            let Ok(value) = invoke_checked("load_session_context_view", args).await else {
-                return;
-            };
-            let Ok(rows) = serde_wasm_bindgen::from_value::<Vec<LoadedItem>>(value) else {
-                return;
-            };
-            if active_session.get_untracked().as_deref() != Some(id.as_str()) {
-                return;
-            }
-            context_view_items.set(rows.into_iter().map(LoadedItem::into_chat).collect());
-            model_view.set(true);
-        });
+        model_view.set(true);
+        context_view_items.set(Vec::new());
+        context_view_live_from.set(None);
+        refresh_context_state.call(id);
     });
     let open_exploration = {
         let load_session = load_session.clone();
@@ -12436,7 +12461,18 @@ fn App() -> impl IntoView {
                             }
                         })
                     })}
-                    {move || (thread_items.with(|l| l.is_empty()) && !(transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()) && transcript_page_error.get().is_none_or(|(id, _)| active_session.get().as_deref() != Some(id.as_str()))).then(|| view! {
+                    {move || (model_view.get() && context_view_loading.get()).then(|| view! {
+                        <div class="transcript-page-control" role="status" data-testid="context-view-loading">{t(locale.get(), "chat.context_view_loading")}</div>
+                    })}
+                    {move || model_view.get().then(|| context_view_error.get()).flatten().map(|message| view! {
+                        <div class="transcript-page-control" role="alert" data-testid="context-view-error">
+                            {message}
+                            <button type="button" on:click=move |_| {
+                                if let Some(id) = active_session.get_untracked() { refresh_context_state.call(id); }
+                            }>{t(locale.get(), "transcript.retry")}</button>
+                        </div>
+                    })}
+                    {move || (!model_view.get() && thread_items.with(|l| l.is_empty()) && !(transcript_loading.get().is_some() && transcript_loading.get() == active_session.get()) && transcript_page_error.get().is_none_or(|(id, _)| active_session.get().as_deref() != Some(id.as_str()))).then(|| view! {
                         <div class="empty">
                             <span class="empty-logo brand-wordmark" role="img" aria-label="Wisp Science"></span>
                             <h1>{move || empty_title(locale.get(), empty_title_idx.get())}</h1>
@@ -12517,11 +12553,14 @@ fn App() -> impl IntoView {
                             // once complete, fold commentary + reasoning + tools
                             // into one activity summary before the final answer.
                             let mut rows: Vec<(String, usize, bool, u64, ThreadRow)> = Vec::new();
-                            let (window, _, _) = transcript_render_window(
-                                list,
-                                requested_start,
-                                TRANSCRIPT_RENDER_TURNS,
-                            );
+                            // The model working set is already bounded by its
+                            // context window. Never inherit the full transcript's
+                            // paging offset and hide this epoch's checkpoint.
+                            let window = if model_view.get() {
+                                0..list.len()
+                            } else {
+                                transcript_render_window(list, requested_start, TRANSCRIPT_RENDER_TURNS).0
+                            };
                             let mut i = window.start;
                             while i < window.end {
                                 if renders_nothing(&list[i]) { i += 1; continue; }
@@ -12602,12 +12641,12 @@ fn App() -> impl IntoView {
                                     let streaming_reasoning = live_reasoning_index == Some(i);
                                     let compact_assistant = commentary
                                         || live_assistant_index == Some(i);
-                                    let timestamp = transcript_item_timestamp(
+                                    let timestamp = (!model_view.get()).then(|| transcript_item_timestamp(
                                         list,
                                         i,
                                         user_offset,
                                         &outline,
-                                    );
+                                    )).flatten();
                                     let mut fp = if streaming_assistant || streaming_reasoning {
                                         0
                                     } else {
@@ -12633,7 +12672,7 @@ fn App() -> impl IntoView {
                             // session id. Use their persisted creation time to put the
                             // fallback card before the next user turn instead of always
                             // appending it to the live end of the conversation.
-                            let automatic_runs = automatic_session_runs.get();
+                            let automatic_runs = if model_view.get() { Vec::new() } else { automatic_session_runs.get() };
                             let mut automatic_runs = automatic_runs.into_iter().peekable();
                             let mut anchored = Vec::with_capacity(rows.len() + automatic_runs.len());
                             let mut synthetic_start = list.len();
@@ -12676,6 +12715,10 @@ fn App() -> impl IntoView {
                             (session_id.clone(), *start, *streaming, *fp, model_view_active())
                         }
                         children=move |(session_id, start, _, _, row)| {
+                            // Model indices refer to the epoch, not the full
+                            // transcript. Keep direct borrows on the normal
+                            // streaming path to avoid cloning a long history.
+                            let row_source = if model_view_active_untracked() { thread_items } else { items.into() };
                             match row {
                                 ThreadRow::AutoRun { run_id } => view! {
                                     <div class="tool-wrap run-monitor-wrap auto-run-monitor"
@@ -12859,7 +12902,7 @@ fn App() -> impl IntoView {
                                             {if streaming_assistant {
                                                 view! {
                                                     <StreamingAssistantMessage
-                                                        items=items
+                                                        items=row_source
                                                         source_item=i
                                                         on_artifact=on_artifact_select
                                                         on_file=on_file_link
@@ -12868,7 +12911,7 @@ fn App() -> impl IntoView {
                                             } else if streaming_reasoning {
                                                 view! {
                                                     <StreamingReasoningMessage
-                                                        items=items
+                                                        items=row_source
                                                         source_item=i
                                                         session_id=session_id
                                                         disclosure_state=step_disclosure_state
@@ -13033,7 +13076,7 @@ fn App() -> impl IntoView {
                                         <div class="steps-wrap" data-ui-indices=ui_indices>{
                                             render_steps_group(
                                                 indices,
-                                                items,
+                                                row_source,
                                                 live,
                                                 false,
                                                 None,
@@ -13049,7 +13092,7 @@ fn App() -> impl IntoView {
                                         <div class="steps-wrap" data-ui-indices=ui_indices>{
                                             render_steps_group(
                                                 indices,
-                                                items,
+                                                row_source,
                                                 false,
                                                 true,
                                                 duration_ms,

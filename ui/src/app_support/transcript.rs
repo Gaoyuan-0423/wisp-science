@@ -562,9 +562,11 @@ pub(crate) fn apply_context_state(
 
 /// Mark the compaction card for `epoch` as undone after `CompactionUndone`.
 pub(crate) fn apply_compaction_undone(items: &mut [ChatItem], epoch: u64) {
-    for item in items {
+    let mut restored_tokens = None;
+    for item in items.iter_mut() {
         let ChatItem::Compaction {
             epoch: Some(item_epoch),
+            before,
             undone,
             can_undo,
             undo_reason,
@@ -576,9 +578,35 @@ pub(crate) fn apply_compaction_undone(items: &mut [ChatItem], epoch: u64) {
         if *item_epoch != epoch {
             continue;
         }
+        if !*undone {
+            restored_tokens = Some(*before);
+        }
         *undone = true;
         *can_undo = false;
         *undo_reason = Some("undone".into());
+    }
+    if let Some(before) = restored_tokens {
+        let end = trailing_queue_start(items);
+        if let Some(index) = items[..end]
+            .iter()
+            .rposition(|row| matches!(row, ChatItem::Usage { .. }))
+        {
+            if let ChatItem::Usage {
+                ctx_tokens,
+                context_usage,
+                ..
+            } = &mut items[index]
+            {
+                *ctx_tokens = before;
+                *context_usage = ContextUsage {
+                    conversation: before,
+                    ..ContextUsage::default()
+                };
+            }
+            // The restored estimate is newer than the compaction cards, while
+            // billing totals still belong to this same turn.
+            items[index..end].rotate_left(1);
+        }
     }
 }
 
@@ -666,6 +694,47 @@ pub(crate) fn owning_user_turn_index(items: &[ChatItem], ui_index: usize) -> Opt
         .filter(|item| matches!(item, ChatItem::User(_) | ChatItem::QueuedUser { .. }))
         .count()
         .checked_sub(1)
+}
+
+/// Keep the persisted epoch prefix, then append turns accepted after that
+/// snapshot. Absolute user indices survive full-transcript paging/trimming.
+pub(crate) fn model_context_with_live_turns(
+    snapshot: &[ChatItem],
+    transcript: &[ChatItem],
+    user_offset: usize,
+    live_from: Option<usize>,
+) -> Vec<ChatItem> {
+    let mut rows = snapshot.to_vec();
+    let Some(live_from) = live_from else {
+        return rows;
+    };
+    let mut user_index = user_offset;
+    let start = transcript.iter().position(|row| {
+        if !matches!(row, ChatItem::User(_)) {
+            return false;
+        }
+        let matches = user_index >= live_from;
+        user_index += 1;
+        matches
+    });
+    if let Some(start) = start {
+        rows.extend(
+            transcript[start..]
+                .iter()
+                .filter(|row| {
+                    matches!(
+                        row,
+                        ChatItem::User(_)
+                            | ChatItem::Assistant { .. }
+                            | ChatItem::Tool { .. }
+                            | ChatItem::Reasoning(_)
+                            | ChatItem::AcpTool { .. }
+                    )
+                })
+                .cloned(),
+        );
+    }
+    rows
 }
 
 /// Whether a transcript row is still in the model's current working set.
@@ -1188,6 +1257,32 @@ mod compaction_undo_tests {
 
 #[cfg(test)]
 mod context_view_tests {
+    #[test]
+    fn model_context_appends_new_turns_without_replaying_the_retained_tail() {
+        use super::model_context_with_live_turns;
+        use crate::dto::ChatItem;
+        let prefix = vec![
+            ChatItem::Checkpoint("earlier context".into()),
+            ChatItem::User("retained".into()),
+        ];
+        let live = vec![
+            ChatItem::User("retained".into()),
+            ChatItem::User("continued".into()),
+            ChatItem::Assistant {
+                text: "streaming".into(),
+                model: None,
+                resources: Vec::new(),
+            },
+            ChatItem::compaction(100, 30, "auto", None),
+        ];
+        let rows = model_context_with_live_turns(&prefix, &live, 40, Some(41));
+        assert_eq!(rows.len(), 4);
+        assert!(matches!(&rows[0], ChatItem::Checkpoint(text) if text == "earlier context"));
+        assert!(matches!(&rows[2], ChatItem::User(text) if text == "continued"));
+        assert!(matches!(&rows[3], ChatItem::Assistant { text, .. } if text == "streaming"));
+        assert!(model_context_with_live_turns(&[], &live, 40, None).is_empty());
+    }
+
     use super::item_in_context;
     use crate::dto::ChatItem;
 

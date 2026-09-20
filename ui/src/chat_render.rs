@@ -550,7 +550,7 @@ fn streaming_reasoning_text(text: &str, max_bytes: usize) -> String {
 /// bounded so repeated signal flushes cannot copy an ever-growing string.
 #[component]
 pub(crate) fn StreamingReasoningMessage(
-    items: RwSignal<Vec<ChatItem>>,
+    items: Signal<Vec<ChatItem>>,
     source_item: usize,
     session_id: String,
     disclosure_state: RwSignal<HashMap<String, bool>>,
@@ -745,7 +745,7 @@ mod steps_title_tests {
 
 pub(crate) fn render_steps_group(
     indices: Vec<usize>,
-    source: RwSignal<Vec<ChatItem>>,
+    source: Signal<Vec<ChatItem>>,
     live: bool,
     completed_turn: bool,
     turn_duration_ms: Option<u64>,
@@ -897,7 +897,7 @@ pub(crate) fn render_steps_group(
 
 fn render_step_rows(
     indices: &[usize],
-    source: RwSignal<Vec<ChatItem>>,
+    source: Signal<Vec<ChatItem>>,
     live: bool,
     group_id: &str,
     disclosure_state: RwSignal<HashMap<String, bool>>,
@@ -925,7 +925,7 @@ fn render_step_rows(
 
 #[allow(clippy::too_many_arguments)]
 fn render_step_row(
-    source: RwSignal<Vec<ChatItem>>,
+    source: Signal<Vec<ChatItem>>,
     index: usize,
     position: usize,
     live: bool,
