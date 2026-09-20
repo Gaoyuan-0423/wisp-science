@@ -106,6 +106,17 @@ const RECENT_TOOL_EXCERPT_BYTES: usize = 4 * 1024;
 /// Old reasoning larger than this (estimated tokens) is head/tail-cut.
 const OLD_REASONING_MAX_TOKENS: usize = 500;
 const OLD_REASONING_KEEP: (usize, usize) = (125, 125);
+/// Head + tail bytes retained from an old tool call's `arguments`. A `write`,
+/// `edit` or `run_in_context` call carries its whole payload there, so pruning
+/// only the paired *result* reclaimed a minority of what the round costs: in
+/// a reported 1485-message session the tombstoned calls' arguments were 107K
+/// of a 246K post-compact request, against 62K for the tombstones themselves.
+/// The archive keeps the originals.
+const OLD_TOOL_ARGS_MAX_BYTES: usize = 300;
+/// Exact prefix `bounded_tool_arguments` emits. Like [`TOMBSTONE_PREFIX`] it
+/// doubles as the "already bounded" marker, so a second compaction cannot wrap
+/// an excerpt inside another excerpt.
+const BOUNDED_TOOL_ARGS_PREFIX: &str = "{\"compacted_arguments\":";
 /// At most this many complete recent turns are carried alongside a summary.
 const RECENT_TAIL_MAX_TURNS: usize = 2;
 /// A fixed token budget, rather than a fraction of a million-token window,
@@ -1038,6 +1049,15 @@ impl ContextManager {
                         changed = true;
                     }
                 }
+                for call in &mut m.tool_calls {
+                    if let Some(bounded) = Self::bounded_tool_arguments(
+                        &call.function.arguments,
+                        OLD_TOOL_ARGS_MAX_BYTES,
+                    ) {
+                        call.function.arguments = bounded;
+                        changed = true;
+                    }
+                }
             }
         }
         changed
@@ -1109,6 +1129,27 @@ impl ContextManager {
         let head = kept / 2;
         let tail = kept.saturating_sub(head);
         Self::truncate_middle(text, head, tail, marker)
+    }
+
+    /// Head/tail excerpt of a tool call's `arguments`, wrapped so the value
+    /// stays parseable JSON — both wire formats replace unparseable arguments
+    /// with `{}`, which erases what the call even did. `None` when the
+    /// arguments already fit or were already bounded, so repeated compactions
+    /// neither churn the prefix cache nor nest an excerpt inside an excerpt.
+    fn bounded_tool_arguments(arguments: &str, max_bytes: usize) -> Option<String> {
+        if arguments.len() <= max_bytes || arguments.starts_with(BOUNDED_TOOL_ARGS_PREFIX) {
+            return None;
+        }
+        Some(
+            serde_json::json!({
+                "compacted_arguments": Self::bound_text_to_bytes(
+                    arguments,
+                    max_bytes,
+                    "[... arguments omitted; see archive ...]",
+                )
+            })
+            .to_string(),
+        )
     }
 
     pub fn is_summary_checkpoint(message: &Message) -> bool {
@@ -1417,11 +1458,12 @@ impl ContextManager {
                 }
             }
             for call in &mut message.tool_calls {
-                call.function.arguments = Self::bound_text_to_bytes(
+                if let Some(bounded) = Self::bounded_tool_arguments(
                     &call.function.arguments,
                     SUMMARY_TRANSCRIPT_TOOL_MAX_BYTES,
-                    "[... tool arguments archived ...]",
-                );
+                ) {
+                    call.function.arguments = bounded;
+                }
             }
         }
         if bounded.iter().map(Self::estimated_tokens).sum::<usize>() <= budget {
@@ -2231,6 +2273,70 @@ mod tests {
             panic!("new user message should stay multipart");
         };
         assert!(parts.iter().any(|p| matches!(p, Part::Image { .. })));
+    }
+
+    // A `write`/`run_in_context` call keeps its whole payload in `arguments`.
+    // Tombstoning only the paired result left that payload in context forever,
+    // so a tool-heavy session stayed huge after /compact.
+    #[tokio::test]
+    async fn compact_bounds_old_tool_call_arguments_and_is_idempotent() {
+        let mut ctx = ContextManager::new(1_000_000);
+        ctx.append_system("sys");
+        let script = "print(payload)".repeat(300);
+        ctx.append_user("write the script".to_string());
+        ctx.append_assistant(
+            String::new(),
+            vec![ToolCall {
+                id: "call-write".into(),
+                kind: "function".into(),
+                function: wisp_llm::FunctionCall {
+                    name: "write".into(),
+                    arguments: serde_json::json!({ "path": "a.py", "content": script }).to_string(),
+                },
+            }],
+            None,
+        );
+        ctx.append_tool("call-write", "write", Content::text("ok"));
+        seed_turns(&mut ctx, 11);
+
+        let archive = archive_path("tool-call-arguments.json");
+        let provider = StubProvider {
+            allow_summary: false,
+        };
+        let (before, after) = ctx.compact(&provider, &archive).await.unwrap();
+        assert!(before > after);
+
+        let bounded = |ctx: &ContextManager| {
+            ctx.messages
+                .iter()
+                .flat_map(|m| m.tool_calls.iter())
+                .find(|call| call.id == "call-write")
+                .unwrap()
+                .function
+                .arguments
+                .clone()
+        };
+        let args = bounded(&ctx);
+        assert!(
+            args.len() < 600,
+            "old call arguments stayed unbounded: {} bytes",
+            args.len()
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&args).is_ok(),
+            "arguments must stay valid JSON or the wire format drops them: {args}"
+        );
+        assert!(args.contains("a.py"), "head of the call survives: {args}");
+        assert!(
+            std::fs::read_to_string(&archive).unwrap().contains(&script),
+            "the archive must retain the complete arguments"
+        );
+
+        // A second fold must excerpt the excerpt, not nest it.
+        ctx.compact(&provider, &archive_path("tool-call-arguments-2.json"))
+            .await
+            .unwrap();
+        assert_eq!(bounded(&ctx), args, "bounding must be idempotent");
     }
 
     // A second /compact must not overwrite existing tombstones: they point at
