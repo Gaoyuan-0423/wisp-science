@@ -582,6 +582,7 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "queue.remove") => Some("Remove"),
         (Locale::En, "queue.move_up") => Some("Move up"),
         (Locale::En, "queue.move_down") => Some("Move down"),
+        (Locale::En, "queue.more") => Some("More actions"),
         (Locale::En, "queue.header") => Some("{n} queued"),
         (Locale::En, "queue.region") => Some("Queued messages"),
         (Locale::En, "composer.send_options") => Some("Message options"),
@@ -3513,6 +3514,7 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "queue.remove") => Some("移除"),
         (Locale::Zh, "queue.move_up") => Some("上移"),
         (Locale::Zh, "queue.move_down") => Some("下移"),
+        (Locale::Zh, "queue.more") => Some("更多操作"),
         (Locale::Zh, "queue.header") => Some("{n} 条排队"),
         (Locale::Zh, "queue.region") => Some("排队消息"),
         (Locale::Zh, "composer.send_options") => Some("消息选项"),
@@ -6749,6 +6751,11 @@ mod queue_label_tests {
         assert_eq!(tf(Locale::Zh, "queue.header", &[("n", "2")]), "2 条排队");
         assert_eq!(t(Locale::En, "queue.region"), "Queued messages");
         assert_eq!(t(Locale::Zh, "queue.region"), "排队消息");
+        // The row's overflow menu borrows the composer send-mode labels.
+        assert_eq!(t(Locale::En, "queue.more"), "More actions");
+        assert_eq!(t(Locale::Zh, "queue.more"), "更多操作");
+        assert_eq!(t(Locale::Zh, "composer.interrupt_replace"), "中断并替换");
+        assert_eq!(t(Locale::Zh, "composer.side_chat"), "侧边问答");
         // Sent-message rewind keeps its own label.
         assert_eq!(t(Locale::Zh, "msg.edit"), "回溯");
         assert_eq!(t(Locale::En, "msg.edit"), "Rewind");

@@ -905,6 +905,11 @@ button.tool-btn.card-copy { margin-left: auto; flex: 0 0 auto; padding: 2px 8px;
 .composer-queue .queue-cut-in:hover { background: var(--clay); color: var(--on-clay); }
 .composer-queue .queue-cut-in svg { width: 14px; height: 14px; }
 .composer-queue .queue-remove:hover { color: var(--err); }
+/* Row overflow menu: reuses the composer send-mode menu chrome, anchored
+   to the row button and opening upward over the queue card. */
+.queue-menu-wrap { position: relative; display: inline-flex; }
+.queue-mode-menu { width: 200px; bottom: calc(100% + 6px); }
+.queue-mode-menu .send-mode-item { min-height: 36px; font-size: 13px; gap: 10px; }
 .tool-input, .tool-output { color: var(--text-muted); white-space: pre-wrap; max-height: 260px; overflow: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; margin: 0 0 8px; padding: 8px 10px; background: var(--bg-app); border: 1px solid var(--border); border-radius: var(--radius-xs); }
 .tool-output { margin-bottom: 0; }
 .tool .content { color: var(--text-muted); margin-top: 8px; white-space: pre-wrap; max-height: 260px; overflow: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }

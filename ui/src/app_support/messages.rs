@@ -635,6 +635,11 @@ pub(crate) enum QueueOp {
     /// Swap one place earlier / later in the FIFO order (clamped at the ends).
     MoveUp(u64),
     MoveDown(u64),
+    /// Jump it to the front of the queue and stop the running turn, so it takes
+    /// over the session instead of waiting it out.
+    InterruptReplace(u64),
+    /// Unqueue it and ask it in the side chat instead.
+    SideChat(u64),
 }
 
 /// Queue (#433): one parked follow-up in the composer card. `id == 0` is a
@@ -654,6 +659,16 @@ pub(crate) fn QueuedMessage(
     let cut_in_pending = status == "cutin_pending";
     let show_controls = id != 0 && !cut_in_pending;
     let preview = text.clone();
+    // The row's overflow menu carries the send-mode actions that act on this
+    // parked message instead of on the composer draft.
+    let menu_open = create_rw_signal(false);
+    window_capture_escape(move || {
+        if !menu_open.get_untracked() {
+            return false;
+        }
+        menu_open.set(false);
+        true
+    });
     view! {
         <div class="msg user queued" data-user-index=user_index.to_string()>
             <div class="queued-card">
@@ -672,6 +687,36 @@ pub(crate) fn QueuedMessage(
                                 <span>{move || t(locale.get(), "queue.cut_in")}</span>
                             </button>
                         })}
+                        <div class="queue-menu-wrap">
+                            <button type="button" class="msg-icon-btn"
+                                title=move || t(locale.get(), "queue.more")
+                                aria-label=move || t(locale.get(), "queue.more")
+                                on:click=move |_| menu_open.update(|open| *open = !*open)>
+                                {compose_icon("more")}
+                            </button>
+                            {move || menu_open.get().then(|| view! {
+                                <div class="send-menu-backdrop"
+                                    on:click=move |_| menu_open.set(false)></div>
+                                <div class="send-mode-menu queue-mode-menu">
+                                    <button type="button" class="send-mode-item"
+                                        on:click=move |_| {
+                                            menu_open.set(false);
+                                            on_queue.call(QueueOp::InterruptReplace(id));
+                                        }>
+                                        <span class="compose-item-icon">{compose_icon("sync")}</span>
+                                        <span>{move || t(locale.get(), "composer.interrupt_replace")}</span>
+                                    </button>
+                                    <button type="button" class="send-mode-item"
+                                        on:click=move |_| {
+                                            menu_open.set(false);
+                                            on_queue.call(QueueOp::SideChat(id));
+                                        }>
+                                        <span class="compose-item-icon">{compose_icon("chat")}</span>
+                                        <span>{move || t(locale.get(), "composer.side_chat")}</span>
+                                    </button>
+                                </div>
+                            })}
+                        </div>
                         {can_reorder.then(|| view! {
                             <button type="button" class="msg-icon-btn"
                                 title=move || t(locale.get(), "queue.move_up")

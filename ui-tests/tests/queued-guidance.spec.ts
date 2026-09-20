@@ -7,7 +7,9 @@ async function queueWithDelayedAcceptance(page: Page) {
   await page.locator(".proj-card-main").first().click();
   await page.locator("#composer-input").fill("alpha");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Queue…", exact: true })).toBeVisible();
+  // The send slot turns into Stop once the turn is running and the draft is gone.
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Queue…", exact: true })).toBeHidden();
   await page.evaluate(() => {
     const win = window as any;
     const core = win.__TAURI__.core;
@@ -22,6 +24,10 @@ async function queueWithDelayedAcceptance(page: Page) {
           win.__rejectEnqueue = () => reject(new Error("queue unavailable"));
         });
         win.__queueOrder.push("enqueue-accepted");
+        return null;
+      }
+      if (cmd === "stop_agent") {
+        win.__queueOrder.push("stop_agent");
         return null;
       }
       if (cmd === "queued_turn_action") {
@@ -108,4 +114,39 @@ test("cut-in lifecycle shows its wait and reconciles only the exact queue ID", a
     win.__emitParallelEvent("queued-turn-state", { sessionId: remaining.sessionId, id: remaining.id, state: "superseded" });
   });
   await expect(row).toHaveCount(0);
+});
+
+test("the row menu jumps the queue before it stops the running turn", async ({ page }) => {
+  const row = await queueWithDelayedAcceptance(page);
+  await page.evaluate(() => (window as any).__releaseEnqueue());
+  await expect.poll(() => page.evaluate(() => (window as any).__queueOrder))
+    .toContain("enqueue-accepted");
+  await row.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("button", { name: "Interrupt & replace", exact: true }).click();
+  // Order matters: the freed session must find this item already at the front.
+  await expect.poll(() => page.evaluate(() => (window as any).__queueOrder))
+    .toEqual(["enqueue-started", "enqueue-accepted", "move_front", "stop_agent"]);
+  await expect(row).toBeVisible();
+});
+
+test("the row menu hands a queued message to the side chat", async ({ page }) => {
+  const row = await queueWithDelayedAcceptance(page);
+  await page.evaluate(() => (window as any).__releaseEnqueue());
+  await expect.poll(() => page.evaluate(() => (window as any).__queueOrder))
+    .toContain("enqueue-accepted");
+  await row.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("button", { name: "Side chat", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.locator(".rightpane .sidechat-in-pane")).toContainText("Use the revised question");
+  await expect.poll(() => page.evaluate(() => (window as any).__queueOrder))
+    .toEqual(["enqueue-started", "enqueue-accepted", "cancel"]);
+});
+
+test("Escape closes the row menu without touching the queued message", async ({ page }) => {
+  const row = await queueWithDelayedAcceptance(page);
+  await row.getByRole("button", { name: "More actions", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Interrupt & replace", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Interrupt & replace", exact: true })).toHaveCount(0);
+  await expect(row).toBeVisible();
 });

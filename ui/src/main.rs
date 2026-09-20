@@ -4319,7 +4319,7 @@ fn App() -> impl IntoView {
         let _ = listen_current_window("ask-user-resolved", &ask_resolved_js).await;
     });
 
-    let stop = move |_| {
+    let stop = Callback::new(move |(): ()| {
         if stopping_session.get().is_some() {
             return;
         }
@@ -4343,7 +4343,7 @@ fn App() -> impl IntoView {
                 }
             }
         });
-    };
+    });
 
     let send = Callback::new(move |action: ComposerSendAction| {
         if demo_mode.get_untracked() {
@@ -5146,9 +5146,10 @@ fn App() -> impl IntoView {
             return;
         }
         status.set(String::new());
-        let restore = matches!(op, QueueOp::Edit(_));
+        let to_side_chat = matches!(op, QueueOp::SideChat(_));
+        let restore = matches!(op, QueueOp::Edit(_)) || to_side_chat;
         let (id, action, message): (u64, &'static str, Option<String>) = match op {
-            QueueOp::Cancel(id) | QueueOp::Edit(id) => {
+            QueueOp::Cancel(id) | QueueOp::Edit(id) | QueueOp::SideChat(id) => {
                 let mut draft = String::new();
                 route_items(active_session, items, transcripts, &sid, |rows| {
                     if restore {
@@ -5162,7 +5163,9 @@ fn App() -> impl IntoView {
                         |it| !matches!(it, ChatItem::QueuedUser { id: qid, .. } if *qid == id),
                     );
                 });
-                if restore {
+                if to_side_chat {
+                    send_side_chat((draft, vec![], false));
+                } else if restore {
                     input.set(draft);
                     focus_composer();
                 }
@@ -5198,6 +5201,27 @@ fn App() -> impl IntoView {
                 });
                 (id, if up { "move_up" } else { "move_down" }, None)
             }
+            // Interrupt & replace, from the row: jump the queue locally and
+            // server-side, then stop the running turn so the driver picks this
+            // one up next.
+            QueueOp::InterruptReplace(id) => {
+                route_items(active_session, items, transcripts, &sid, |rows| {
+                    let Some(i) = rows.iter().position(
+                        |it| matches!(it, ChatItem::QueuedUser { id: qid, .. } if *qid == id),
+                    ) else {
+                        return;
+                    };
+                    // Queued rows sit contiguously at the tail, so the first one
+                    // is the front of the queue.
+                    let front = rows
+                        .iter()
+                        .position(|it| matches!(it, ChatItem::QueuedUser { .. }))
+                        .unwrap_or(i);
+                    let item = rows.remove(i);
+                    rows.insert(front, item);
+                });
+                (id, "move_front", None)
+            }
         };
         if action != "cutin" {
             transcript_projection_epoch.update(|revision| {
@@ -5212,13 +5236,22 @@ fn App() -> impl IntoView {
                 message,
             })
             .unwrap();
-            if let Err(error) = invoke_checked("queued_turn_action", args).await {
-                if active_session.get_untracked().as_deref() == Some(sid.as_str()) {
-                    status.set(tf(
-                        locale.get(),
-                        "queue.action_failed",
-                        &[("error", &js_error_text(error))],
-                    ));
+            match invoke_checked("queued_turn_action", args).await {
+                // The stop follows the reorder: the freed session must find this
+                // item already at the front of the queue.
+                Ok(_) => {
+                    if action == "move_front" {
+                        stop.call(());
+                    }
+                }
+                Err(error) => {
+                    if active_session.get_untracked().as_deref() == Some(sid.as_str()) {
+                        status.set(tf(
+                            locale.get(),
+                            "queue.action_failed",
+                            &[("error", &js_error_text(error))],
+                        ));
+                    }
                 }
             }
         });
@@ -5586,6 +5619,16 @@ fn App() -> impl IntoView {
                 Err(error) => status.set(js_error_text(error)),
             }
         });
+    };
+
+    // The send slot holds one button: while a turn runs it is Stop, and it
+    // becomes Queue… only once there is something to queue.
+    let composer_has_draft = move || {
+        !input.get().trim().is_empty()
+            || !attachments.get().is_empty()
+            || !composer_references.get().is_empty()
+            || !composer_quotes.get().is_empty()
+            || mcp_app_context.get().is_some()
     };
 
     let composer_blocked = move || {
@@ -15265,11 +15308,12 @@ fn App() -> impl IntoView {
                             {move || busy.get().then(|| view! {
                                 <button type="button" class="stop"
                                     disabled=move || active_session.get() == stopping_session.get()
-                                    on:click=stop>
+                                    on:click=move |_| stop.call(())>
                                     {move || t(locale.get(), if active_session.get() == stopping_session.get() { "composer.stopping" } else { "composer.stop" })}
                                 </button>
                             })}
-                            <div class="send-split">
+                            <div class="send-split"
+                                style:display=move || if busy.get() && !composer_has_draft() { "none" } else { "inline-flex" }>
                                 <button class="send" disabled=composer_blocked on:click=move |_| send.call(ComposerSendAction::Normal)>
                                     {move || t(locale.get(), if busy.get() { "composer.queue_button" } else { "composer.send" })}
                                 </button>
