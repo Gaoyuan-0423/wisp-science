@@ -309,7 +309,7 @@
 }
 .context-compaction-mark svg { width: 18px; height: 18px; }
 .context-compaction-copy {
-  display: grid; flex: 1 1 auto; gap: 4px; min-width: 0; width: 0;
+  display: grid; flex: 1 1 auto; gap: 4px; min-width: 0;
 }
 .context-compaction-copy strong { font-size: 12px; font-weight: 500; line-height: 1.4; }
 .context-compaction-detail {
@@ -317,7 +317,7 @@
   min-width: 0; color: var(--text-muted); font-size: 11px; line-height: 1.4;
 }
 .context-compaction-count, .context-compaction-reduction {
-  min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+  min-width: 0; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .context-compaction-reduction { color: var(--clay-strong); }
 .context-compaction-rule {
@@ -330,11 +330,14 @@
 .context-compaction-live .context-compaction-mark svg path:last-child {
   animation: context-gather-bottom 2s ease-in-out infinite;
 }
-.context-compaction-complete { animation: context-settle .28s ease-out both; }
+.context-compaction-complete {
+  flex-direction: column; align-items: stretch; width: 100%;
+  animation: context-settle .28s ease-out both;
+}
 .context-compaction-complete.undone { opacity: .55; }
 .context-compaction-complete.undone .context-compaction-copy strong { text-decoration: line-through; }
 .context-compaction-toggle {
-  display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;
+  display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%;
   margin: 0; padding: 0; border: 0; background: none; color: inherit;
   font: inherit; text-align: left; cursor: pointer;
 }
@@ -361,6 +364,7 @@
 .context-compaction-actions .tool-btn { display: inline-flex; align-items: center; gap: 6px; }
 @container (max-width: 620px) {
   .context-compaction-status { align-items: flex-start; gap: 8px; padding: 9px 0; }
+  .context-compaction-complete { align-items: stretch; }
   .context-compaction-mark { flex-basis: 28px; width: 28px; height: 28px; border-radius: 8px; }
   .context-compaction-toggle { gap: 8px; align-items: flex-start; }
   .context-compaction-chevron { margin-top: 5px; }

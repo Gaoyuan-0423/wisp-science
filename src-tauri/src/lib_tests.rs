@@ -1257,6 +1257,73 @@ fn persisted_ui_events_restore_context_compaction_flags() {
 }
 
 #[test]
+fn persisted_compaction_updates_floated_usage_without_changing_billing() {
+    let usage = |tokens| AgentEvent::Usage {
+        frame_id: "f".into(),
+        round: 1,
+        model: "m".into(),
+        created_at: 1,
+        input: 5_350_300,
+        output: 1500,
+        reasoning: 0,
+        cached: 0,
+        ctx_tokens: tokens,
+        max_context: 1_048_576,
+        context_usage: wisp_core::ContextUsage {
+            conversation: tokens,
+            ..Default::default()
+        },
+    };
+    let mut events = vec![
+        usage(752_000),
+        AgentEvent::Compaction {
+            frame_id: "f".into(),
+            before: 569_400,
+            after: 245_500,
+            strategy: "manual".into(),
+            epoch: Some(1),
+        },
+    ];
+    let (rows, _) = events_to_items(&events);
+    let snapshot: serde_json::Value = serde_json::from_str(&rows.last().unwrap().text).unwrap();
+    assert_eq!(snapshot["ctx_tokens"], 245_500);
+    assert_eq!(snapshot["context_usage"]["conversation"], 245_500);
+    assert_eq!(snapshot["input"], 5_350_300);
+    assert_eq!(snapshot["output"], 1500);
+    events.push(usage(260_000));
+    let (rows, _) = events_to_items(&events);
+    let snapshot: serde_json::Value = serde_json::from_str(&rows.last().unwrap().text).unwrap();
+    assert_eq!(snapshot["ctx_tokens"], 260_000);
+    events.truncate(2);
+    events.push(AgentEvent::CompactionUndone {
+        frame_id: "f".into(),
+        epoch: 1,
+    });
+    let (rows, _) = events_to_items(&events);
+    let snapshot: serde_json::Value = serde_json::from_str(&rows.last().unwrap().text).unwrap();
+    assert_eq!(snapshot["ctx_tokens"], 569_400);
+    assert_eq!(snapshot["input"], 5_350_300);
+    // Automatic flags have no epoch until the turn is persisted; two flags
+    // in a turn still undo back to the first pre-compaction context.
+    if let AgentEvent::Compaction { epoch, .. } = &mut events[1] {
+        *epoch = None;
+    }
+    events.insert(
+        2,
+        AgentEvent::Compaction {
+            frame_id: "f".into(),
+            before: 245_500,
+            after: 120_000,
+            strategy: "auto".into(),
+            epoch: None,
+        },
+    );
+    let (rows, _) = events_to_items(&events);
+    let snapshot: serde_json::Value = serde_json::from_str(&rows.last().unwrap().text).unwrap();
+    assert_eq!(snapshot["ctx_tokens"], 569_400);
+}
+
+#[test]
 fn mcp_app_presentations_are_persisted_for_session_restore() {
     let presentation = AgentEvent::ToolPresentation {
         frame_id: "f".into(),

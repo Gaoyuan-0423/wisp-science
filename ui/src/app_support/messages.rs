@@ -27,7 +27,7 @@ pub(crate) fn streaming_markdown_commit_interval_ms(
     }
 }
 
-fn assistant_text_at(items: RwSignal<Vec<ChatItem>>, source_item: usize) -> String {
+fn assistant_text_at(items: Signal<Vec<ChatItem>>, source_item: usize) -> String {
     items.with_untracked(|rows| match rows.get(source_item) {
         Some(ChatItem::Assistant { text, .. }) => text.clone(),
         _ => String::new(),
@@ -39,7 +39,7 @@ fn assistant_text_at(items: RwSignal<Vec<ChatItem>>, source_item: usize) -> Stri
 /// suffix remains visible as a cheap whitespace-preserving text tail.
 #[component]
 pub(crate) fn StreamingAssistantMessage(
-    items: RwSignal<Vec<ChatItem>>,
+    items: Signal<Vec<ChatItem>>,
     source_item: usize,
     on_artifact: Callback<usize>,
     on_file: Callback<ModalArtifact>,

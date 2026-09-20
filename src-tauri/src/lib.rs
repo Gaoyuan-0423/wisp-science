@@ -1565,9 +1565,14 @@ fn events_to_items(events: &[AgentEvent]) -> (Vec<UiItem>, HashMap<i64, usize>) 
     // same shape the live UI produces via `upsert_turn_usage`. Flushed when the
     // next user turn starts and again at the end of the stream.
     let mut turn_usage: Option<(u64, u64, u64, u64, usize, usize, wisp_core::ContextUsage)> = None;
+    let mut compaction_before = HashMap::new();
+    // Automatic flags precede epoch persistence and therefore have no epoch
+    // number. Several flags in one turn become one undoable epoch.
+    let mut automatic_compaction_before = None;
     for event in events {
         match event {
             AgentEvent::User { text, .. } => {
+                automatic_compaction_before = None;
                 if let Some((i, o, r, c, used, max, context)) = turn_usage.take() {
                     items.push(usage_item(i, o, r, c, used, max, context));
                 }
@@ -1619,26 +1624,58 @@ fn events_to_items(events: &[AgentEvent]) -> (Vec<UiItem>, HashMap<i64, usize>) 
                 strategy,
                 epoch,
                 ..
-            } => items.push(UiItem {
-                role: "compaction".into(),
-                text: serde_json::json!({
-                    "before": before,
-                    "after": after,
-                    "strategy": strategy,
-                    "epoch": epoch,
-                })
-                .to_string(),
-                tool_name: None,
-                ok: None,
-                duration_ms: None,
-                input: None,
-                model_name: None,
-                call_id: None,
-                kind: None,
-                status: None,
-                locations: None,
-                resources: Vec::new(),
-            }),
+            } => {
+                // Usage is floated to the end of the turn. Preserve the
+                // compaction's newer context estimate when replaying older
+                // sessions that have no subsequent Usage event.
+                if strategy != "auto_continue" {
+                    if let Some(epoch) = epoch {
+                        compaction_before.insert(*epoch, *before);
+                    } else {
+                        automatic_compaction_before.get_or_insert(*before);
+                    }
+                    if let Some(usage) = turn_usage.as_mut() {
+                        usage.4 = *after;
+                        usage.6 = wisp_core::ContextUsage {
+                            conversation: *after,
+                            ..Default::default()
+                        };
+                    }
+                }
+                items.push(UiItem {
+                    role: "compaction".into(),
+                    text: serde_json::json!({
+                        "before": before,
+                        "after": after,
+                        "strategy": strategy,
+                        "epoch": epoch,
+                    })
+                    .to_string(),
+                    tool_name: None,
+                    ok: None,
+                    duration_ms: None,
+                    input: None,
+                    model_name: None,
+                    call_id: None,
+                    kind: None,
+                    status: None,
+                    locations: None,
+                    resources: Vec::new(),
+                });
+            }
+            AgentEvent::CompactionUndone { epoch, .. } => {
+                let before = compaction_before
+                    .get(epoch)
+                    .copied()
+                    .or_else(|| automatic_compaction_before.take());
+                if let (Some(before), Some(usage)) = (before, turn_usage.as_mut()) {
+                    usage.4 = before;
+                    usage.6 = wisp_core::ContextUsage {
+                        conversation: before,
+                        ..Default::default()
+                    };
+                }
+            }
             AgentEvent::Error { message, .. } => items.push(UiItem {
                 role: "assistant".into(),
                 text: format!("Error: {message}"),

@@ -316,7 +316,19 @@ pub(crate) fn upsert_turn_usage(
 }
 
 pub(crate) fn latest_context_usage(items: &[ChatItem]) -> Option<ContextUsageSnapshot> {
+    let mut compacted_tokens = None;
     items.iter().rev().find_map(|item| {
+        if let ChatItem::Compaction {
+            after,
+            strategy,
+            undone: false,
+            ..
+        } = item
+        {
+            if strategy != "auto_continue" && compacted_tokens.is_none() {
+                compacted_tokens = Some(*after);
+            }
+        }
         let ChatItem::Usage {
             ctx_tokens,
             max_context,
@@ -327,12 +339,19 @@ pub(crate) fn latest_context_usage(items: &[ChatItem]) -> Option<ContextUsageSna
             return None;
         };
         (*ctx_tokens > 0 || *max_context > 0).then_some(ContextUsageSnapshot {
-            used: *ctx_tokens,
+            used: compacted_tokens.unwrap_or(*ctx_tokens),
             max: *max_context,
             // Pre-feature usage rows only persisted totals. Attribute the whole
             // window to Conversation so the panel never pretends the native
             // agent only has an opaque "Agent-managed" bucket.
-            breakdown: Some(if context_usage.total() > 0 {
+            // Until a fresh Usage event supplies the post-compaction buckets,
+            // do not reuse the old conversation size or invent a new split.
+            breakdown: Some(if let Some(after) = compacted_tokens {
+                ContextUsage {
+                    conversation: after,
+                    ..ContextUsage::default()
+                }
+            } else if context_usage.total() > 0 {
                 *context_usage
             } else {
                 ContextUsage {
@@ -348,6 +367,59 @@ pub(crate) fn latest_context_usage(items: &[ChatItem]) -> Option<ContextUsageSna
 #[cfg(test)]
 mod usage_row_tests {
     use super::*;
+
+    #[test]
+    fn compaction_supersedes_old_context_but_not_cumulative_billing() {
+        let mut rows = Vec::new();
+        upsert_turn_usage(
+            &mut rows,
+            5_350_300,
+            1500,
+            0,
+            0,
+            752_000,
+            1_048_576,
+            ContextUsage::default(),
+        );
+        rows.push(ChatItem::compaction(569_400, 245_500, "manual", Some(1)));
+        let usage = latest_context_usage(&rows).unwrap();
+        assert_eq!(usage.used, 245_500);
+        assert_eq!(usage.breakdown.unwrap().total(), usage.used);
+        assert!(matches!(
+            rows[0],
+            ChatItem::Usage {
+                input: 5_350_300,
+                ..
+            }
+        ));
+        upsert_turn_usage(
+            &mut rows,
+            250_000,
+            30,
+            0,
+            0,
+            260_000,
+            1_048_576,
+            ContextUsage::default(),
+        );
+        assert_eq!(latest_context_usage(&rows).unwrap().used, 260_000);
+        rows.push(ChatItem::compaction(1, 3, "auto_continue", None));
+        assert_eq!(latest_context_usage(&rows).unwrap().used, 260_000);
+        apply_compaction_undone(&mut rows, 1);
+        assert_eq!(latest_context_usage(&rows).unwrap().used, 569_400);
+        upsert_turn_usage(
+            &mut rows,
+            200,
+            10,
+            0,
+            0,
+            570_000,
+            1_048_576,
+            ContextUsage::default(),
+        );
+        apply_compaction_undone(&mut rows, 1);
+        assert_eq!(latest_context_usage(&rows).unwrap().used, 570_000);
+    }
 
     #[test]
     fn accumulates_rounds_and_floats_to_tail() {

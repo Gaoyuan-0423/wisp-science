@@ -84,7 +84,10 @@ async function openCompactedSession(page: Page, payload = compactionPayload(), l
       }
       if (cmd === "load_session_context_view" && (arg("sessionId") === "s-compact" || arg("id") === "s-compact")) {
         (w.__skillInvokeLog ??= []).push({ cmd, args });
-        return JSON.parse(JSON.stringify(w.__contextView));
+        const snapshot = JSON.parse(JSON.stringify(w.__contextView));
+        await new Promise(resolve => setTimeout(resolve, w.__contextViewDelay ?? 0));
+        if (w.__contextViewError) throw new Error(w.__contextViewError);
+        return snapshot;
       }
       if (cmd === "load_session" && arg("id") === "s-compact") {
         return {
@@ -415,4 +418,184 @@ test("context usage compact button opens the same instruction dialog", async ({ 
   await expect(page.getByTestId("compact-modal")).toContainText("压缩上下文");
   await page.getByTestId("compact-cancel").click();
   await expect(page.getByTestId("compact-modal")).toHaveCount(0);
+});
+
+for (const locale of ["en", "zh"]) {
+  test(`expanded compaction keeps horizontal counts and stacks details (${locale})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await openCompactedSession(page, compactionPayload({ before: 569400, after: 245500 }), locale);
+    const flag = page.getByTestId("context-compaction-flag");
+    await page.getByTestId("context-compaction-expand").click();
+    for (const width of [1600, 760]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(dark => document.documentElement.setAttribute("data-theme", dark ? "dark" : "light"), width === 760);
+      const toggle = (await page.getByTestId("context-compaction-expand").boundingBox())!;
+      const details = (await page.getByTestId("context-compaction-details").boundingBox())!;
+      const counts = (await flag.locator(".context-compaction-count").boundingBox())!;
+      const reduction = (await flag.locator(".context-compaction-reduction").boundingBox())!;
+      expect(toggle.height).toBeLessThan(100);
+      expect(counts.height).toBeLessThan(30);
+      expect(reduction.height).toBeLessThan(30);
+      expect(details.y).toBeGreaterThanOrEqual(toggle.y + toggle.height - 1);
+      expect(await flag.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await flag.screenshot({ path: test.info().outputPath(`expanded-${locale}-${width}.png`) });
+    }
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("context-compaction-details")).toHaveCount(0);
+  });
+}
+
+test("compaction immediately replaces old occupancy before another Usage event", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__tauriEmit("agent", { kind: "Usage", frame_id: "s-compact", input: 5350300, output: 1500,
+      ctx_tokens: 92160, max_context: 128000, context_usage: { conversation: 92160 } });
+  });
+  await expect(page.getByTestId("context-usage-trigger")).toContainText("72%");
+  await page.evaluate(() => (window as any).__tauriEmit("agent", {
+    kind: "Compaction", frame_id: "s-compact", before: 92160, after: 29440, strategy: "auto",
+  }));
+  await expect(page.getByTestId("context-usage-trigger")).toContainText("23%");
+  await page.getByTestId("context-usage-trigger").click();
+  await expect(page.getByTestId("context-usage-panel")).toContainText("29.4K");
+  // A later real usage estimate must supersede the compaction estimate.
+  await page.evaluate(() => (window as any).__tauriEmit("agent", { kind: "Usage", frame_id: "s-compact",
+    input: 31000, output: 30, ctx_tokens: 32000, max_context: 128000,
+    context_usage: { system_prompt: 1000, conversation: 31000 } }));
+  await expect(page.getByTestId("context-usage-trigger")).toContainText("25%");
+});
+
+test("model view renders epoch tool rows and streams continued chat from the same source", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextView.splice(3, 0, { role: "tool", tool_name: "shell", text: "EPOCH TOOL OUTPUT", input: "echo epoch", ok: true });
+  });
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+  const thread = page.locator(".thread");
+  await thread.screenshot({ path: test.info().outputPath("model-epoch-start.png"), animations: "disabled" });
+  await thread.locator(".steps-head").first().click();
+  await thread.locator(".step-head").first().click();
+  await expect(thread).toContainText("EPOCH TOOL OUTPUT");
+  await expect(thread).not.toContainText("first answer");
+  await page.evaluate(() => {
+    const w = window as any;
+    const original = w.__TAURI__.core.invoke;
+    w.__TAURI__.core.invoke = async (cmd: string, args: any) => cmd === "send_message"
+      ? new Promise(resolve => { w.__finishEpochSend = () => resolve("s-compact"); })
+      : original(cmd, args);
+  });
+  await page.locator("#composer-input").fill("continue in this epoch");
+  await page.locator("#composer-input").press("Enter");
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__tauriEmit("agent", { kind: "User", frame_id: "s-compact", text: "continue in this epoch" });
+    w.__tauriEmit("agent", { kind: "Text", frame_id: "s-compact", delta: "NEW EPOCH STREAM" });
+  });
+  await expect(thread.getByText("continue in this epoch", { exact: true })).toBeVisible();
+  await expect(thread).toContainText("NEW EPOCH STREAM");
+  await expect(thread.locator(".streaming-markdown")).toContainText("NEW EPOCH STREAM");
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextView.push({ role: "user", text: "continue in this epoch" }, { role: "assistant", text: "NEW EPOCH STREAM persisted" });
+    w.__tauriEmit("agent", { kind: "Done", frame_id: "s-compact", stop_reason: "end_turn" });
+    w.__finishEpochSend();
+  });
+  await expect(thread).toContainText("NEW EPOCH STREAM persisted");
+  await expect(thread.getByText("continue in this epoch", { exact: true })).toHaveCount(1);
+  await expect(thread.getByText("first question", { exact: true })).toHaveCount(0);
+  await thread.screenshot({ path: test.info().outputPath("model-epoch-continued.png"), animations: "disabled" });
+});
+
+test("a delayed epoch read cannot lose its checkpoint when Done refreshes the same epoch", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextViewDelay = 500;
+    w.__contextView[1].text = "[context summary checkpoint]\n\nEPOCH TWO CHECKPOINT";
+  });
+  await publishCompaction(page);
+  await expect(page.getByTestId("context-view-loading")).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextViewDelay = 0;
+    w.__tauriEmit("agent", { kind: "Done", frame_id: "s-compact", stop_reason: "compact" });
+  });
+  await expect(page.getByTestId("context-checkpoint-row")).toContainText("EPOCH TWO CHECKPOINT");
+  await page.waitForTimeout(600);
+  await expect(page.getByTestId("context-checkpoint-row")).toContainText("EPOCH TWO CHECKPOINT");
+  await expect(page.locator(".thread").getByText("first question", { exact: true })).toHaveCount(0);
+});
+
+test("loading or failing model view never presents full history and can be retried", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextViewDelay = 500;
+    w.__contextViewError = "model context unavailable";
+  });
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-view-loading")).toBeVisible();
+  await expect(page.locator(".thread").getByText("first question", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("context-view-error")).toContainText("model context unavailable");
+  await page.evaluate(() => { (window as any).__contextViewError = null; (window as any).__contextViewDelay = 0; });
+  await page.getByTestId("context-view-error").getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+});
+
+test("a long head epoch keeps its checkpoint at the beginning", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextView = w.__contextView.slice(0, 2).concat(Array.from({ length: 65 }, (_, i) => [
+      { role: "user", text: `epoch question ${i}` }, { role: "assistant", text: `epoch answer ${i}` },
+    ]).flat());
+  });
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+  await expect(page.locator(".thread").getByText("epoch question 0", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".thread").getByText("epoch question 64", { exact: true })).toHaveCount(1);
+});
+
+test("finishing a model read does not undo a switch back to full transcript", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => { (window as any).__contextViewDelay = 500; });
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-view-loading")).toBeVisible();
+  await page.getByTestId("transcript-view-full").click();
+  await page.waitForTimeout(650);
+  await expect(page.getByTestId("transcript-view-full")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".thread").getByText("first question", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("context-checkpoint-row")).toHaveCount(0);
+});
+
+test("a turn sent during model loading remains after the checkpoint", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextViewDelay = 500;
+    const original = w.__TAURI__.core.invoke;
+    w.__TAURI__.core.invoke = async (cmd: string, args: any) => cmd === "send_message"
+      ? new Promise(resolve => { w.__finishEpochSend = () => resolve("s-compact"); })
+      : original(cmd, args);
+  });
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.getByTestId("context-view-loading")).toBeVisible();
+  await page.locator("#composer-input").fill("sent while loading");
+  await page.locator("#composer-input").press("Enter");
+  await expect(page.getByTestId("context-view-loading")).toHaveCount(0);
+  await expect(page.getByTestId("context-checkpoint-row")).toBeVisible();
+  await expect(page.locator(".thread").getByText("sent while loading", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__contextView.push({ role: "user", text: "sent while loading" });
+    w.__tauriEmit("agent", { kind: "Done", frame_id: "s-compact", stop_reason: "end_turn" });
+    w.__finishEpochSend();
+  });
+  await expect(page.locator(".thread").getByText("sent while loading", { exact: true })).toHaveCount(1);
 });
