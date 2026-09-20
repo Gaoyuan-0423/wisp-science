@@ -127,6 +127,18 @@ test("Skills follows MCP in navigation and presents every bundled skill in both 
   for (const lang of ["en", "zh"]) {
     await page.locator(`.lang-switch [data-lang="${lang}"]`).click();
     await expect(page.locator("h1")).toHaveText(lang === "en" ? "Research Skills" : "科研技能");
+    await expect(page.locator(".doc-hero .lead")).toContainText(
+      lang === "en" ? `includes ${skillCount} Skills` : `内置 ${skillCount} 个技能`,
+    );
+    await expect(page.locator(".skills-intro .skills-note")).toContainText(
+      lang === "en" ? `all ${skillCount} bundled Skills` : `全部 ${skillCount} 个技能`,
+    );
+    for (const section of await page.locator(".skill-section").all()) {
+      const count = await section.locator(".skill-card").count();
+      await expect(section.locator(".section-head > p")).toHaveText(
+        lang === "en" ? `${count} Skills` : `${count} 个技能`,
+      );
+    }
     if (lang === "en") expect(await page.locator("main").innerText()).not.toMatch(/[\p{Script=Han}]/u);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
