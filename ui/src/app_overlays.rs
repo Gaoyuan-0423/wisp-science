@@ -1349,7 +1349,7 @@ pub(crate) fn CompactOverlay(
                         aria-busy=move || busy.get().to_string()
                         data-testid="compact-modal"
                     >
-                        <div class="compact-modal-head">
+                        <div class="ps-head">
                             <div>
                                 <h2 id="compact-title">{move || t(locale.get(), "compact.title")}</h2>
                                 <p class="compact-modal-subtitle">{move || t(locale.get(), "compact.subtitle")}</p>
@@ -1357,7 +1357,7 @@ pub(crate) fn CompactOverlay(
                             {move || (!busy.get()).then(|| view! {
                                 <button
                                     type="button"
-                                    class="compact-modal-close"
+                                    class="ps-close"
                                     data-testid="compact-close"
                                     title=move || t(locale.get(), "compact.close")
                                     aria-label=move || t(locale.get(), "compact.close")
@@ -1367,19 +1367,19 @@ pub(crate) fn CompactOverlay(
                                 </button>
                             })}
                         </div>
-                        <label class="compact-instruction-label" for="compact-instruction">
+                        <label for="compact-instruction">
                             {move || t(locale.get(), "compact.instruction_label")}
+                            <textarea
+                                id="compact-instruction"
+                                class="compact-instruction"
+                                data-testid="compact-instruction"
+                                rows="4"
+                                placeholder=move || t(locale.get(), "compact.instruction_placeholder")
+                                prop:value=move || instruction.get()
+                                disabled=move || busy.get()
+                                on:input=move |ev| instruction.set(event_target_value(&ev))
+                            ></textarea>
                         </label>
-                        <textarea
-                            id="compact-instruction"
-                            class="compact-instruction"
-                            data-testid="compact-instruction"
-                            rows="4"
-                            placeholder=move || t(locale.get(), "compact.instruction_placeholder")
-                            prop:value=move || instruction.get()
-                            disabled=move || busy.get()
-                            on:input=move |ev| instruction.set(event_target_value(&ev))
-                        ></textarea>
                         <p class="compact-modal-hint">{move || t(locale.get(), "compact.hint")}</p>
                         {move || busy.get().then(|| view! {
                             <div class="compact-progress" data-testid="compact-progress" role="status" aria-live="polite">
@@ -1393,8 +1393,8 @@ pub(crate) fn CompactOverlay(
                         {move || (!busy.get()).then(|| {
                             let action_id = start_id.clone();
                             view! {
-                                <div class="compact-modal-actions">
-                                    <button type="button" class="secondary" data-testid="compact-cancel" on:click=move |_| on_close.call(())>
+                                <div class="row">
+                                    <button type="button" data-testid="compact-cancel" on:click=move |_| on_close.call(())>
                                         {move || t(locale.get(), "compact.cancel")}
                                     </button>
                                     <button type="button" class="primary" data-testid="compact-start" on:click=move |_| {
