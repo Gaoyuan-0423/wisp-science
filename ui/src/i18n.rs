@@ -2511,6 +2511,15 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "context_usage.epoch_line_no_checkpoint") => {
             Some("Epoch {epoch} · system + {turns} kept turns")
         }
+        (Locale::En, "compact.title") => Some("Compact context"),
+        (Locale::En, "compact.subtitle") => Some("Review the instruction before Wisp rewrites the model context."),
+        (Locale::En, "compact.instruction_label") => Some("Optional summarization instruction"),
+        (Locale::En, "compact.instruction_placeholder") => Some("For example: preserve the unresolved QC blockers and exact file paths."),
+        (Locale::En, "compact.hint") => Some("The full transcript is archived first. After completion, the model view shows the new checkpoint and retained tail."),
+        (Locale::En, "compact.start") => Some("Start compaction"),
+        (Locale::En, "compact.cancel") => Some("Cancel"),
+        (Locale::En, "compact.close") => Some("Close compaction dialog"),
+        (Locale::En, "compact.running") => Some("Compacting context — this window is locked until the new context is ready."),
         (Locale::En, "chat.view_full") => Some("Full transcript"),
         (Locale::En, "chat.view_model") => Some("Model view"),
         (Locale::En, "chat.out_of_context") => {
@@ -5238,6 +5247,15 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "context_usage.epoch_line_no_checkpoint") => {
             Some("纪元 {epoch} · system + {turns} 轮 tail")
         }
+        (Locale::Zh, "compact.title") => Some("压缩上下文"),
+        (Locale::Zh, "compact.subtitle") => Some("先确认压缩引导，再重写模型实际使用的上下文。"),
+        (Locale::Zh, "compact.instruction_label") => Some("可选的压缩引导"),
+        (Locale::Zh, "compact.instruction_placeholder") => Some("例如：保留未解决的 QC 阻塞、精确文件路径和下一步动作。"),
+        (Locale::Zh, "compact.hint") => Some("完整对话会先归档。完成后将自动展示新的摘要 checkpoint 和保留的对话 tail。"),
+        (Locale::Zh, "compact.start") => Some("开始压缩"),
+        (Locale::Zh, "compact.cancel") => Some("取消"),
+        (Locale::Zh, "compact.close") => Some("关闭压缩对话框"),
+        (Locale::Zh, "compact.running") => Some("正在压缩上下文——新上下文准备好前，当前界面不可退出。"),
         (Locale::Zh, "chat.view_full") => Some("完整记录"),
         (Locale::Zh, "chat.view_model") => Some("模型视角"),
         (Locale::Zh, "chat.out_of_context") => Some("不在当前上下文，已由摘要代表"),

@@ -292,6 +292,15 @@ impl Agent {
     /// checkpoint plus a bounded recent tail (see `ContextManager::compact`).
     /// Returns (before, after) estimated tokens and the archive path.
     pub async fn compact(&mut self) -> Result<(usize, usize, PathBuf), String> {
+        self.compact_with_instruction(None).await
+    }
+
+    /// User-triggered `/compact` with an optional instruction that shapes the
+    /// semantic checkpoint without becoming a conversation turn.
+    pub async fn compact_with_instruction(
+        &mut self,
+        custom_instruction: Option<&str>,
+    ) -> Result<(usize, usize, PathBuf), String> {
         let archive_id = uuid::Uuid::new_v4().simple().to_string();
         let archive = self
             .root
@@ -303,11 +312,12 @@ impl Agent {
         let fixed_tokens = ContextManager::estimated_tool_tokens(&schemas);
         let (before, after) = self
             .ctx
-            .compact_with_reserve_reference(
+            .compact_with_reserve_reference_instruction(
                 self.provider.as_ref(),
                 &archive,
                 fixed_tokens,
                 &archive_reference,
+                custom_instruction,
             )
             .await?;
         Ok((before, after, archive))

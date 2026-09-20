@@ -144,6 +144,21 @@ pub(crate) async fn send_message(
     result
 }
 
+fn parse_manual_compact_command(message: &str) -> Option<Option<&str>> {
+    let command = message.trim();
+    let Some(rest) = command.strip_prefix("/compact") else {
+        return None;
+    };
+    if rest.is_empty() {
+        return Some(None);
+    }
+    if rest.chars().next().is_some_and(char::is_whitespace) {
+        let instruction = rest.trim();
+        return Some((!instruction.is_empty()).then_some(instruction));
+    }
+    None
+}
+
 struct ReplacementReservation(Arc<SessionRuntime>);
 
 impl ReplacementReservation {
@@ -1001,66 +1016,98 @@ pub(crate) async fn send_message_inner(
     // in-memory context, persist the compacted working set as a new context
     // epoch (the previous rows and the visual transcript in session_ui_events
     // stay intact), and report via the existing Compaction event.
-    if !resume && message.trim() == "/compact" {
-        match agent.compact().await {
-            Ok((before, after, _archive)) => {
-                let epoch =
-                    persist_compaction_epoch(&state.store, &frame_id, &agent.ctx, "manual", true)
-                        .await
-                        .map_err(|e| {
-                            format!("compact: persisting the compacted context failed: {e}")
-                        })?;
-                rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
-                let event = AgentEvent::Compaction {
-                    frame_id: frame_id.clone(),
-                    before,
-                    after,
-                    strategy: "manual".into(),
-                    epoch: Some(epoch as u64),
-                };
-                let mut event_seq = state
-                    .store
-                    .next_session_ui_event_seq(&frame_id)
+    if !resume {
+        if let Some(custom_instruction) = parse_manual_compact_command(&message) {
+            match agent.compact_with_instruction(custom_instruction).await {
+                Ok((before, after, _archive)) => {
+                    let epoch = persist_compaction_epoch(
+                        &state.store,
+                        &frame_id,
+                        &agent.ctx,
+                        "manual",
+                        true,
+                    )
                     .await
-                    .map_err(|error| error.to_string())?;
-                let compaction_event_seq = event_seq;
-                append_ui_event(&state.store, &frame_id, &mut event_seq, event.clone()).await;
-                if event_seq > compaction_event_seq {
-                    if let Err(error) = state
+                    .map_err(|e| {
+                        format!("compact: persisting the compacted context failed: {e}")
+                    })?;
+                    rt.sync_last_seq_from_store(&state.store, &frame_id).await?;
+                    let event = AgentEvent::Compaction {
+                        frame_id: frame_id.clone(),
+                        before,
+                        after,
+                        strategy: "manual".into(),
+                        epoch: Some(epoch as u64),
+                    };
+                    let mut event_seq = state
                         .store
-                        .set_context_epoch_ui_event(&frame_id, epoch, compaction_event_seq)
+                        .next_session_ui_event_seq(&frame_id)
                         .await
-                    {
-                        tracing::warn!("link compaction event to epoch failed: {error}");
+                        .map_err(|error| error.to_string())?;
+                    let compaction_event_seq = event_seq;
+                    append_ui_event(&state.store, &frame_id, &mut event_seq, event.clone()).await;
+                    if event_seq > compaction_event_seq {
+                        if let Err(error) = state
+                            .store
+                            .set_context_epoch_ui_event(&frame_id, epoch, compaction_event_seq)
+                            .await
+                        {
+                            tracing::warn!("link compaction event to epoch failed: {error}");
+                        }
                     }
+                    emit_agent_event_in(&app, event, Some(ap.id.as_str()));
+                    let (schemas, origins) = agent.tools.schemas_with_origins();
+                    let context_usage = agent.ctx.context_usage(&schemas, &origins);
+                    let usage_event = AgentEvent::Usage {
+                        frame_id: frame_id.clone(),
+                        round: 0,
+                        model: model_label.clone(),
+                        created_at: chrono::Utc::now().timestamp(),
+                        input: 0,
+                        output: 0,
+                        reasoning: 0,
+                        cached: 0,
+                        ctx_tokens: agent.ctx.request_tokens_with_reserve(
+                            wisp_core::ContextManager::estimated_tool_tokens(&schemas),
+                        ),
+                        max_context,
+                        context_usage,
+                    };
+                    let mut usage_seq = state
+                        .store
+                        .next_session_ui_event_seq(&frame_id)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    append_ui_event(&state.store, &frame_id, &mut usage_seq, usage_event.clone())
+                        .await;
+                    emit_agent_event_in(&app, usage_event, Some(ap.id.as_str()));
+                    persist_and_emit_terminal_event(
+                        state,
+                        &app,
+                        &frame_id,
+                        AgentEvent::Done {
+                            frame_id: frame_id.clone(),
+                            stop_reason: Some("compact".into()),
+                            effective_max_iter: None,
+                        },
+                    )
+                    .await;
+                    return Ok(frame_id);
                 }
-                emit_agent_event_in(&app, event, Some(ap.id.as_str()));
-                persist_and_emit_terminal_event(
-                    state,
-                    &app,
-                    &frame_id,
-                    AgentEvent::Done {
-                        frame_id: frame_id.clone(),
-                        stop_reason: Some("compact".into()),
-                        effective_max_iter: None,
-                    },
-                )
-                .await;
-                return Ok(frame_id);
-            }
-            Err(e) => {
-                persist_and_emit_terminal_event(
-                    state,
-                    &app,
-                    &frame_id,
-                    AgentEvent::Error {
-                        frame_id: frame_id.clone(),
-                        message: e.clone(),
-                        effective_max_iter: None,
-                    },
-                )
-                .await;
-                return Err(e);
+                Err(e) => {
+                    persist_and_emit_terminal_event(
+                        state,
+                        &app,
+                        &frame_id,
+                        AgentEvent::Error {
+                            frame_id: frame_id.clone(),
+                            message: e.clone(),
+                            effective_max_iter: None,
+                        },
+                    )
+                    .await;
+                    return Err(e);
+                }
             }
         }
     }
@@ -1871,6 +1918,18 @@ pub(crate) async fn stop_agent(
 #[cfg(test)]
 mod queue_tests {
     use super::*;
+
+    #[test]
+    fn compact_command_accepts_an_optional_instruction_without_matching_longer_names() {
+        assert_eq!(parse_manual_compact_command("/compact"), Some(None));
+        assert_eq!(
+            parse_manual_compact_command("  /compact   preserve QC thresholds and blockers  "),
+            Some(Some("preserve QC thresholds and blockers"))
+        );
+        assert_eq!(parse_manual_compact_command("/compact   "), Some(None));
+        assert_eq!(parse_manual_compact_command("/compact2"), None);
+        assert_eq!(parse_manual_compact_command("send /compact now"), None);
+    }
 
     #[test]
     fn replacement_only_supersedes_identical_payloads_including_cutins() {

@@ -308,14 +308,18 @@
   background: color-mix(in srgb, var(--clay) 7%, var(--bg-app));
 }
 .context-compaction-mark svg { width: 18px; height: 18px; }
-.context-compaction-copy { display: grid; gap: 4px; min-width: 0; }
+.context-compaction-copy {
+  display: grid; flex: 1 1 auto; gap: 4px; min-width: 0; width: 0;
+}
 .context-compaction-copy strong { font-size: 12px; font-weight: 500; line-height: 1.4; }
 .context-compaction-detail {
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 4px;
-  color: var(--text-muted); font-size: 11px; line-height: 1.4;
+  min-width: 0; color: var(--text-muted); font-size: 11px; line-height: 1.4;
 }
-.context-compaction-count { font-variant-numeric: tabular-nums; }
-.context-compaction-reduction { color: var(--clay-strong); font-variant-numeric: tabular-nums; }
+.context-compaction-count, .context-compaction-reduction {
+  min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+.context-compaction-reduction { color: var(--clay-strong); }
 .context-compaction-rule {
   flex: 1; min-width: 16px; height: 1px; margin-left: 4px;
   background: linear-gradient(90deg, var(--border), transparent);
@@ -340,8 +344,8 @@
 .context-compaction-mark svg { width: 18px; height: 18px; }
 .context-compaction-actions svg { width: 16px; height: 16px; }
 .context-compaction-details {
-  display: grid; gap: 10px; width: 100%;
-  padding: 0 0 8px 44px;
+  display: grid; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 0 0 12px 44px;
 }
 .context-compaction-meta {
   display: flex; flex-wrap: wrap; gap: 8px 14px;
@@ -355,6 +359,15 @@
 .context-compaction-checkpoint .md { font-size: 13px; line-height: 1.5; }
 .context-compaction-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .context-compaction-actions .tool-btn { display: inline-flex; align-items: center; gap: 6px; }
+@container (max-width: 620px) {
+  .context-compaction-status { align-items: flex-start; gap: 8px; padding: 9px 0; }
+  .context-compaction-mark { flex-basis: 28px; width: 28px; height: 28px; border-radius: 8px; }
+  .context-compaction-toggle { gap: 8px; align-items: flex-start; }
+  .context-compaction-chevron { margin-top: 5px; }
+  .context-compaction-rule { display: none; }
+  .context-compaction-details { padding-left: 36px; }
+  .context-compaction-meta { gap: 5px 10px; }
+}
 @keyframes context-gather-top { 50% { transform: translateY(4px); opacity: .4; } }
 @keyframes context-gather-bottom { 50% { transform: translateY(-4px); opacity: .4; } }
 @keyframes context-settle { from { opacity: 0; transform: translateY(3px); } }
@@ -369,21 +382,42 @@
   opacity: .45;
 }
 .transcript-view-toggle {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-xs);
-  background: var(--bg-elev);
+  position: relative; isolation: isolate; display: inline-grid;
+  grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 3px; flex: 0 0 auto;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-sunken);
+}
+.transcript-view-toggle::before {
+  content: ""; position: absolute; z-index: -1; top: 3px; bottom: 3px; left: 3px;
+  width: calc(50% - 4px); border-radius: 999px; pointer-events: none;
+  background: color-mix(in srgb, var(--clay) 14%, var(--bg-elev));
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent);
+  transition: transform .18s ease;
+}
+.transcript-view-toggle.model-view::before {
+  transform: translateX(calc(100% + 2px));
 }
 .transcript-view-toggle button {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin: 0; padding: 4px 8px; border: 0; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 30px; height: 28px; box-sizing: border-box;
+  margin: 0; padding: 0 10px; border: 0; border-radius: 999px;
   background: transparent; color: var(--text-muted); font: inherit; font-size: 12px;
-  cursor: pointer;
+  white-space: nowrap; cursor: pointer; transition: color .18s ease;
 }
-.transcript-view-toggle button.active {
-  background: color-mix(in srgb, var(--clay) 12%, var(--bg-app));
-  color: var(--text);
+.transcript-view-toggle button.active { color: var(--clay-strong); }
+.transcript-view-toggle button:hover { color: var(--text); }
+.transcript-view-toggle button:focus-visible {
+  outline: 2px solid var(--clay); outline-offset: 2px;
 }
-.transcript-view-toggle svg { width: 14px; height: 14px; }
+.transcript-view-toggle svg { width: 14px; height: 14px; flex: 0 0 auto; }
+/* Respond to the conversation pane, including space taken by side panels. */
+@container (max-width: 900px) {
+  .topbar .transcript-view-label { display: none; }
+  .topbar .transcript-view-toggle button { width: 30px; padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-view-toggle::before, .transcript-view-toggle button { transition: none; }
+}
 .context-system-row, .context-checkpoint-row {
   min-width: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45;
 }
@@ -1685,6 +1719,16 @@ details.tool:not([open]) > summary.head .run-dot { animation: tool-pulse 1.1s ea
 }
 .context-usage-head h2 { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 500; letter-spacing: -.015em; }
 .context-usage-head-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.context-usage-compact {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--clay) 34%, var(--border));
+  border-radius: 999px; background: color-mix(in srgb, var(--clay) 7%, transparent);
+  color: var(--clay-strong); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.context-usage-compact:hover:not(:disabled) { background: color-mix(in srgb, var(--clay) 14%, transparent); color: var(--text); }
+.context-usage-compact:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+.context-usage-compact:disabled { opacity: .5; cursor: wait; }
+.context-usage-compact svg { width: 14px; height: 14px; }
 .context-usage-close, .context-usage-dock {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0;
   border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--text-muted); cursor: pointer;

@@ -3111,10 +3111,13 @@ test("danger context usage panel offers compact and a new session (#931)", async
   await expect(nudge).toContainText("Window is almost full");
   await nudge.getByRole("button", { name: "Compact" }).click();
   await expect(panel).toHaveCount(0);
+  await expect(page.getByTestId("compact-modal")).toBeVisible();
+  await page.getByTestId("compact-start").click();
   await expect.poll(() => lastInvokeArgs(page, "send_message")).toMatchObject({
     message: "/compact",
     resume: false,
   });
+  await expect(page.getByTestId("compact-modal")).toHaveCount(0);
 
   await page.locator("#composer-input").fill("CONTEXTUSAGEDANGER");
   await page.getByRole("button", { name: "Send", exact: true }).click();

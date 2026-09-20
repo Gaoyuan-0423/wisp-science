@@ -38,10 +38,11 @@ use agent_workflows::{
 use app_overlays::{
     advance_browser_tab_cleanup, present_browser_needs_human, present_browser_tab_cleanup,
     BrowserNeedsHumanOverlay, BrowserNeedsHumanOverlayState, BrowserTabCleanupOverlay,
-    BrowserTabCleanupOverlayState, ContextRecoveryOverlay, ContextRecoveryOverlayState,
-    ExternalLinkConfirm, ProjectExportPrompt, ProjectExportPromptState, ProjectTransferOverlay,
-    ProjectTransferOverlayState, SshConnectivityOverlay, SshConnectivityOverlayState,
-    TurnMemoryOverlay, TurnMemoryOverlayState, UpdateCheckOverlay, UpdateCheckOverlayState,
+    BrowserTabCleanupOverlayState, CompactOverlay, CompactOverlayState, ContextRecoveryOverlay,
+    ContextRecoveryOverlayState, ExternalLinkConfirm, ProjectExportPrompt,
+    ProjectExportPromptState, ProjectTransferOverlay, ProjectTransferOverlayState,
+    SshConnectivityOverlay, SshConnectivityOverlayState, TurnMemoryOverlay, TurnMemoryOverlayState,
+    UpdateCheckOverlay, UpdateCheckOverlayState,
 };
 use bindings::{
     add_workspace_file_to_motif, attach_chat_autoscroll, cancel_saved_marks_apply, clear_selection,
@@ -849,15 +850,41 @@ fn App() -> impl IntoView {
                 }
                 let previous_epoch = head_epoch.get_untracked();
                 let changed_epoch = previous_epoch != snapshot.head_epoch;
+                let refresh_visible_model_view = model_view.get_untracked();
                 context_epochs.set(snapshot.context_epochs.clone());
                 head_epoch.set(snapshot.head_epoch);
                 in_context_from_user_index.set(snapshot.in_context_from_user_index);
                 items.update(|rows| {
                     apply_context_state(rows, &snapshot, snapshot.head_epoch > previous_epoch)
                 });
-                if changed_epoch {
-                    model_view.set(false);
-                    context_view_items.set(Vec::new());
+                if changed_epoch && refresh_visible_model_view {
+                    // The persisted model context changed. Keep the visible
+                    // transcript aligned with it instead of leaving the
+                    // header on a stale full-transcript view.
+                    let context_args =
+                        to_value(&tauri_args::load_session_context_view(&id)).unwrap();
+                    let Ok(context_value) =
+                        invoke_checked("load_session_context_view", context_args).await
+                    else {
+                        return;
+                    };
+                    let Ok(context_rows) =
+                        serde_wasm_bindgen::from_value::<Vec<LoadedItem>>(context_value)
+                    else {
+                        return;
+                    };
+                    if active_session.get_untracked().as_deref() != Some(id.as_str())
+                        || context_refresh_generation.get_untracked() != generation
+                    {
+                        return;
+                    }
+                    context_view_items.set(
+                        context_rows
+                            .into_iter()
+                            .map(LoadedItem::into_chat)
+                            .collect(),
+                    );
+                    model_view.set(true);
                 }
                 return;
             }
@@ -1224,6 +1251,61 @@ fn App() -> impl IntoView {
     let context_recovery_dialog = create_rw_signal::<Option<String>>(None);
     let context_recovery_busy = create_rw_signal(false);
     let context_recovery_error = create_rw_signal::<Option<String>>(None);
+    // Manual semantic compaction is a two-step flow: collect an optional
+    // summarization instruction first, then keep the modal locked until the
+    // archive and new context epoch are durable.
+    let compact_dialog = create_rw_signal::<Option<String>>(None);
+    let compact_instruction = create_rw_signal(String::new());
+    let compact_busy = create_rw_signal(false);
+    let compact_error = create_rw_signal::<Option<String>>(None);
+    let open_compact_dialog = Callback::new(move |(id, instruction): (String, String)| {
+        if id.trim().is_empty() || compact_busy.get_untracked() {
+            return;
+        }
+        compact_instruction.set(instruction);
+        compact_error.set(None);
+        compact_dialog.set(Some(id));
+    });
+    let close_compact_dialog = Callback::new(move |_: ()| {
+        if !compact_busy.get_untracked() {
+            compact_dialog.set(None);
+            compact_instruction.set(String::new());
+            compact_error.set(None);
+        }
+    });
+    let start_compact_dialog = Callback::new(move |(id, instruction): (String, String)| {
+        if compact_busy.get_untracked() {
+            return;
+        }
+        compact_busy.set(true);
+        compact_error.set(None);
+        let message = if instruction.trim().is_empty() {
+            "/compact".to_string()
+        } else {
+            format!("/compact {}", instruction.trim())
+        };
+        let locale = locale;
+        spawn_local(async move {
+            let args = to_value(&SendMessageArgs {
+                session_id: Some(id),
+                message,
+                attachments: vec![],
+                references: vec![],
+                resume: false,
+                acp_agent_id: None,
+                guide: None,
+                replace: None,
+            })
+            .unwrap();
+            if let Err(error) = invoke_checked("send_message", args).await {
+                compact_error.set(Some(localize_backend(
+                    locale.get_untracked(),
+                    &js_error_text(error),
+                )));
+                compact_busy.set(false);
+            }
+        });
+    });
     let refresh_models = move || model_settings.refresh_models();
     // Tauri's native drag/drop event contains absolute paths (including
     // directories). Drops on a remote Files panel upload via scp; drops on
@@ -2656,6 +2738,11 @@ fn App() -> impl IntoView {
     let pet_activity_cb = pet_activity;
     let status_cb = status;
     let compacting_sessions_cb = compacting_sessions;
+    let compact_dialog_cb = compact_dialog;
+    let compact_busy_cb = compact_busy;
+    let compact_error_cb = compact_error;
+    let model_view_cb = model_view;
+    let context_view_items_cb = context_view_items;
     let locale_cb = locale;
     let models_cb = models;
     let session_models_cb = session_model_ids;
@@ -3231,11 +3318,29 @@ fn App() -> impl IntoView {
             } => {
                 finish_compaction(&frame_id);
                 let auto_continue = strategy == "auto_continue";
+                let manual_compaction = strategy == "manual";
                 route_items(active_cb, items_cb, transcripts_cb, &frame_id, |items| {
                     items.push(ChatItem::compaction(before, after, strategy, epoch));
                 });
                 if !auto_continue && epoch.is_some() {
+                    let reveal_manual_context = manual_compaction
+                        && compact_dialog_cb.get_untracked().as_deref() == Some(frame_id.as_str())
+                        && active_cb.get_untracked().as_deref() == Some(frame_id.as_str());
+                    if reveal_manual_context {
+                        // A completed manual compaction should immediately
+                        // reveal the exact model context that will be used.
+                        // The epoch refresh below reloads the checkpoint and
+                        // retained tail before the user continues typing.
+                        model_view_cb.set(true);
+                        context_view_items_cb.set(Vec::new());
+                    }
                     refresh_context_state.call(frame_id.clone());
+                }
+                if manual_compaction
+                    && compact_dialog_cb.get_untracked().as_deref() == Some(frame_id.as_str())
+                {
+                    compact_busy_cb.set(true);
+                    compact_error_cb.set(None);
                 }
                 if active_cb.get().as_deref() == Some(&frame_id) {
                     let before = before.to_string();
@@ -3282,6 +3387,13 @@ fn App() -> impl IntoView {
                 stop_reason,
             } => {
                 finish_compaction(&frame_id);
+                if stop_reason.as_deref() == Some("compact")
+                    && compact_dialog_cb.get_untracked().as_deref() == Some(frame_id.as_str())
+                {
+                    compact_dialog_cb.set(None);
+                    compact_busy_cb.set(false);
+                    compact_error_cb.set(None);
+                }
                 flush_now();
                 refresh_context_state.call(frame_id.clone());
                 conversation_outlines_cb.update(|outlines| {
@@ -3439,6 +3551,13 @@ fn App() -> impl IntoView {
                     // /compact + resume path. Do not offer an action that
                     // cannot preserve its opaque session state.
                     && active_acp_agent_id.get_untracked().is_none();
+                if compact_dialog_cb.get_untracked().as_deref() == Some(frame_id.as_str())
+                    && compact_busy_cb.get_untracked()
+                {
+                    compact_busy_cb.set(false);
+                    compact_error_cb
+                        .set(Some(localize_backend(locale_cb.get_untracked(), &message)));
+                }
                 if !rolled_back {
                     let model = session_model_label(
                         &models_cb.get_untracked(),
@@ -5198,77 +5317,12 @@ fn App() -> impl IntoView {
     };
 
     let compact_context_recovery = Callback::new(move |id: String| {
-        if context_recovery_busy.get_untracked() {
+        if context_recovery_busy.get_untracked() || compact_busy.get_untracked() {
             return;
         }
-        context_recovery_busy.set(true);
+        context_recovery_dialog.set(None);
         context_recovery_error.set(None);
-        spawn_local(async move {
-            let compact = to_value(&SendMessageArgs {
-                session_id: Some(id.clone()),
-                message: "/compact".into(),
-                attachments: vec![],
-                references: vec![],
-                resume: false,
-                acp_agent_id: None,
-                guide: None,
-                replace: None,
-            })
-            .unwrap();
-            if let Err(error) = invoke_checked("send_message", compact).await {
-                let message = localize_backend(locale.get_untracked(), &js_error_text(error));
-                context_recovery_error.set(Some(message));
-                context_recovery_busy.set(false);
-                return;
-            }
-
-            // /compact rewrites only the model context. The existing error row
-            // stays in the visual transcript until we remove it here; the
-            // completed tool rows remain and Resume continues after them.
-            if active_session.get_untracked().as_deref() == Some(id.as_str()) {
-                let model = session_model_label(
-                    &models.get_untracked(),
-                    &session_model_ids.get_untracked(),
-                    Some(&id),
-                );
-                items.update(|rows| {
-                    if let Some(index) = rows.iter().rposition(is_error_assistant) {
-                        rows.remove(index);
-                    }
-                    ensure_streaming_assistant(rows, model);
-                });
-            }
-            context_recovery_dialog.set(None);
-            context_recovery_error.set(None);
-            begin_pending_turn(pending_turns, running, &id);
-            force_chat_bottom();
-
-            let resume = to_value(&SendMessageArgs {
-                session_id: Some(id.clone()),
-                message: String::new(),
-                attachments: vec![],
-                references: vec![],
-                resume: true,
-                acp_agent_id: None,
-                guide: None,
-                replace: None,
-            })
-            .unwrap();
-            if let Err(error) = invoke_checked("send_message", resume).await {
-                let raw = js_error_text(error);
-                if raw.contains(NO_API_KEY_MARK) {
-                    needs_api_key.set(true);
-                }
-                status.set(tf(
-                    locale.get_untracked(),
-                    "status.send_failed",
-                    &[("msg", &localize_backend(locale.get_untracked(), &raw))],
-                ));
-            }
-            finish_pending_turn(pending_turns, running, &id);
-            context_recovery_busy.set(false);
-            refresh_session_history();
-        });
+        open_compact_dialog.call((id, String::new()));
     });
 
     let new_session_context_recovery = Callback::new(move |source_id: String| {
@@ -5897,24 +5951,11 @@ fn App() -> impl IntoView {
         let Some(id) = active_session.get_untracked() else {
             return;
         };
-        if busy.get_untracked() {
+        if busy.get_untracked() || active_acp_agent_id.get_untracked().is_some() {
             return;
         }
         context_usage_open.set(false);
-        spawn_local(async move {
-            let args = to_value(&SendMessageArgs {
-                session_id: Some(id),
-                message: "/compact".into(),
-                attachments: vec![],
-                references: vec![],
-                resume: false,
-                acp_agent_id: None,
-                guide: None,
-                replace: None,
-            })
-            .unwrap();
-            let _ = invoke_checked("send_message", args).await;
-        });
+        open_compact_dialog.call((id, String::new()));
     });
     let new_session_from_usage = Callback::new(move |_: ()| {
         context_usage_open.set(false);
@@ -6848,7 +6889,23 @@ fn App() -> impl IntoView {
                 archive_frame.set(active_session.get_untracked());
                 return true;
             }
-            "compact" => return false,
+            "compact" => {
+                input.set(String::new());
+                if active_acp_agent_id.get_untracked().is_some() {
+                    status.set(localize_backend(
+                        locale.get_untracked(),
+                        "ACP conversations cannot be compacted from this desktop view.",
+                    ));
+                } else if let Some(id) = active_session.get_untracked() {
+                    open_compact_dialog.call((id, payload.to_string()));
+                } else {
+                    status.set(localize_backend(
+                        locale.get_untracked(),
+                        "Open a conversation before compacting its context.",
+                    ));
+                }
+                return true;
+            }
             "fork" => {
                 if active_branch_state.get_untracked().is_some()
                     || active_is_exploration.get_untracked()
@@ -9144,6 +9201,15 @@ fn App() -> impl IntoView {
                 turn_memory_editor.set(String::new());
                 turn_memory_replace_id.set(String::new());
                 turn_memory_error.set(None);
+            }
+            return;
+        }
+        if compact_dialog.get().is_some() {
+            ev.prevent_default();
+            if !compact_busy.get() {
+                compact_dialog.set(None);
+                compact_instruction.set(String::new());
+                compact_error.set(None);
             }
             return;
         }
@@ -17486,6 +17552,17 @@ fn App() -> impl IntoView {
             }
             on_compact=compact_context_recovery
             on_new_session=new_session_context_recovery
+        />
+        <CompactOverlay
+            state=CompactOverlayState {
+                locale,
+                dialog: compact_dialog,
+                instruction: compact_instruction,
+                busy: compact_busy,
+                error: compact_error,
+            }
+            on_start=start_compact_dialog
+            on_close=close_compact_dialog
         />
         <ContextMenuPortal menu=ctx_menu.read_only() set_menu=ctx_menu.write_only() on_pick=on_ctx_pick />
         {move ||archive_frame.get().map(|id|view!{
