@@ -45,21 +45,26 @@ pub(crate) fn TranscriptViewToggle(#[prop(optional)] in_panel: bool) -> impl Int
         "transcript-view-toggle"
     };
     view! {
-        <div class=wrap data-testid=wrap_test>
+        <div class=wrap data-testid=wrap_test class:model-view=move || model_view.get()>
             <button type="button"
                 class:active=move || !model_view.get()
+                aria-pressed=move || (!model_view.get()).to_string()
+                aria-label=move || t(locale.get(), "chat.view_full")
                 data-testid=full
                 title=move || t(locale.get(), "chat.view_full")
                 on:click=move |_| if model_view.get() { toggle_full.call(()); }>
-                {move || t(locale.get(), "chat.view_full")}
+                {compose_icon("history")}
+                <span class="transcript-view-label">{move || t(locale.get(), "chat.view_full")}</span>
             </button>
             <button type="button"
                 class:active=move || model_view.get()
+                aria-pressed=move || model_view.get().to_string()
+                aria-label=move || t(locale.get(), "chat.view_model")
                 data-testid=model
                 title=move || t(locale.get(), "chat.view_model")
                 on:click=move |_| if !model_view.get() { toggle_model.call(()); }>
                 {compose_icon("eye")}
-                {move || t(locale.get(), "chat.view_model")}
+                <span class="transcript-view-label">{move || t(locale.get(), "chat.view_model")}</span>
             </button>
         </div>
     }
@@ -394,6 +399,19 @@ pub(crate) fn ContextUsagePanel(
                 on:dblclick=move |ev| on_header_dblclick.call(ev)>
                 <h2 id="context-usage-title">{t(loc, "context_usage.title")}</h2>
                 <div class="context-usage-head-actions">
+                    <button type="button" class="context-usage-compact"
+                        data-testid="context-usage-compact-header"
+                        title=t(loc, "context_usage.nudge_compact")
+                        aria-label=t(loc, "context_usage.nudge_compact")
+                        disabled=move || compact_disabled.get()
+                        on:mousedown=move |ev| ev.stop_propagation()
+                        on:click=move |ev| {
+                            ev.stop_propagation();
+                            on_compact.call(());
+                        }>
+                        {compose_icon("context-compact")}
+                        <span>{t(loc, "context_usage.nudge_compact")}</span>
+                    </button>
                     {floating.then(|| view! {
                         <button type="button" class="context-usage-dock"
                             data-testid="context-usage-dock"

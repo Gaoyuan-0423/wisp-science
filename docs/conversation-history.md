@@ -54,10 +54,26 @@ read-only — rewind, branch, edit, and explore stay on the full transcript.
 The usage panel adds a line such as `Epoch n · system + checkpoint + k kept
 turns` while a compaction is active. Switching conversations resets the view.
 
+The header uses a two-position pill with history and eye icons. In conversation
+panes up to 900 px wide it shows icons only; wider panes also show both labels.
+Hover tips and accessible names remain available at either size, and keyboard
+focus and pressed states identify the current view. The usage panel keeps its
+text labels visible.
+
 Compaction details and the usage panel refresh in the open conversation after
 the epoch is saved, including automatic compaction at the end of a turn.
 Undo restores the actual parent epoch, which can itself be compacted. A later
 compact always receives a new epoch number, even after undo, rewind, or restart.
+
+Manual semantic compaction can be started with `/compact` or from the Compact
+button in the context-usage panel. `/compact` accepts an optional instruction,
+for example `/compact preserve the unresolved QC blockers and exact file paths`.
+The confirmation dialog lets the user edit that instruction. Once compaction
+starts, the dialog cannot be dismissed; after the archive and new epoch are
+durable it closes and switches to Model view so the resulting checkpoint and
+retained tail can be reviewed before continuing. The usage panel receives a
+fresh post-compaction context estimate and breakdown rather than retaining the
+pre-compaction conversation total.
 Retained-tail markers follow copied messages through earlier epochs; when a
 legacy or ambiguous copy has no reliable origin, the marker remains unknown.
 

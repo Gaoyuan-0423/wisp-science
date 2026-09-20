@@ -5214,6 +5214,22 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
               if (String(msg).includes("LONG")) return await new Promise<string>((resolve) => { acpLongResolvers[fid] = resolve; });
               return fid;
             }
+            if (msg.trim().startsWith("/compact")) {
+              setTimeout(() => {
+                emit("agent", { kind: "CompactionStarted", frame_id: fid, strategy: "manual" });
+                emit("agent", { kind: "Compaction", frame_id: fid, before: 91_000, after: 45_000, strategy: "manual", epoch: 1 });
+                emit("agent", {
+                  kind: "Usage", frame_id: fid, round: 0, model: "mock", created_at: 1,
+                  input: 0, output: 0, reasoning: 0, cached: 0, ctx_tokens: 45_000, max_context: 100_000,
+                  context_usage: {
+                    system_prompt: 10_000, tool_definitions: 10_000, rules: 5_000,
+                    skills: 5_000, mcp_dynamic_tools: 0, subagent_definitions: 0, conversation: 15_000,
+                  },
+                });
+                emit("agent", { kind: "Done", frame_id: fid, stop_reason: "compact" });
+              }, 30);
+              return fid;
+            }
             if (String(msg).includes("PLANPROGRESS")) {
               return await new Promise<string>((resolve) => {
                 planProgressSnapshots.set(fid, null);

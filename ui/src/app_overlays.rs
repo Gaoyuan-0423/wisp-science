@@ -1,3 +1,4 @@
+use crate::app_support::compose_icon;
 use crate::app_support::{
     classify_ssh_failure, js_error_text, refresh_execution_contexts, refresh_remote_dir,
     show_probe_stopped_toast, show_toast, show_warning_toast, ssh_connectivity_gap,
@@ -1305,6 +1306,104 @@ pub(crate) fn ContextRecoveryOverlay(
                         </div>
                         {move || context_recovery_error.get().map(|error| view! {
                             <div class="context-recovery-error" role="alert">{error}</div>
+                        })}
+                    </div>
+                </div>
+            }
+        })}
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CompactOverlayState {
+    pub(crate) locale: RwSignal<Locale>,
+    pub(crate) dialog: RwSignal<Option<String>>,
+    pub(crate) instruction: RwSignal<String>,
+    pub(crate) busy: RwSignal<bool>,
+    pub(crate) error: RwSignal<Option<String>>,
+}
+
+#[component]
+pub(crate) fn CompactOverlay(
+    state: CompactOverlayState,
+    on_start: Callback<(String, String)>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let CompactOverlayState {
+        locale,
+        dialog,
+        instruction,
+        busy,
+        error,
+    } = state;
+    view! {
+        {move || dialog.get().map(|frame_id| {
+            let start_id = frame_id.clone();
+            view! {
+                <div class="overlay compact-overlay" data-testid="compact-overlay">
+                    <div
+                        class="modal compact-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="compact-title"
+                        aria-busy=move || busy.get().to_string()
+                        data-testid="compact-modal"
+                    >
+                        <div class="compact-modal-head">
+                            <div>
+                                <h2 id="compact-title">{move || t(locale.get(), "compact.title")}</h2>
+                                <p class="compact-modal-subtitle">{move || t(locale.get(), "compact.subtitle")}</p>
+                            </div>
+                            {move || (!busy.get()).then(|| view! {
+                                <button
+                                    type="button"
+                                    class="compact-modal-close"
+                                    data-testid="compact-close"
+                                    title=move || t(locale.get(), "compact.close")
+                                    aria-label=move || t(locale.get(), "compact.close")
+                                    on:click=move |_| on_close.call(())
+                                >
+                                    {compose_icon("close")}
+                                </button>
+                            })}
+                        </div>
+                        <label class="compact-instruction-label" for="compact-instruction">
+                            {move || t(locale.get(), "compact.instruction_label")}
+                        </label>
+                        <textarea
+                            id="compact-instruction"
+                            class="compact-instruction"
+                            data-testid="compact-instruction"
+                            rows="4"
+                            placeholder=move || t(locale.get(), "compact.instruction_placeholder")
+                            prop:value=move || instruction.get()
+                            disabled=move || busy.get()
+                            on:input=move |ev| instruction.set(event_target_value(&ev))
+                        ></textarea>
+                        <p class="compact-modal-hint">{move || t(locale.get(), "compact.hint")}</p>
+                        {move || busy.get().then(|| view! {
+                            <div class="compact-progress" data-testid="compact-progress" role="status" aria-live="polite">
+                                <span class="compact-progress-dot" aria-hidden="true"></span>
+                                <span>{move || t(locale.get(), "compact.running")}</span>
+                            </div>
+                        })}
+                        {move || error.get().map(|message| view! {
+                            <div class="context-recovery-error" data-testid="compact-error" role="alert">{message}</div>
+                        })}
+                        {move || (!busy.get()).then(|| {
+                            let action_id = start_id.clone();
+                            view! {
+                                <div class="compact-modal-actions">
+                                    <button type="button" class="secondary" data-testid="compact-cancel" on:click=move |_| on_close.call(())>
+                                        {move || t(locale.get(), "compact.cancel")}
+                                    </button>
+                                    <button type="button" class="primary" data-testid="compact-start" on:click=move |_| {
+                                        on_start.call((action_id.clone(), instruction.get_untracked()));
+                                    }>
+                                        {move || t(locale.get(), "compact.start")}
+                                    </button>
+                                </div>
+                            }
                         })}
                     </div>
                 </div>

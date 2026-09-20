@@ -30,12 +30,12 @@ async function lastInvokeArgs(page: Page, cmd: string) {
   }, cmd);
 }
 
-async function openCompactedSession(page: Page, payload = compactionPayload()) {
+async function openCompactedSession(page: Page, payload = compactionPayload(), locale = "en") {
   await page.addInitScript(tauriMock);
   await page.addInitScript((item) => {
     (window as any).__compactionItem = item;
   }, payload);
-  await page.goto("/");
+  await page.goto(`/?mockLocale=${locale}`);
   await expect.poll(() =>
     page.evaluate(() => Boolean((window as any).__tauriListenerReady?.("open-session"))),
   ).toBe(true);
@@ -54,6 +54,12 @@ async function openCompactedSession(page: Page, payload = compactionPayload()) {
       head_epoch: w.__compactionItem.epoch, context_epochs: epochs,
       in_context_from_user_index: 1, compactions: w.__compactionCards, undone_epochs: [],
     };
+    w.__contextView = [
+      { role: "system", text: "You are wisp-science", kind: "system" },
+      { role: "checkpoint", text: "[context summary checkpoint]\n\nFolded older turns.", kind: "checkpoint" },
+      { role: "user", text: "second question" },
+      { role: "assistant", text: "second answer" },
+    ];
     w.__TAURI__.core.invoke = async (cmd: string, args: any) => {
       const arg = (key: string) => args instanceof Map ? args.get(key) : args?.[key];
       if (cmd === "load_session_context_state" && arg("sessionId") === "s-compact") {
@@ -78,12 +84,7 @@ async function openCompactedSession(page: Page, payload = compactionPayload()) {
       }
       if (cmd === "load_session_context_view" && (arg("sessionId") === "s-compact" || arg("id") === "s-compact")) {
         (w.__skillInvokeLog ??= []).push({ cmd, args });
-        return [
-          { role: "system", text: "You are wisp-science", kind: "system" },
-          { role: "checkpoint", text: "[context summary checkpoint]\n\nFolded older turns.", kind: "checkpoint" },
-          { role: "user", text: "second question" },
-          { role: "assistant", text: "second answer" },
-        ];
+        return JSON.parse(JSON.stringify(w.__contextView));
       }
       if (cmd === "load_session" && arg("id") === "s-compact") {
         return {
@@ -132,6 +133,102 @@ async function publishCompaction(page: Page, automatic = false) {
     if (!automatic) w.__tauriEmit("agent", event);
     else w.__tauriEmit("agent", { kind: "Done", frame_id: "s-compact", stop_reason: "end_turn" });
   }, { automatic });
+}
+
+async function wireManualCompaction(page: Page, options: { checkpoint?: string } = {}) {
+  await page.evaluate(({ checkpoint }) => {
+    const w = window as any;
+    const original = w.__TAURI__.core.invoke;
+    w.__TAURI__.core.invoke = async (cmd: string, args: any) => {
+      const arg = (key: string) => args instanceof Map ? args.get(key) : args?.[key];
+      if (cmd !== "send_message") return original(cmd, args);
+      const message = String(arg("message") ?? "");
+      (w.__skillInvokeLog ??= []).push({ cmd, args });
+      w.__compactInstruction = message;
+      setTimeout(() => {
+        const state = w.__contextState;
+        const epoch = state.head_epoch + 1;
+        const compactedCheckpoint = checkpoint ?? "[context summary checkpoint]\n\nNew context after manual compaction.";
+        state.context_epochs.push({
+          epoch, parent_epoch: state.head_epoch, strategy: "manual", kind: "semantic",
+          before_tokens: 1000, after_tokens: 150, initial_head_seq: 20,
+          first_kept_seq: 8, checkpoint_seq: 18, has_new_turns: false,
+        });
+        state.head_epoch = epoch;
+        state.compactions = state.compactions.map((card: any) => ({ ...card, can_undo: false, undo_reason: "not_head" }));
+        state.compactions.push({ ...w.__compactionItem, epoch, before: 1000, after: 150,
+          checkpoint: compactedCheckpoint, can_undo: true });
+        w.__contextView = [
+          { role: "system", text: "You are wisp-science", kind: "system" },
+          { role: "checkpoint", text: compactedCheckpoint, kind: "checkpoint" },
+          { role: "user", text: "second question" },
+          { role: "assistant", text: "second answer" },
+        ];
+        w.__tauriEmit("agent", { kind: "CompactionStarted", frame_id: "s-compact", strategy: "manual" });
+        w.__tauriEmit("agent", { kind: "Compaction", frame_id: "s-compact", before: 1000, after: 150, strategy: "manual", epoch });
+        w.__tauriEmit("agent", { kind: "Usage", frame_id: "s-compact", round: 0, model: "mock", created_at: 1,
+          input: 0, output: 0, reasoning: 0, cached: 0, ctx_tokens: 150, max_context: 1000,
+          context_usage: { system_prompt: 40, tool_definitions: 20, rules: 10, skills: 10,
+            mcp_dynamic_tools: 0, subagent_definitions: 0, conversation: 70 } });
+        w.__tauriEmit("agent", { kind: "Done", frame_id: "s-compact", stop_reason: "compact" });
+      }, 40);
+      return "s-compact";
+    };
+  }, options);
+}
+
+for (const locale of ["en", "zh"]) {
+  test(`transcript switch adapts to pane width and preserves keyboard and panel state (${locale})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await openCompactedSession(page, compactionPayload(), locale);
+    const toggle = page.getByTestId("transcript-view-toggle");
+    const full = page.getByTestId("transcript-view-full");
+    const model = page.getByTestId("transcript-view-model");
+    const label = full.locator(".transcript-view-label");
+    await expect(label).toBeVisible();
+    await expect(full).toHaveAccessibleName(locale === "zh" ? "完整记录" : "Full transcript");
+    await expect(model).toHaveAccessibleName(locale === "zh" ? "模型视角" : "Model view");
+    await expect(full).toHaveAttribute("aria-pressed", "true");
+    await toggle.screenshot({ path: test.info().outputPath(`switch-${locale}-wide.png`) });
+
+    // The pane can shrink while the desktop window remains wide (e.g. a split).
+    await page.locator(".center").evaluate(el => { (el as HTMLElement).style.maxWidth = "680px"; });
+    await expect(label).toBeHidden();
+    expect((await toggle.boundingBox())!.width).toBeLessThanOrEqual(72);
+    await page.locator(".center").evaluate(el => { (el as HTMLElement).style.removeProperty("max-width"); });
+    await expect(label).toBeVisible();
+
+    for (const width of [1100, 760]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(label).toBeHidden();
+      await expect(full).toHaveAttribute("aria-pressed", "true");
+      const toolbar = await page.locator(".topbar").boundingBox();
+      const bounds = await toggle.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(toolbar!.x);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(toolbar!.x + toolbar!.width);
+    }
+    await full.focus();
+    await page.keyboard.press("Tab");
+    await expect(model).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(model).toHaveAttribute("aria-pressed", "true");
+    await expect(full).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
+    await toggle.screenshot({ path: test.info().outputPath(`switch-${locale}-compact.png`) });
+    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+    await toggle.screenshot({ path: test.info().outputPath(`switch-${locale}-compact-dark.png`) });
+
+    await page.getByTestId("context-usage-trigger").click();
+    const panelToggle = page.getByTestId("context-usage-view-toggle");
+    await expect(panelToggle.locator(".transcript-view-label").first()).toBeVisible();
+    await expect(page.getByTestId("context-usage-view-model")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("context-usage-view-full").click();
+    await expect(full).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "false");
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await expect(label).toBeVisible();
+    await expect(full).toHaveAttribute("aria-pressed", "true");
+  });
 }
 
 test("compaction row expands the checkpoint and Escape closes only that layer", async ({ page }) => {
@@ -241,6 +338,19 @@ for (const automatic of [false, true]) {
   });
 }
 
+test("a visible model view refreshes after compaction without falling back to full history", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.getByTestId("transcript-view-model").click();
+  await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
+  await expect(page.getByTestId("context-checkpoint-row")).toContainText("Folded older turns.");
+  await publishCompaction(page);
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("transcript-view-model")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
+  await expect(page.getByTestId("context-checkpoint-row")).toContainText("Folded older turns.");
+  await expect(page.locator(".thread").getByText("first question", { exact: true })).toHaveCount(0);
+});
+
 test("a late compaction snapshot cannot overwrite a later undo", async ({ page }) => {
   await openCompactedSession(page, compactionPayload({ epoch: 2 }));
   await page.evaluate(() => {
@@ -268,4 +378,41 @@ test("a late context refresh cannot alter another conversation", async ({ page }
   await page.waitForTimeout(900);
   await expect(page.getByTestId("context-compaction-flag")).toHaveCount(0);
   await expect(page.getByTestId("context-usage-epoch")).toHaveCount(0);
+});
+
+test("slash compact opens a guided locked flow and reveals the compacted model context", async ({ page }) => {
+  await openCompactedSession(page);
+  await wireManualCompaction(page);
+  const composer = page.locator("#composer-input");
+  await composer.fill("/compact preserve the QC thresholds and blockers");
+  await composer.press("Enter");
+  const modal = page.getByTestId("compact-modal");
+  await expect(modal).toBeVisible();
+  await expect(page.getByTestId("compact-instruction")).toHaveValue("preserve the QC thresholds and blockers");
+  await page.getByTestId("compact-start").click();
+  await expect(page.getByTestId("compact-progress")).toBeVisible();
+  await expect(page.getByTestId("compact-close")).toHaveCount(0);
+  await expect(page.getByTestId("compact-cancel")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__compactInstruction)).toBe(
+    "/compact preserve the QC thresholds and blockers",
+  );
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
+  await expect(page.getByTestId("context-checkpoint-row")).toContainText("New context after manual compaction.");
+  await page.getByTestId("context-usage-trigger").click();
+  await expect(page.getByTestId("context-usage-panel")).toContainText("150");
+  await expect(page.getByTestId("context-usage-epoch")).toContainText("Epoch 2");
+});
+
+test("context usage compact button opens the same instruction dialog", async ({ page }) => {
+  await openCompactedSession(page, compactionPayload(), "zh");
+  await page.getByTestId("context-usage-trigger").click();
+  await page.getByTestId("context-usage-compact-header").click();
+  await expect(page.getByTestId("compact-modal")).toBeVisible();
+  await expect(page.getByTestId("compact-instruction")).toHaveValue("");
+  await expect(page.getByTestId("compact-modal")).toContainText("压缩上下文");
+  await page.getByTestId("compact-cancel").click();
+  await expect(page.getByTestId("compact-modal")).toHaveCount(0);
 });
