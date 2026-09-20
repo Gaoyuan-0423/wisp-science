@@ -936,6 +936,50 @@ fn context_view_keeps_system_and_checkpoint_rows() {
 }
 
 #[test]
+fn context_view_does_not_promote_tombstoned_completions_to_assistant() {
+    let tombstone = "[compacted; full content archived at wisp-history:abc — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]";
+    let items = messages_to_context_view_items(&[
+        wisp_llm::Message::system("sys"),
+        wisp_llm::Message::user("plan the preprint"),
+        wisp_llm::Message::assistant("outline"),
+        wisp_llm::Message::tool("call-1", "attempt_completion", tombstone),
+        wisp_llm::Message::user("later"),
+        wisp_llm::Message::tool("call-2", "read", tombstone),
+        wisp_llm::Message::assistant("tail"),
+    ]);
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| (
+                item.role.as_str(),
+                item.kind.as_deref(),
+                item.tool_name.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("system", Some("system"), None),
+            ("user", None, None),
+            ("assistant", None, None),
+            ("tool", Some("tombstone"), Some("attempt_completion")),
+            ("user", None, None),
+            ("tool", Some("tombstone"), Some("read")),
+            ("assistant", None, None),
+        ]
+    );
+    assert!(items
+        .iter()
+        .all(|item| item.role != "assistant" || item.text != tombstone));
+    let transcript = messages_to_items(&[wisp_llm::Message::tool(
+        "call-1",
+        "attempt_completion",
+        tombstone,
+    )]);
+    assert_eq!(transcript.len(), 1);
+    assert_eq!(transcript[0].role, "assistant");
+    assert_eq!(transcript[0].text, tombstone);
+}
+
+#[test]
 fn ssh_artifact_uri_maps_to_execution_context_and_remote_path() {
     assert_eq!(
         parse_ssh_artifact_uri("ssh://CPU/home/xzg/results.tar.gz"),

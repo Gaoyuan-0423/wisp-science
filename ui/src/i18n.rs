@@ -2526,6 +2526,8 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
             Some("Not in the current context; represented by the summary")
         }
         (Locale::En, "chat.context_system") => Some("System prompt"),
+        (Locale::En, "chat.context_tombstone") => Some("Archived tool result"),
+        (Locale::En, "chat.context_tombstone_named") => Some("Archived {name}"),
         (Locale::En, "chat.context_view_loading") => Some("Loading model context…"),
         (Locale::En, "chat.context_view_changed") => Some("The context changed while loading. Retry to see the latest epoch."),
         (Locale::En, "msg.usage") => Some("{in} in · {out} out tokens"),
@@ -5262,6 +5264,8 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "chat.view_model") => Some("模型视角"),
         (Locale::Zh, "chat.out_of_context") => Some("不在当前上下文，已由摘要代表"),
         (Locale::Zh, "chat.context_system") => Some("系统提示词"),
+        (Locale::Zh, "chat.context_tombstone") => Some("已归档的工具输出"),
+        (Locale::Zh, "chat.context_tombstone_named") => Some("已归档 · {name}"),
         (Locale::Zh, "chat.context_view_loading") => Some("正在加载模型上下文…"),
         (Locale::Zh, "chat.context_view_changed") => Some("加载期间上下文发生了变化，请重试以查看最新纪元。"),
         (Locale::Zh, "msg.usage") => Some("输入 {in} · 输出 {out} tokens"),
@@ -6772,6 +6776,27 @@ mod queue_label_tests {
     fn context_usage_dock_and_resize_labels_exist_in_both_locales() {
         assert_eq!(t(Locale::En, "chat.view_model"), "Model view");
         assert_eq!(t(Locale::Zh, "chat.view_model"), "模型视角");
+        assert_eq!(
+            t(Locale::En, "chat.context_tombstone"),
+            "Archived tool result"
+        );
+        assert_eq!(t(Locale::Zh, "chat.context_tombstone"), "已归档的工具输出");
+        assert_eq!(
+            tf(
+                Locale::En,
+                "chat.context_tombstone_named",
+                &[("name", "read")]
+            ),
+            "Archived read"
+        );
+        assert_eq!(
+            tf(
+                Locale::Zh,
+                "chat.context_tombstone_named",
+                &[("name", "read")]
+            ),
+            "已归档 · read"
+        );
         assert_eq!(t(Locale::En, "context_usage.dock"), "Dock panel");
         assert_eq!(t(Locale::Zh, "context_usage.dock"), "停靠面板");
         assert_eq!(t(Locale::En, "context_usage.resize"), "Resize panel");

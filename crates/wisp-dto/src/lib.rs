@@ -493,7 +493,32 @@ pub enum ChatItem {
     Checkpoint(String),
 }
 
+/// Prefix of archive-backed tool tombstones written into the model context.
+/// Keep in lockstep with `wisp_core::context::TOMBSTONE_PREFIX`.
+pub const CONTEXT_TOMBSTONE_PREFIX: &str = "[compacted;";
+
+/// Archive pointer inside a tool tombstone, when the standard compact wording
+/// is present.
+pub fn context_tombstone_archive_ref(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix(CONTEXT_TOMBSTONE_PREFIX)?;
+    let rest = rest
+        .trim_start()
+        .strip_prefix("full content archived at ")?;
+    rest.split(" — ")
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
 impl ChatItem {
+    pub fn is_context_tombstone(&self) -> bool {
+        match self {
+            Self::Tool { output, .. } => output.starts_with(CONTEXT_TOMBSTONE_PREFIX),
+            Self::Assistant { text, .. } => text.starts_with(CONTEXT_TOMBSTONE_PREFIX),
+            _ => false,
+        }
+    }
+
     pub fn compaction(
         before: usize,
         after: usize,
@@ -830,6 +855,26 @@ mod fingerprint_tests {
             ChatItem::User(a).fingerprint(),
             ChatItem::User(b).fingerprint()
         );
+    }
+
+    #[test]
+    fn context_tombstone_detects_archived_tool_bodies() {
+        let text = "[compacted; full content archived at wisp-history:abc — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]";
+        assert_eq!(
+            context_tombstone_archive_ref(text),
+            Some("wisp-history:abc")
+        );
+        assert!(ChatItem::Tool {
+            name: "attempt_completion".into(),
+            ok: Some(true),
+            input: String::new(),
+            output: text.into(),
+            started_at_ms: None,
+            duration_ms: None,
+        }
+        .is_context_tombstone());
+        assert!(assistant(text.into()).is_context_tombstone());
+        assert!(!assistant("kept answer".into()).is_context_tombstone());
     }
 }
 

@@ -49,7 +49,11 @@ After a compact, earlier bubbles stay on the full transcript but are dimmed
 (`data-in-context="false"`) with a tooltip that they are represented by the
 summary. **Full transcript | Model view** in the conversation header (and the
 context-usage panel) switches the thread to the head epoch the model sees:
-folded system prompt, the checkpoint, and the kept tail. Model view is
+folded system prompt, the checkpoint, and the kept tail. Prune-only compaction
+keeps those user and assistant turns in place and replaces old tool bodies
+with collapsed **Archived tool result** rows instead of fake assistant
+bubbles; it does not wrap process steps in the transcript's Processed
+disclosure. Model view is
 read-only — rewind, branch, edit, and explore stay on the full transcript.
 New turns appear after that epoch's retained context, including live answers
 and tool steps. Completing a turn refreshes the saved working set even when
