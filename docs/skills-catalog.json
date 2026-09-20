@@ -169,6 +169,14 @@
   },
   {
     "group": "extension",
+    "id": "computer-use",
+    "title_zh": "操作桌面应用",
+    "title_en": "Desktop app interaction",
+    "summary_zh": "通过 Cua Driver 查看窗口、操作桌面应用与系统对话框，并核验结果；需安装并连接驱动，授予相应系统权限。",
+    "summary_en": "Use Cua Driver to inspect windows, operate desktop apps and native dialogs, and verify results; requires an installed, connected driver and the relevant OS permissions."
+  },
+  {
+    "group": "extension",
     "id": "skill-creator",
     "title_zh": "创建与验证技能",
     "title_en": "Skill creation",
