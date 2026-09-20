@@ -1850,6 +1850,15 @@ pub(crate) async fn queued_turn_action(
             let mut q = rt.queued.lock().unwrap();
             swap_queued_toward(&mut q, id, action == "move_up");
         }
+        // Interrupt-and-replace from a queued row: jump the item to the front so
+        // the caller's `stop_agent` hands the freed session straight to it.
+        "move_front" => {
+            let mut q = rt.queued.lock().unwrap();
+            if let Some(i) = q.iter().position(|it| it.id == id) {
+                let item = q.remove(i);
+                q.insert(0, item);
+            }
+        }
         other => return Err(format!("unknown queued action: {other}")),
     }
     Ok(())
