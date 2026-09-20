@@ -2,9 +2,11 @@
 
 import builtins
 import copy
+import inspect
 import io
 import json
 import sys
+import tempfile
 import traceback
 import types
 import unittest
@@ -203,6 +205,64 @@ class FigureStyleLoadingTests(unittest.TestCase):
             self.assertFalse(matplotlib.rcParams["axes.unicode_minus"])
             self.assertEqual(matplotlib.rcParams["backend"], "existing-backend")
             matplotlib.use.assert_not_called()
+
+
+class SavePanelCropsTests(unittest.TestCase):
+    """QA crops are inspection debris: they stay out of the output tree and
+    one pass never accumulates on the last."""
+
+    def setUp(self):
+        self.helpers = load_sidecar("figure-style")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.figure = Path(self.temp.name) / "figures" / "figure.png"
+        self.figure.parent.mkdir()
+        self.figure.write_bytes(b"png")
+        self.out_dir = Path(self.temp.name) / ".cache" / "figure-style"
+
+    def save(self, boxes):
+        # Pillow is not a test dependency; a stub records what would be cropped.
+        saved = {}
+
+        class FakeImage:
+            def __enter__(inner):
+                return inner
+
+            def __exit__(inner, *exc):
+                return False
+
+            def crop(inner, box):
+                return types.SimpleNamespace(
+                    save=lambda path: saved.__setitem__(path, box))
+
+        pil = types.ModuleType("PIL")
+        pil.Image = types.SimpleNamespace(open=lambda path: FakeImage())
+        with patch.dict(sys.modules, {"PIL": pil, "PIL.Image": pil.Image}):
+            paths = self.helpers["save_panel_crops"](
+                str(self.figure), boxes, out_dir=str(self.out_dir))
+        return paths, saved
+
+    def test_crops_land_in_scratch_not_beside_the_figure(self):
+        paths, saved = self.save({"a": (0, 0, 5, 5), "b": (5, 0, 10, 5)})
+        self.assertEqual(set(paths), {"a", "b"})
+        self.assertEqual(saved[paths["a"]], (0, 0, 5, 5))
+        for path in paths.values():
+            self.assertEqual(Path(path).parent, self.out_dir)
+        self.assertEqual([p.name for p in self.figure.parent.iterdir()],
+                         ["figure.png"])
+        # The default is what the skill's QA snippet relies on: scratch, not
+        # a folder inside the figures directory.
+        default = inspect.signature(
+            self.helpers["save_panel_crops"]).parameters["out_dir"].default
+        self.assertEqual(default, ".cache/figure-style")
+
+    def test_each_pass_replaces_the_previous_crops(self):
+        self.out_dir.mkdir(parents=True)
+        stale = self.out_dir / "z.png"
+        stale.write_bytes(b"old")
+        paths, _ = self.save({"a": (0, 0, 5, 5)})
+        self.assertFalse(stale.exists())
+        self.assertEqual(list(paths), ["a"])
 
 
 if __name__ == "__main__":
