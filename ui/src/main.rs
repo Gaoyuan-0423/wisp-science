@@ -1258,6 +1258,11 @@ fn App() -> impl IntoView {
     let compact_instruction = create_rw_signal(String::new());
     let compact_busy = create_rw_signal(false);
     let compact_error = create_rw_signal::<Option<String>>(None);
+    // Set only when the dialog was opened from the context-limit recovery
+    // offer: that flow promises "compact and continue", so the interrupted
+    // turn still has to resume once the new epoch is durable. Cancelling the
+    // dialog clears it.
+    let compact_resume = create_rw_signal::<Option<String>>(None);
     let open_compact_dialog = Callback::new(move |(id, instruction): (String, String)| {
         if id.trim().is_empty() || compact_busy.get_untracked() {
             return;
@@ -1271,6 +1276,7 @@ fn App() -> impl IntoView {
             compact_dialog.set(None);
             compact_instruction.set(String::new());
             compact_error.set(None);
+            compact_resume.set(None);
         }
     });
     let start_compact_dialog = Callback::new(move |(id, instruction): (String, String)| {
@@ -5322,7 +5328,29 @@ fn App() -> impl IntoView {
         }
         context_recovery_dialog.set(None);
         context_recovery_error.set(None);
+        compact_resume.set(Some(id.clone()));
         open_compact_dialog.call((id, String::new()));
+    });
+
+    // The guided dialog only rewrites the model context. A compaction that
+    // started from the recovery offer closes the dialog on its Done event with
+    // the flag still set, and continues the interrupted turn from there.
+    create_effect(move |_| {
+        if compact_dialog.get().is_some() {
+            return;
+        }
+        let Some(id) = compact_resume.get() else {
+            return;
+        };
+        compact_resume.set(None);
+        if active_session.get_untracked().as_deref() != Some(id.as_str()) {
+            return;
+        }
+        if let Some(index) =
+            items.with_untracked(|rows| rows.iter().rposition(is_error_assistant))
+        {
+            resume_turn(index);
+        }
     });
 
     let new_session_context_recovery = Callback::new(move |source_id: String| {

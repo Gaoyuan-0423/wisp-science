@@ -14886,6 +14886,11 @@ test("context-limit recovery offers three actions and owns the first Escape", as
 
   await emitTauriEvent(page, "agent", overflow);
   await page.getByTestId("context-recovery-compact").click();
+  // The offer hands off to the guided dialog, but "compact and continue" still
+  // owes the user the continue: the interrupted turn resumes once the new
+  // epoch is durable.
+  await expect(page.getByTestId("compact-modal")).toBeVisible();
+  await page.getByTestId("compact-start").click();
   await expect.poll(async () => {
     const calls = await invokeArgsList(page, "send_message");
     return calls.some((args) => args.message === "/compact")
