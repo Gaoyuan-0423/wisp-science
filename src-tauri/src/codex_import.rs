@@ -26,7 +26,9 @@ const PREVIEW_MESSAGE_CHARS: usize = 600;
 const METADATA_PREFIX_BYTES: u64 = 32 * 1024;
 const CODEX_TITLE_PREVIEW_BYTES: usize = 8 * 1024;
 const CODEX_TITLE_SEARCH_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_METADATA_FRAME_BYTES: u64 = METADATA_PREFIX_BYTES + CODEX_TITLE_PREVIEW_BYTES as u64 + 1;
+const CODEX_METADATA_HINT_BYTES: u64 = 128;
+const MAX_METADATA_FRAME_BYTES: u64 =
+    METADATA_PREFIX_BYTES + CODEX_TITLE_PREVIEW_BYTES as u64 + CODEX_METADATA_HINT_BYTES;
 const MAX_SCAN_FILES: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -377,6 +379,85 @@ fn parse_jsonl(provider: ImportProvider, jsonl: &str) -> ParsedSession {
     }
 }
 
+/// Return the first real user message from a Codex record. Codex has emitted
+/// this in both `response_item` message records and older `event_msg` records;
+/// the import parser keeps the canonical response items, while metadata uses
+/// this helper so a title remains available when the response item is outside
+/// a bounded preview window.
+fn codex_user_message_text(value: &serde_json::Value) -> Option<String> {
+    let kind = value.get("type").and_then(serde_json::Value::as_str)?;
+    let payload = value.get("payload")?;
+    match kind {
+        "response_item"
+            if payload.get("type").and_then(serde_json::Value::as_str) == Some("message")
+                && payload.get("role").and_then(serde_json::Value::as_str) == Some("user") =>
+        {
+            payload.get("content").map(content_text)
+        }
+        "event_msg"
+            if payload.get("type").and_then(serde_json::Value::as_str) == Some("user_message") =>
+        {
+            payload
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        }
+        "event_msg"
+            if payload.get("type").and_then(serde_json::Value::as_str)
+                == Some("item_completed") =>
+        {
+            let item = payload.get("item")?;
+            if item.get("type").and_then(serde_json::Value::as_str) != Some("UserMessage") {
+                return None;
+            }
+            item.get("content").map(content_text).or_else(|| {
+                item.get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Codex desktop wraps some user turns with generated plugin, workspace, and
+/// attachment context. Those wrappers belong to the transcript, but they are
+/// not useful as the short title shown in the import list.
+fn codex_title_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    let has_request_marker = text.contains("## My request:");
+    let candidate = text
+        .split_once("## My request:")
+        .map(|(_, request)| request)
+        .unwrap_or(text);
+    let candidate = candidate
+        .split_once("\n<image name=")
+        .map(|(request, _)| request)
+        .or_else(|| {
+            candidate
+                .split_once("<image name=")
+                .map(|(request, _)| request)
+        })
+        .unwrap_or(candidate)
+        .trim();
+    if candidate.is_empty() {
+        return None;
+    }
+    if !has_request_marker
+        && (text.contains("<recommended_plugins>")
+            || text.contains("<environment_context>")
+            || text.contains("<multi_agent_role>")
+            || text.contains("<multi_agent_mode>")
+            || text.contains("<skills_instructions>")
+            || text.contains("<user_instructions>")
+            || text.contains("AGENTS.md instructions")
+            || text.starts_with("# Files mentioned by the user:"))
+    {
+        return None;
+    }
+    Some(candidate.chars().take(120).collect())
+}
+
 fn scan_session_files(provider: ImportProvider, root: &Path) -> Vec<PathBuf> {
     let mut walker = walkdir::WalkDir::new(root).min_depth(1);
     if provider == ImportProvider::Claude {
@@ -443,39 +524,32 @@ fn read_bounded_jsonl(path: &Path) -> Result<String, String> {
 }
 
 fn read_metadata_preview(provider: ImportProvider, path: &Path) -> Result<String, String> {
+    if provider == ImportProvider::Codex {
+        // A Codex session_meta line can contain the full instruction bundle,
+        // and the first real prompt commonly follows a large developer line.
+        // Read complete JSONL records up to the title search budget instead of
+        // cutting the byte stream in the middle of the first records.
+        let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut reader = BufReader::new(file);
+        let mut bytes = Vec::new();
+        let mut line = Vec::new();
+        while (bytes.len() as u64) < CODEX_TITLE_SEARCH_BYTES {
+            line.clear();
+            let read = reader
+                .read_until(b'\n', &mut line)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&line);
+        }
+        return Ok(String::from_utf8_lossy(&bytes).into_owned());
+    }
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut bytes = vec![];
     file.take(METADATA_PREFIX_BYTES)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    if provider == ImportProvider::Codex {
-        let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut reader = BufReader::new(file.take(CODEX_TITLE_SEARCH_BYTES));
-        let mut line = vec![];
-        while reader
-            .read_until(b'\n', &mut line)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            > 0
-        {
-            let is_user_event = [
-                b"\"type\":\"event_msg\"".as_slice(),
-                b"\"type\":\"user_message\"".as_slice(),
-            ]
-            .into_iter()
-            .all(|needle| line.windows(needle.len()).any(|window| window == needle));
-            if is_user_event
-                && std::str::from_utf8(&line)
-                    .ok()
-                    .and_then(codex_event_title)
-                    .is_some()
-            {
-                bytes.push(b'\n');
-                bytes.extend(line.iter().take(CODEX_TITLE_PREVIEW_BYTES));
-                break;
-            }
-            line.clear();
-        }
-    }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -491,8 +565,15 @@ fn metadata_from_parsed(
     let title = parsed
         .messages
         .iter()
-        .find(|message| message.role == Role::User && !message.text.trim().is_empty())
-        .map(|message| message.text.trim().chars().take(120).collect::<String>())
+        .filter(|message| message.role == Role::User)
+        .find_map(|message| {
+            if provider == ImportProvider::Codex {
+                codex_title_text(&message.text)
+            } else {
+                (!message.text.trim().is_empty())
+                    .then(|| message.text.trim().chars().take(120).collect::<String>())
+            }
+        })
         .or_else(|| {
             supplemental_title
                 .filter(|title| !title.trim().is_empty() && !is_noise_user_text(title))
@@ -526,18 +607,130 @@ fn metadata_from_parsed(
 fn codex_event_title(jsonl: &str) -> Option<String> {
     jsonl.lines().find_map(|line| {
         let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
-        if value.get("type").and_then(serde_json::Value::as_str) != Some("event_msg") {
-            return None;
-        }
-        let payload = value.get("payload")?;
-        if payload.get("type").and_then(serde_json::Value::as_str) != Some("user_message") {
-            return None;
-        }
-        payload
-            .get("message")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
+        codex_user_message_text(&value).and_then(|text| codex_title_text(&text))
     })
+}
+
+fn codex_message_count_hint(jsonl: &str) -> Option<usize> {
+    jsonl.lines().find_map(|line| {
+        let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        (value.get("type").and_then(serde_json::Value::as_str) == Some("wisp_metadata"))
+            .then(|| {
+                value
+                    .get("message_count")
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .flatten()
+            .and_then(|count| usize::try_from(count).ok())
+    })
+}
+
+/// Scan a local Codex rollout without retaining its transcript in memory.
+/// Metadata must cover the complete file: a prefix is insufficient for the
+/// message count once the initial instruction bundle grows beyond the prefix.
+fn metadata_from_codex_file(
+    path: &Path,
+    stamp: &FileStamp,
+) -> Result<Option<SessionMetadata>, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    let mut session_id = String::new();
+    let mut cwd = String::new();
+    let mut first_user = None;
+    let mut created_at_ms = 0;
+    let mut last_active_at_ms = 0;
+    let mut message_count = 0_usize;
+
+    loop {
+        line.clear();
+        if reader
+            .read_line(&mut line)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            == 0
+        {
+            break;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        let ts_ms = timestamp_ms(value.get("timestamp"));
+        match value.get("type").and_then(serde_json::Value::as_str) {
+            Some("session_meta") => {
+                let payload = value
+                    .get("payload")
+                    .filter(|p| p.is_object())
+                    .unwrap_or(&value);
+                if let Some(id) = payload.get("id").and_then(serde_json::Value::as_str) {
+                    session_id = id.to_string();
+                }
+                if let Some(value) = payload.get("cwd").and_then(serde_json::Value::as_str) {
+                    cwd = value.to_string();
+                }
+            }
+            Some("response_item") => {
+                let payload = value
+                    .get("payload")
+                    .filter(|p| p.is_object())
+                    .unwrap_or(&value);
+                if value.get("payload").is_some()
+                    && payload.get("type").and_then(serde_json::Value::as_str) != Some("message")
+                {
+                    continue;
+                }
+                let role = match payload.get("role").and_then(serde_json::Value::as_str) {
+                    Some("user") => Role::User,
+                    Some("assistant") => Role::Assistant,
+                    _ => continue,
+                };
+                let text = payload.get("content").map(content_text).unwrap_or_default();
+                if text.trim().is_empty() || (role == Role::User && is_noise_user_text(&text)) {
+                    continue;
+                }
+                message_count += 1;
+                if role == Role::User && first_user.is_none() {
+                    first_user = codex_title_text(&text);
+                }
+            }
+            _ => {}
+        }
+        if ts_ms > 0 {
+            if created_at_ms == 0 {
+                created_at_ms = ts_ms;
+            }
+            last_active_at_ms = last_active_at_ms.max(ts_ms);
+        }
+        if first_user.is_none() {
+            if let Some(text) =
+                codex_user_message_text(&value).and_then(|text| codex_title_text(&text))
+            {
+                first_user = Some(text);
+            }
+        }
+    }
+
+    if session_id.is_empty() {
+        return Ok(None);
+    }
+    let title = first_user
+        .or_else(|| {
+            cwd.rsplit(['/', '\\'])
+                .find(|part| !part.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| ImportProvider::Codex.frame_name().to_string());
+    Ok(Some(SessionMetadata {
+        session_id,
+        title,
+        cwd,
+        message_count,
+        created_at_ms,
+        last_active_at_ms: if last_active_at_ms > 0 {
+            last_active_at_ms
+        } else {
+            stamp.modified_at_ms
+        },
+    }))
 }
 
 fn metadata_from_jsonl(
@@ -548,12 +741,18 @@ fn metadata_from_jsonl(
     let supplemental_title = (provider == ImportProvider::Codex)
         .then(|| codex_event_title(jsonl))
         .flatten();
-    metadata_from_parsed(
+    let mut metadata = metadata_from_parsed(
         provider,
         &parse_jsonl(provider, jsonl),
         stamp,
         supplemental_title.as_deref(),
-    )
+    )?;
+    if provider == ImportProvider::Codex {
+        if let Some(count) = codex_message_count_hint(jsonl) {
+            metadata.message_count = count;
+        }
+    }
+    Some(metadata)
 }
 
 fn metadata_from_cache(record: &ExternalSessionCacheRecord) -> SessionMetadata {
@@ -598,6 +797,18 @@ fn cache_record(
     }
 }
 
+fn cached_title_is_fallback(record: &ExternalSessionCacheRecord) -> bool {
+    let cwd_name = record.cwd.rsplit(['/', '\\']).find(|part| !part.is_empty());
+    record.title.trim() == "Codex" || cwd_name.is_some_and(|name| record.title.trim() == name)
+}
+
+fn cached_metadata_needs_repair(record: &ExternalSessionCacheRecord) -> bool {
+    record.provider == "codex"
+        && (record.message_count <= 0
+            || record.title.trim().is_empty()
+            || cached_title_is_fallback(record))
+}
+
 fn candidates_from_stamps(
     provider: ImportProvider,
     stamps: Vec<FileStamp>,
@@ -612,14 +823,29 @@ fn candidates_from_stamps(
         .filter_map(|stamp| {
             let previous = cached.get(stamp.path.as_str()).copied();
             if let Some(record) = previous.filter(|record| {
-                record.file_size == stamp.size && record.modified_at_ms == stamp.modified_at_ms
+                record.file_size == stamp.size
+                    && record.modified_at_ms == stamp.modified_at_ms
+                    && !cached_metadata_needs_repair(record)
             }) {
                 return Some(candidate_from_cache(record));
             }
-            let metadata = read_metadata_preview(provider, Path::new(&stamp.path))
-                .ok()
-                .and_then(|jsonl| metadata_from_jsonl(provider, &jsonl, &stamp))
-                .or_else(|| previous.map(metadata_from_cache))?;
+            let metadata = if provider == ImportProvider::Codex
+                && stamp.size <= CONTEXT_ROLLOUT_MAX_BYTES as i64
+            {
+                metadata_from_codex_file(Path::new(&stamp.path), &stamp)
+                    .ok()
+                    .flatten()
+                    .or_else(|| {
+                        read_metadata_preview(provider, Path::new(&stamp.path))
+                            .ok()
+                            .and_then(|jsonl| metadata_from_jsonl(provider, &jsonl, &stamp))
+                    })
+            } else {
+                read_metadata_preview(provider, Path::new(&stamp.path))
+                    .ok()
+                    .and_then(|jsonl| metadata_from_jsonl(provider, &jsonl, &stamp))
+            }
+            .or_else(|| previous.map(metadata_from_cache))?;
             Some(SessionCandidate {
                 path: stamp.path,
                 file_size: stamp.size,
@@ -700,13 +926,25 @@ else
   metadata=$(
   awk '
     NR == 1 {{ print substr($0, 1, {METADATA_PREFIX_BYTES}) }}
-    index($0, "\"type\":\"event_msg\"") && index($0, "\"type\":\"user_message\"") {{
+    (index($0, "\"type\":\"event_msg\"") && index($0, "\"type\":\"user_message\"") \
+      || index($0, "\"type\":\"response_item\"") && index($0, "\"role\":\"user\"")) {{
       print substr($0, 1, {CODEX_TITLE_PREVIEW_BYTES})
       exit
     }}
   ' "$file" 2>/dev/null
 )
 fi
+message_count=$(
+  awk '
+    /"type":"response_item"/ && /"type":"message"/ && ( /"role":"user"/ || /"role":"assistant"/ ) {{
+      if ( /"role":"user"/ && (index($0, "<environment_context>") || index($0, "AGENTS.md instructions") || index($0, "<user_instructions>")) ) next
+      count++
+    }}
+    END {{ print count + 0 }}
+  ' "$file" 2>/dev/null
+)
+case "$message_count" in ''|*[!0-9]*) message_count=0 ;; esac
+metadata=$(printf '%s\n{{"type":"wisp_metadata","message_count":%s}}' "$metadata" "$message_count")
 prefix=${{#metadata}}
 case "$prefix" in ''|*[!0-9]*) continue ;; esac
 if [ "$prefix" -gt {MAX_METADATA_FRAME_BYTES} ]; then continue; fi
@@ -965,9 +1203,11 @@ fn parse_context_metadata(
             modified_at_ms,
         };
         let previous = cached.get(path.as_str()).copied();
-        if let Some(record) = previous
-            .filter(|record| record.file_size == size && record.modified_at_ms == modified_at_ms)
-        {
+        if let Some(record) = previous.filter(|record| {
+            record.file_size == size
+                && record.modified_at_ms == modified_at_ms
+                && !cached_metadata_needs_repair(record)
+        }) {
             candidates.push(candidate_from_cache(record));
             cursor = end;
             continue;
@@ -1001,13 +1241,15 @@ fn context_candidates_with_runner(
         .iter()
         .map(|record| (record.source_path.as_str(), record))
         .collect::<HashMap<_, _>>();
-    if stamps.iter().all(|stamp| {
-        cache.get(stamp.path.as_str()).is_some_and(|record| {
-            stamped
-                && record.file_size == stamp.size
-                && record.modified_at_ms == stamp.modified_at_ms
+    if !cached.iter().any(cached_metadata_needs_repair)
+        && stamps.iter().all(|stamp| {
+            cache.get(stamp.path.as_str()).is_some_and(|record| {
+                stamped
+                    && record.file_size == stamp.size
+                    && record.modified_at_ms == stamp.modified_at_ms
+            })
         })
-    }) {
+    {
         return Ok(stamps
             .iter()
             .filter_map(|stamp| cache.get(stamp.path.as_str()).copied())
@@ -1328,7 +1570,11 @@ async fn list_sessions(
         .list_external_session_cache(&context_id, provider.cache_name())
         .await
         .map_err(|e| e.to_string())?;
-    if !refresh.unwrap_or(false) && !cached.is_empty() {
+    // Older scans could only see the instruction prefix and persisted a
+    // zero-message, directory-name placeholder. Rebuild those entries once
+    // the complete metadata scanner is available.
+    let needs_cache_repair = cached.iter().any(cached_metadata_needs_repair);
+    if !refresh.unwrap_or(false) && !cached.is_empty() && !needs_cache_repair {
         return Ok(list_candidates(
             provider,
             &state.store,
@@ -1649,6 +1895,23 @@ mod tests {
     }
 
     #[test]
+    fn codex_title_strips_generated_request_wrappers() {
+        let wrapped = concat!(
+            "<recommended_plugins>\n- GitHub\n</recommended_plugins>\n",
+            "# Files mentioned by the user:\n- screenshot.png\n",
+            "## My request:\n修复导入标题并增加搜索\n",
+            "<image name=[Image #1] path=\"screenshot.png\">\n</image>"
+        );
+        assert_eq!(
+            codex_title_text(wrapped).as_deref(),
+            Some("修复导入标题并增加搜索")
+        );
+        assert!(
+            codex_title_text("<recommended_plugins>\n- GitHub\n</recommended_plugins>").is_none()
+        );
+    }
+
+    #[test]
     fn parses_claude_text_tools_and_meta_lines() {
         let parsed = parse_claude_jsonl(CLAUDE_JSONL);
         assert_eq!(parsed.session_id, "claude-abc");
@@ -1662,6 +1925,22 @@ mod tests {
         assert_eq!(parsed.messages[2].tool_call_id.as_deref(), Some("tool-1"));
         assert_eq!(parsed.messages[2].tool_name.as_deref(), Some("Read"));
         assert_eq!(parsed.messages[2].text, "file contents");
+    }
+
+    #[test]
+    fn metadata_message_count_hint_survives_a_bounded_prefix() {
+        let stamp = FileStamp {
+            path: "/home/me/.codex/sessions/2026/05/rollout-hinted.jsonl".into(),
+            size: 1,
+            modified_at_ms: 2,
+        };
+        let jsonl = format!(
+            "{}\n{{\"type\":\"wisp_metadata\",\"message_count\":17}}",
+            CODEX_JSONL.lines().next().unwrap()
+        );
+        let metadata = metadata_from_jsonl(ImportProvider::Codex, &jsonl, &stamp).unwrap();
+        assert_eq!(metadata.session_id, "codex-abc");
+        assert_eq!(metadata.message_count, 17);
     }
 
     struct FakeProbeRunner {
@@ -1913,6 +2192,59 @@ mod tests {
         assert_eq!(candidates[0].metadata.session_id, "large-header");
         assert_eq!(candidates[0].metadata.title, "Real prompt");
         assert!(candidates[0].changed_since_import);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn local_metadata_counts_current_codex_messages_after_large_context() {
+        let dir =
+            std::env::temp_dir().join(format!("codex_current_metadata_{}", uuid::Uuid::new_v4()));
+        let sessions = dir.join("2026/09/21");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let path = sessions.join("rollout-current.jsonl");
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "timestamp": "2026-09-21T10:00:00Z",
+            "payload": {
+                "id": "current-metadata",
+                "cwd": "C:/work/project",
+                "instructions": "x".repeat(40 * 1024),
+            }
+        });
+        let user = serde_json::json!({
+            "type": "response_item",
+            "timestamp": "2026-09-21T10:01:00Z",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Find the root tip"}],
+            }
+        });
+        let assistant = serde_json::json!({
+            "type": "response_item",
+            "timestamp": "2026-09-21T10:02:00Z",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "I found it."}],
+            }
+        });
+        std::fs::write(&path, format!("{header}\n{user}\n{assistant}\n")).unwrap();
+
+        let candidates = local_candidates(ImportProvider::Codex, &dir, &[]);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].metadata.session_id, "current-metadata");
+        assert_eq!(candidates[0].metadata.title, "Find the root tip");
+        assert_eq!(candidates[0].metadata.message_count, 2);
+
+        // Repair an unchanged file whose old prefix-only scan was cached.
+        let mut stale = cache_record("local", ImportProvider::Codex, &candidates[0]);
+        stale.title = "project".into();
+        stale.message_count = 0;
+        let repaired = local_candidates(ImportProvider::Codex, &dir, &[stale]);
+        assert_eq!(repaired[0].metadata.title, "Find the root tip");
+        assert_eq!(repaired[0].metadata.message_count, 2);
 
         let _ = std::fs::remove_dir_all(dir);
     }

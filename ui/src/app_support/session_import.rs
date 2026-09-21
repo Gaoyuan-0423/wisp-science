@@ -80,6 +80,7 @@ pub(crate) fn SessionImportModal(
     let items = create_rw_signal(Vec::<ExternalSessionInfo>::new());
     let source_contexts = create_rw_signal(Vec::<ExecutionContext>::new());
     let selected_context_id = create_rw_signal("local".to_string());
+    let query = create_rw_signal(String::new());
     let scan_error = create_rw_signal(None::<String>);
     let scan_epoch = create_rw_signal(0_u64);
     let page = create_rw_signal(0_usize);
@@ -135,6 +136,7 @@ pub(crate) fn SessionImportModal(
     create_effect(move |_| {
         if let Some(provider) = open.get() {
             selected_context_id.set("local".into());
+            query.set(String::new());
             source_contexts.set(vec![]);
             refresh(provider, "local".into(), false);
             spawn_local(async move {
@@ -271,8 +273,7 @@ pub(crate) fn SessionImportModal(
     move || {
         let provider = open.get()?;
         let pending_paths = move || {
-            items
-                .get()
+            matching_sessions(items.get(), &query.get())
                 .into_iter()
                 .filter(|item| item.state != "imported")
                 .map(|item| item.path)
@@ -343,6 +344,19 @@ pub(crate) fn SessionImportModal(
                             </button>
                         </div>
                     </div>
+                    <label class="codex-import-search">
+                        {compose_icon("search")}
+                        <input
+                            type="search"
+                            aria-label=move || t(locale.get(), "codex.search")
+                            placeholder=move || t(locale.get(), "codex.search_placeholder")
+                            prop:value=move || query.get()
+                            on:input=move |ev| {
+                                query.set(event_target_value(&ev));
+                                page.set(0);
+                            }
+                        />
+                    </label>
                     {move || import_progress.get().map(|(done, total)| {
                         let notice = import_notice.get();
                         let failed = notice.as_ref().is_some_and(|(_, failed)| *failed);
@@ -374,9 +388,14 @@ pub(crate) fn SessionImportModal(
                             if let Some(error) = scan_error.get() {
                                 return view! { <div class="codex-import-error" role="alert">{error}</div> }.into_view();
                             }
-                            let list = items.get();
+                            let list = matching_sessions(items.get(), &query.get());
                             if list.is_empty() {
-                                return view! { <div class="side-hint">{t(loc, provider.empty_key())}</div> }.into_view();
+                                let empty_key = if query.get().trim().is_empty() {
+                                    provider.empty_key()
+                                } else {
+                                    "codex.no_matches"
+                                };
+                                return view! { <div class="side-hint">{t(loc, empty_key)}</div> }.into_view();
                             }
                             let page_count = list.len().div_ceil(CLI_IMPORT_PAGE_SIZE);
                             let current_page = page.get().min(page_count.saturating_sub(1));
@@ -488,6 +507,29 @@ pub(crate) fn SessionImportModal(
             </div>
         })
     }
+}
+
+fn matching_sessions(
+    items: Vec<ExternalSessionInfo>,
+    query: &str,
+) -> Vec<ExternalSessionInfo> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return items;
+    }
+    items
+        .into_iter()
+        .filter(|item| {
+            [
+                item.title.as_str(),
+                item.cwd.as_str(),
+                item.session_id.as_str(),
+                item.path.as_str(),
+            ]
+            .into_iter()
+            .any(|value| value.to_lowercase().contains(&query))
+        })
+        .collect()
 }
 
 /// Last two path components — enough to recognize a project directory without
