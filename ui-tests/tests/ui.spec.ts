@@ -11247,6 +11247,8 @@ test("composer plan stays visible through folded tools, live updates and session
   await expect(strip).toContainText("Plan completed");
   await expect(strip).toContainText("3 / 3 completed");
   await expect(strip.locator(".composer-plan-current")).toHaveCount(0);
+  await expect(strip.getByTestId("composer-plan-dismiss")).toBeVisible();
+  await expect(strip.getByTestId("composer-plan-steps")).toHaveCount(0);
   await emitTauriEvent(page, "agent", { kind: "User", frame_id: "s-model-a", text: "A new task" });
   await expect(strip).toHaveCount(0);
 });
@@ -11271,6 +11273,50 @@ test("composer plan supports Chinese, cancelled steps and narrow light/dark layo
     content: "[x] 检查输入数据\n[-] 停止分析\n[-] 可选对照分析" });
   await expect(strip).toContainText("计划已结束");
   await expect(strip).not.toHaveClass(/is-complete/);
+  await expect(strip.getByTestId("composer-plan-dismiss")).toHaveCount(0);
+});
+
+test("composer plan expands the checklist and dismisses a completed plan", async ({ page }) => {
+  await enterApp(page, "/?mockSessionModels=1");
+  await page.locator('[data-session-id="s-model-a"]').click();
+  await composer(page).fill("PLANPROGRESS");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishPlanProgress)).toBe("function");
+  const strip = page.getByTestId("composer-plan-progress");
+  const update = async (content: string) => {
+    await emitTauriEvent(page, "agent", { kind: "ToolCall", frame_id: "s-model-a", name: "update_plan", preview: "Plan update" });
+    await emitTauriEvent(page, "agent", { kind: "ToolResult", frame_id: "s-model-a", name: "update_plan", ok: true, content });
+  };
+  await update("[x] Inspect data\n[~] Check barcode alignment\n[ ] Verify results");
+  await expect(strip.getByTestId("composer-plan-dismiss")).toHaveCount(0);
+  await expect(strip.getByTestId("composer-plan-toggle")).toHaveAttribute("aria-expanded", "false");
+  await strip.getByTestId("composer-plan-toggle").click();
+  const steps = strip.getByTestId("composer-plan-steps");
+  await expect(steps).toBeVisible();
+  await expect(strip.getByTestId("composer-plan-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(steps.locator("li")).toHaveCount(3);
+  await expect(steps.locator("li").nth(1)).toHaveAttribute("data-status", "running");
+  await expect(steps.locator("li").nth(1)).toContainText("Check barcode alignment");
+  await expect(strip.locator(".composer-plan-current")).toHaveCount(0);
+  await strip.getByTestId("composer-plan-toggle").click();
+  await expect(steps).toHaveCount(0);
+  await expect(strip).toBeVisible();
+  await expect(strip.getByTestId("composer-plan-toggle")).toHaveAttribute("aria-expanded", "false");
+  await strip.getByTestId("composer-plan-toggle").click();
+  await expect(steps.locator("li")).toHaveCount(3);
+  await update("[x] Inspect data\n[x] Check barcode alignment\n[x] Verify results");
+  await expect(strip).toContainText("Plan completed");
+  await expect(steps.locator("li")).toHaveCount(3);
+  await expect(steps.locator("li").last()).toHaveAttribute("data-status", "done");
+  const dismiss = strip.getByTestId("composer-plan-dismiss");
+  await expect(dismiss).toBeVisible();
+  await dismiss.click();
+  await expect(strip).toHaveCount(0);
+  await update("[x] Inspect data\n[x] Check barcode alignment\n[x] Verify results\n[~] Write summary");
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText("3 / 4 completed");
+  await expect(strip.getByTestId("composer-plan-dismiss")).toHaveCount(0);
+  await expect(strip.getByTestId("composer-plan-steps")).toHaveCount(0);
 });
 
 test("execution plan shows real steps and keeps tool metadata in details", async ({ page }) => {
