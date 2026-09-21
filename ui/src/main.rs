@@ -11655,7 +11655,19 @@ fn App() -> impl IntoView {
                         } else {
                             center_conversation_title.get()
                         }
-                        on:click=move |_| center_file.set(None)>
+                        on:click=move |_| center_file.set(None)
+                        on:dblclick=move |ev: web_sys::MouseEvent| {
+                            if demo_mode.get_untracked() {
+                                return;
+                            }
+                            let Some(id) = active_session.get_untracked() else {
+                                return;
+                            };
+                            ev.prevent_default();
+                            let title = center_conversation_title.get_untracked();
+                            rename_session_input.set(title.clone());
+                            rename_session_target.set(Some((id, title)));
+                        }>
                         <span class="center-tab-label">{move || if demo_mode.get() {
                             t(locale.get(), "projects.example").into()
                         } else {

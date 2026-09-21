@@ -3696,6 +3696,31 @@ test("rename session modal autofocuses so Ctrl+A selects the title", async ({ pa
   )).toBe(true);
 });
 
+test("double-clicking the conversation tab renames the session", async ({ page }) => {
+  await page.addInitScript(parallelMock);
+  await page.goto("/");
+  await page.locator(".proj-card-main").first().click();
+  await expect(newSessionButton(page)).toBeVisible();
+
+  await composer(page).fill("tab-rename-me");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(assistantReplyQuoting(page, "tab-rename-me")).toBeVisible({ timeout: 10_000 });
+
+  const tab = page.locator(".center-tab").first();
+  await tab.dblclick();
+  const input = page.locator("#rename-session-input");
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue("tab-rename-me");
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+
+  await tab.dblclick();
+  await input.fill("Renamed from tab");
+  await input.press("Enter");
+  await expect(tab).toContainText("Renamed from tab");
+  await expect(page.locator(".side-item.ses", { hasText: "Renamed from tab" })).toBeVisible();
+});
+
 test("renaming a fresh session takes effect before its first message (#888)", async ({ page }) => {
   await page.addInitScript(parallelMock);
   await page.goto("/");
