@@ -1086,6 +1086,8 @@
   "已将 {name} 添加到 Motif": "Added {name} to Motif",
   "已将 {name} 登记为产物": "Registered {name} as an artifact",
   "已归档": "Archived",
+  "已归档 · {name}": "Archived {name}",
+  "已归档的工具输出": "Archived tool result",
   "已恢复默认模式": "Default mode enabled",
   "已打开认证终端。请在终端中完成登录，然后重试 ACP 会话。": "Authentication terminal opened. Complete sign-in there, then retry the ACP session.",
   "已执行 1 步": "Ran 1 step",

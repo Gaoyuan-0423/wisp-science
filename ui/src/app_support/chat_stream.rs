@@ -686,6 +686,20 @@ mod start_user_turn_tests {
     }
 
     #[test]
+    fn context_tombstones_are_not_folded_into_tool_activity() {
+        let tombstone = ChatItem::Tool {
+            name: "read".into(),
+            ok: Some(true),
+            input: String::new(),
+            output: "[compacted; full content archived at wisp-history:abc — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]".into(),
+            started_at_ms: None,
+            duration_ms: None,
+        };
+        assert!(tombstone.is_context_tombstone());
+        assert!(!is_tool_activity(&tombstone));
+    }
+
+    #[test]
     fn completed_activity_folds_until_the_final_answer() {
         let assistant = |text: &str| ChatItem::Assistant {
             text: text.into(),
@@ -1018,6 +1032,9 @@ pub(crate) fn is_video_generation_tool(name: &str) -> bool {
 }
 
 pub(crate) fn is_tool_activity(item: &ChatItem) -> bool {
+    if item.is_context_tombstone() {
+        return false;
+    }
     match item {
         ChatItem::Tool { name, .. } => {
             name != "attempt_completion"

@@ -422,7 +422,7 @@
 @media (prefers-reduced-motion: reduce) {
   .transcript-view-toggle::before, .transcript-view-toggle button { transition: none; }
 }
-.context-system-row, .context-checkpoint-row {
+.context-system-row, .context-checkpoint-row, .context-tombstone-row {
   min-width: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45;
 }
 .context-system-row summary { cursor: pointer; color: var(--text-faint); font-size: 12px; }
@@ -432,6 +432,21 @@
   font-size: 12px; line-height: 1.45;
 }
 .context-checkpoint-label { color: var(--text-faint); font-size: 11px; margin-bottom: 4px; }
+.context-tombstone-row summary {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  color: var(--text-faint); font-size: 12px; line-height: 1.4;
+}
+.context-tombstone-row summary svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.context-tombstone-name { color: var(--text-muted); }
+.context-tombstone-ref {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: var(--text-faint);
+}
+.context-tombstone-body {
+  margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--bg-elev); color: var(--text-muted); white-space: pre-wrap;
+  font-size: 12px; line-height: 1.45;
+}
 .context-usage-epoch {
   margin-top: 10px; color: var(--text-muted); font-size: 12px; line-height: 1.4;
 }

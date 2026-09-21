@@ -1344,7 +1344,15 @@ fn messages_to_items_with(msgs: &[wisp_llm::Message], mode: MessagesToItemsMode)
             }
             wisp_llm::Role::Tool => {
                 let text = m.content.as_text();
-                if m.tool_name.as_deref() == Some("attempt_completion") {
+                let tombstone = text.starts_with(wisp_core::context::TOMBSTONE_PREFIX);
+                // The live transcript promotes a completion result to the
+                // visible answer. Model view must not: after prune, that body
+                // is an archive tombstone, and promoting it forges a fake
+                // assistant bubble. Keep the tool row so the UI can render a
+                // compact archived marker instead.
+                if m.tool_name.as_deref() == Some("attempt_completion")
+                    && !(mode == MessagesToItemsMode::ContextView && tombstone)
+                {
                     if !text.trim().is_empty() {
                         out.push(UiItem {
                             role: "assistant".into(),
@@ -1418,7 +1426,11 @@ fn messages_to_items_with(msgs: &[wisp_llm::Message], mode: MessagesToItemsMode)
                 } else {
                     out.push(UiItem {
                         role: "tool".into(),
-                        text: bounded_ui_tool_result(m.tool_name.as_deref().unwrap_or(""), &text),
+                        text: if tombstone {
+                            text
+                        } else {
+                            bounded_ui_tool_result(m.tool_name.as_deref().unwrap_or(""), &text)
+                        },
                         tool_name: m.tool_name.clone(),
                         ok: Some(true),
                         duration_ms: None,
@@ -1429,7 +1441,7 @@ fn messages_to_items_with(msgs: &[wisp_llm::Message], mode: MessagesToItemsMode)
                             .cloned(),
                         model_name: None,
                         call_id: None,
-                        kind: None,
+                        kind: tombstone.then(|| "tombstone".into()),
                         status: None,
                         locations: None,
                         resources: Vec::new(),

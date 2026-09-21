@@ -172,6 +172,9 @@ pub(crate) struct CompletedRunCards {
 /// True for items whose `render_item` produces an empty view, so the thread
 /// loop can drop their wrapper `<div>` and avoid a dangling `.thread` gap (#19).
 pub(crate) fn renders_nothing(item: &ChatItem) -> bool {
+    if item.is_context_tombstone() {
+        return false;
+    }
     matches!(item, ChatItem::Assistant { text, .. } if text.trim().is_empty())
         || matches!(item, ChatItem::Tool { name, .. } if name == "attempt_completion")
         || matches!(item, ChatItem::FileChanged(_))
@@ -184,6 +187,7 @@ pub(crate) fn class_for(item: &ChatItem) -> &'static str {
         ChatItem::User(_) => "msg user",
         ChatItem::QueuedUser { .. } => "msg user queued",
         ChatItem::Assistant { text, .. } if text.starts_with("Error: ") => "tool-wrap",
+        item if item.is_context_tombstone() => "msg context-tombstone-row",
         ChatItem::Assistant { .. } => "msg assistant",
         ChatItem::BranchMerge { .. } => "branch-merge-card-row",
         ChatItem::Reasoning(_) => "msg reasoning",
@@ -209,6 +213,38 @@ pub(crate) fn class_for(item: &ChatItem) -> &'static str {
         ChatItem::System(_) => "msg system context-system-row",
         ChatItem::Checkpoint(_) => "msg checkpoint context-checkpoint-row",
     }
+}
+
+fn render_context_tombstone(item: &ChatItem, locale: ReadSignal<Locale>) -> View {
+    let (name, body) = match item {
+        ChatItem::Tool { name, output, .. } => (name.clone(), output.clone()),
+        ChatItem::Assistant { text, .. } => (String::new(), text.clone()),
+        _ => return view! {}.into_view(),
+    };
+    let archive = context_tombstone_archive_ref(&body)
+        .unwrap_or("")
+        .to_string();
+    let named = !name.is_empty() && name != "attempt_completion";
+    view! {
+        <details class="context-tombstone-row" data-testid="context-tombstone-row">
+            <summary>
+                {compose_icon("archive")}
+                <span class="context-tombstone-name">{move || {
+                    let loc = locale.get();
+                    if named {
+                        tf(loc, "chat.context_tombstone_named", &[("name", &name)])
+                    } else {
+                        t(loc, "chat.context_tombstone").to_string()
+                    }
+                }}</span>
+                {(!archive.is_empty()).then(|| view! {
+                    <code class="context-tombstone-ref">{archive.clone()}</code>
+                })}
+            </summary>
+            <pre class="context-tombstone-body">{body}</pre>
+        </details>
+    }
+    .into_view()
 }
 
 /// "482" below 1k, "12.3k" above — same scale the status bar uses.
@@ -416,6 +452,23 @@ mod token_format_tests {
                 structured_preview: None,
             }
         )));
+        let tombstone = "[compacted; full content archived at wisp-history:abc — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]";
+        assert!(renders_nothing(&ChatItem::Tool {
+            name: "attempt_completion".into(),
+            ok: Some(true),
+            input: String::new(),
+            output: "final report".into(),
+            started_at_ms: None,
+            duration_ms: None,
+        }));
+        assert!(!renders_nothing(&ChatItem::Tool {
+            name: "attempt_completion".into(),
+            ok: Some(true),
+            input: String::new(),
+            output: tombstone.into(),
+            started_at_ms: None,
+            duration_ms: None,
+        }));
     }
 
     #[test]
@@ -2323,6 +2376,7 @@ pub(crate) fn render_item(
         }
         .into_view(),
         ChatItem::QueuedUser { .. } => view! {}.into_view(),
+        item if item.is_context_tombstone() => render_context_tombstone(item, locale),
         ChatItem::Assistant { text, .. } if text.trim().is_empty() => view! {}.into_view(),
         ChatItem::Assistant { text, .. } if text.starts_with("Error: ") => {
             let msg = text

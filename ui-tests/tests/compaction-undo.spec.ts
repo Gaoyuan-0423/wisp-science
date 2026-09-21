@@ -466,6 +466,39 @@ test("compaction immediately replaces old occupancy before another Usage event",
   await expect(page.getByTestId("context-usage-trigger")).toContainText("25%");
 });
 
+test("model view renders prune tombstones as archived rows instead of assistant bubbles", async ({ page }) => {
+  await openCompactedSession(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    const tombstone = "[compacted; full content archived at wisp-history:550b23285f0042bfab0f08fb95bf12e7 — retrieve only narrow ranges with read/grep; do not load the whole archive back into context]";
+    w.__contextView = [
+      { role: "system", text: "You are wisp-science", kind: "system" },
+      { role: "user", text: "plan the preprint" },
+      { role: "assistant", text: "We will rewrite the outline." },
+      { role: "tool", tool_name: "attempt_completion", text: tombstone, kind: "tombstone", ok: true },
+      { role: "user", text: "title and dataset" },
+      { role: "tool", tool_name: "read", text: tombstone, kind: "tombstone", ok: true },
+      { role: "assistant", text: "Which server should we use?" },
+    ];
+  });
+  await page.getByTestId("transcript-view-model").click();
+  const thread = page.locator(".thread");
+  await expect(page.getByTestId("context-system-row")).toBeVisible();
+  await expect(thread.getByText("We will rewrite the outline.")).toBeVisible();
+  await expect(thread.getByText("Which server should we use?")).toBeVisible();
+  await expect(page.getByTestId("context-tombstone-row")).toHaveCount(2);
+  await expect(page.getByTestId("context-tombstone-row").first()).toContainText("Archived tool result");
+  await expect(page.getByTestId("context-tombstone-row").last()).toContainText("Archived read");
+  await expect(page.getByTestId("context-tombstone-row").first()).toContainText("wisp-history:550b23285f0042bfab0f08fb95bf12e7");
+  const answers = thread.locator(".msg.assistant");
+  await expect(answers).toHaveCount(2);
+  await expect(answers.nth(0)).not.toContainText("[compacted;");
+  await expect(answers.nth(1)).not.toContainText("[compacted;");
+  await expect(thread.locator(".activity-summary")).toHaveCount(0);
+  await page.getByTestId("context-tombstone-row").first().locator("summary").click();
+  await expect(page.getByTestId("context-tombstone-row").first()).toContainText("retrieve only narrow ranges");
+});
+
 test("model view renders epoch tool rows and streams continued chat from the same source", async ({ page }) => {
   await openCompactedSession(page);
   await page.evaluate(() => {

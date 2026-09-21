@@ -5414,8 +5414,7 @@ fn App() -> impl IntoView {
         if active_session.get_untracked().as_deref() != Some(id.as_str()) {
             return;
         }
-        if let Some(index) =
-            items.with_untracked(|rows| rows.iter().rposition(is_error_assistant))
+        if let Some(index) = items.with_untracked(|rows| rows.iter().rposition(is_error_assistant))
         {
             resume_turn(index);
         }
@@ -12599,7 +12598,8 @@ fn App() -> impl IntoView {
                             // The model working set is already bounded by its
                             // context window. Never inherit the full transcript's
                             // paging offset and hide this epoch's checkpoint.
-                            let window = if model_view.get() {
+                            let model_view_on = model_view.get();
+                            let window = if model_view_on {
                                 0..list.len()
                             } else {
                                 transcript_render_window(list, requested_start, TRANSCRIPT_RENDER_TURNS).0
@@ -12607,7 +12607,12 @@ fn App() -> impl IntoView {
                             let mut i = window.start;
                             while i < window.end {
                                 if renders_nothing(&list[i]) { i += 1; continue; }
-                                if let Some(end) = completed_activity_end(list, i, busy_now) {
+                                // Processed folding is transcript narrative.
+                                // Model view keeps the raw working-set order.
+                                if let Some(end) = (!model_view_on)
+                                    .then(|| completed_activity_end(list, i, busy_now))
+                                    .flatten()
+                                {
                                     let start = i;
                                     let mut indices: Vec<usize> = Vec::new();
                                     for j in i..end {
