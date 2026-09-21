@@ -1763,6 +1763,8 @@ fn App() -> impl IntoView {
     // renamed or overwritten still lingers and 404s on click (#41). Ask the
     // backend which referenced files are gone and drop them from the list.
     let missing_paths = create_rw_signal(std::collections::HashSet::<String>::new());
+    let workspace_path_liveness = create_rw_signal(WorkspacePathLiveness::default());
+    provide_context(workspace_path_liveness.read_only());
     let artifact_file_paths = create_memo(move |_| {
         artifacts_all.with(|artifacts| {
             artifacts
@@ -1774,17 +1776,61 @@ fn App() -> impl IntoView {
                 .collect::<Vec<_>>()
         })
     });
+    let workspace_path_candidates = create_memo(move |_| {
+        let _ = active_session.get();
+        let _ = transcript_projection_epoch.get();
+        let _ = busy.get();
+        let root = project_info
+            .get()
+            .map(|project| project.root)
+            .unwrap_or_default();
+        let mut paths = artifact_file_paths.get();
+        if root.is_empty() {
+            return paths;
+        }
+        let mut seen = paths.iter().cloned().collect::<HashSet<_>>();
+        items.with_untracked(|list| {
+            for path in collect_chat_workspace_paths(list, &root) {
+                if seen.insert(path.clone()) {
+                    paths.push(path);
+                }
+            }
+        });
+        paths
+    });
+    let path_check_gen = Rc::new(Cell::new(0u64));
     create_effect(move |_| {
-        let paths = artifact_file_paths.get();
+        let paths = workspace_path_candidates.get();
+        let gen = path_check_gen.get().wrapping_add(1);
+        path_check_gen.set(gen);
         if paths.is_empty() {
-            missing_paths.set(std::collections::HashSet::new());
+            if !missing_paths.get_untracked().is_empty() {
+                missing_paths.set(HashSet::new());
+            }
+            if workspace_path_liveness.get_untracked() != WorkspacePathLiveness::default() {
+                workspace_path_liveness.set(WorkspacePathLiveness::default());
+            }
             return;
         }
+        let path_check_gen = Rc::clone(&path_check_gen);
         spawn_local(async move {
-            let arg = to_value(&serde_json::json!({ "paths": paths })).unwrap();
+            let arg = to_value(&serde_json::json!({ "paths": paths.clone() })).unwrap();
             let v = invoke("missing_files", arg).await;
+            if gen != path_check_gen.get() {
+                return;
+            }
             if let Ok(m) = serde_wasm_bindgen::from_value::<Vec<String>>(v) {
-                missing_paths.set(m.into_iter().collect());
+                let missing = m.into_iter().collect::<HashSet<_>>();
+                let next = WorkspacePathLiveness {
+                    checked: paths.into_iter().collect(),
+                    missing: missing.clone(),
+                };
+                if missing_paths.get_untracked() != missing {
+                    missing_paths.set(missing);
+                }
+                if workspace_path_liveness.get_untracked() != next {
+                    workspace_path_liveness.set(next);
+                }
             }
         });
     });
@@ -8923,13 +8969,15 @@ fn App() -> impl IntoView {
                 return;
             }
             if action == "openWorkspaceFileCenter" {
-                let tab = CenterFileTab::from_path(payload.clone());
-                center_files.update(|files| {
-                    if !files.iter().any(|file| file.path == payload) {
-                        files.push(tab.clone());
-                    }
+                confirm_workspace_file_open(payload.clone(), move || {
+                    let tab = CenterFileTab::from_path(payload.clone());
+                    center_files.update(|files| {
+                        if !files.iter().any(|file| file.path == payload) {
+                            files.push(tab.clone());
+                        }
+                    });
+                    center_file.set(Some(payload));
                 });
-                center_file.set(Some(payload));
                 return;
             }
             if action == "closeCenterCurrent" {

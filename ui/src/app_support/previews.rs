@@ -216,8 +216,29 @@ pub(crate) async fn load_file_content(
     match result {
         Ok(v) => serde_wasm_bindgen::from_value::<FileContent>(v)
             .map_err(|_| tf(loc, "err.file_not_found", &[("path", path)])),
-        Err(err_value) => Err(localize_backend(loc, &js_error_text(err_value))),
+        Err(err_value) => Err(preview_open_error(loc, &js_error_text(err_value))),
     }
+}
+
+pub(crate) fn preview_open_error(locale: Locale, raw: &str) -> String {
+    let localized = localize_backend(locale, raw);
+    if is_file_missing_message(raw) || is_file_missing_message(&localized) {
+        t(locale, "preview.unresolved_chat_path")
+    } else {
+        localized
+    }
+}
+
+fn is_file_missing_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("os error 2")
+        || lower.contains("os error 3")
+        || lower.contains("no such file")
+        || lower.contains("the system cannot find the file")
+        || lower.contains("cannot find the path")
+        || message.contains("找不到指定的文件")
+        || message.contains("系统找不到")
+        || lower.contains("is not an existing file")
 }
 
 fn preview_truncation_note(fc: &FileContent, shown_len: usize, locale: Locale) -> Option<String> {
@@ -641,6 +662,32 @@ mod image_pin_tests {
             note: String::new(),
         };
         assert_eq!(pin_marker_style(&corner), "left:0.0000%;top:100.0000%");
+    }
+}
+
+#[cfg(test)]
+mod preview_open_error_tests {
+    use super::{preview_open_error, Locale};
+
+    #[test]
+    fn maps_os_file_not_found_to_sidebar_hint() {
+        let zh = preview_open_error(Locale::Zh, "系统找不到指定的文件。 (os error 2)");
+        assert_eq!(zh, "该文件路径没有正确渲染，请通过侧边栏打开。");
+        let en = preview_open_error(
+            Locale::En,
+            "The system cannot find the file specified. (os error 2)",
+        );
+        assert_eq!(
+            en,
+            "This file path could not be opened from the message. Open it from the sidebar instead."
+        );
+    }
+
+    #[test]
+    fn leaves_unrelated_backend_errors_intact() {
+        let msg = preview_open_error(Locale::En, "file exceeds 1024 byte limit");
+        assert!(msg.contains("file exceeds"), "{msg}");
+        assert!(!msg.contains("sidebar"), "{msg}");
     }
 }
 
