@@ -16441,6 +16441,15 @@ test("Ctrl+P imports Codex conversations from local, WSL, or SSH without rescann
   await expect.poll(() => lastInvokeArgs(page, "list_codex_sessions"))
     .toMatchObject({ contextId: "local", refresh: true });
 
+  const search = modal.getByRole("searchbox", { name: "Search conversations" });
+  await search.fill("renderer");
+  await expect(modal.locator(".codex-import-row")).toHaveCount(1);
+  await expect(modal.locator(".codex-import-title")).toHaveText("Fix the renderer crash");
+  await search.fill("does-not-exist");
+  await expect(modal.locator(".codex-import-row")).toHaveCount(0);
+  await expect(modal).toContainText("No conversations match this search");
+  await search.fill("");
+
   // The already-imported rollout renders disabled; the new one is actionable.
   await expect(modal.locator(".codex-import-row.imported").getByRole("button", { name: "Imported" })).toBeDisabled();
   const targetRow = modal
