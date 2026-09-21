@@ -13725,7 +13725,7 @@ fn App() -> impl IntoView {
                     />
                 })}
                 {move || (!demo_mode.get()).then(|| view! {
-                    <ComposerPlanProgress items=items busy=busy />
+                    <ComposerPlanProgress items=items busy=busy session_id=active_session />
                     <SessionRuntimeStrip
                         locale=locale
                         execution_contexts=execution_contexts

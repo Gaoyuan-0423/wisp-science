@@ -998,14 +998,22 @@ button.tool-btn.card-copy { margin-left: auto; flex: 0 0 auto; padding: 2px 8px;
 .approval-actions button:hover { filter: brightness(0.97); }
 
 /* The current plan stays visible outside the scrolling/folded transcript. */
-.composer-plan-progress { position: relative; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; max-width: var(--chat-col-max); width: 100%; box-sizing: border-box; margin: 0 auto 8px; padding: 9px 12px 12px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); color: var(--text); }
+.composer-plan-progress { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 0; flex: 0 0 auto; min-width: 0; max-width: var(--chat-col-max); width: 100%; box-sizing: border-box; margin: 0 auto 8px; padding: 9px 12px 12px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); color: var(--text); }
+.composer-plan-head { display: flex; align-items: stretch; gap: 4px; min-width: 0; }
+.composer-plan-toggle { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: var(--radius-xs); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.composer-plan-toggle:hover { background: var(--surface-hover); }
 .composer-plan-mark { display: flex; flex: 0 0 auto; color: var(--clay-strong); }
-.composer-plan-mark svg { width: 18px; height: 18px; }
+.composer-plan-progress svg { width: 18px; height: 18px; }
 .composer-plan-copy { flex: 1; min-width: 0; }
 .composer-plan-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font-size: 11px; color: var(--text-muted); }
 .composer-plan-label { font-weight: 600; }
 .composer-plan-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 .composer-plan-current { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.5; animation: composer-plan-step-in 220ms ease-out; }
+.composer-plan-toggle .execution-plan-chevron { flex: 0 0 auto; color: var(--text-faint); }
+.composer-plan-dismiss { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--text-muted); cursor: pointer; }
+.composer-plan-dismiss:hover { background: var(--surface-hover); color: var(--text); }
+.composer-plan-dismiss svg { width: 14px; height: 14px; }
+.composer-plan-progress .composer-plan-steps { margin-top: 10px; max-height: min(40vh, 280px); overflow-y: auto; overscroll-behavior: contain; }
 .composer-plan-track { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--border); }
 .composer-plan-track > span { display: block; height: 100%; background: var(--clay); transition: width 360ms ease-out; }
 .composer-plan-progress.is-running .composer-plan-mark { animation: composer-plan-orbit 2.4s linear infinite; }
@@ -1015,6 +1023,10 @@ button.tool-btn.card-copy { margin-left: auto; flex: 0 0 auto; padding: 2px 8px;
 @media (prefers-reduced-motion: reduce) {
   .composer-plan-progress .composer-plan-mark, .composer-plan-current { animation: none !important; }
   .composer-plan-track > span { transition: none; }
+}
+@media (pointer: coarse) {
+  .composer-plan-toggle, .composer-plan-dismiss { min-height: 44px; }
+  .composer-plan-dismiss { width: 44px; }
 }
 
 /* Execution plan snapshots: one checklist, with raw tool data behind disclosure. */

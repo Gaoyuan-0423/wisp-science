@@ -1521,12 +1521,45 @@ fn composer_plan_steps(items: &[ChatItem]) -> Vec<(&'static str, String)> {
     vec![]
 }
 
+fn plan_step_status_key(status: &str) -> &'static str {
+    match status {
+        "done" => "execution_plan.done",
+        "running" => "execution_plan.running",
+        "cancelled" => "execution_plan.cancelled",
+        _ => "execution_plan.pending",
+    }
+}
+
+fn plan_step_icon(status: &str) -> &'static str {
+    match status {
+        "done" => "circle-check",
+        "running" => "activity-orbit",
+        "cancelled" => "circle-minus",
+        _ => "circle",
+    }
+}
+
+fn composer_plan_dismiss_key(session_id: Option<&str>, steps: &[(&str, String)]) -> String {
+    let mut key = session_id.unwrap_or_default().to_string();
+    key.push('\n');
+    for (status, text) in steps {
+        key.push_str(status);
+        key.push('\0');
+        key.push_str(text);
+        key.push('\n');
+    }
+    key
+}
+
 #[component]
 pub(crate) fn ComposerPlanProgress(
     items: RwSignal<Vec<ChatItem>>,
     busy: RwSignal<bool>,
+    session_id: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let locale = use_locale();
+    let open = create_rw_signal(false);
+    let dismissed = create_rw_signal(None::<String>);
     // Equality prevents unrelated token/tool events from restarting animations.
     let steps = create_memo(move |_| items.with(|items| composer_plan_steps(items)));
     let done = create_memo(move |_| {
@@ -1546,30 +1579,78 @@ pub(crate) fn ComposerPlanProgress(
     let animating = create_memo(move |_| {
         busy.get() && current.get().is_some_and(|(status, _)| status == "running")
     });
+    let plan_key = create_memo(move |_| {
+        steps.with(|steps| composer_plan_dismiss_key(session_id.get().as_deref(), steps))
+    });
+    let hidden = create_memo(move |_| dismissed.get().as_deref() == Some(plan_key.get().as_str()));
+    create_effect(move |_| {
+        if total.get() == 0 {
+            open.set(false);
+        }
+    });
     view! {
-        <Show when=move || { total.get() > 0 }>
+        <Show when=move || { total.get() > 0 && !hidden.get() }>
             <section class="composer-plan-progress" data-testid="composer-plan-progress"
                 class:is-running=move || animating.get() class:is-complete=move || complete.get()
+                class:is-open=move || open.get()
                 aria-label=move || t(locale.get(), "execution_plan.title")>
-                <span class="composer-plan-mark" aria-hidden="true">
-                    {move || compose_icon(if complete.get() { "circle-check" } else if animating.get() { "activity-orbit" } else { "plan" })}
-                </span>
-                <div class="composer-plan-copy" role="status" aria-live="polite" aria-atomic="true">
-                    <div class="composer-plan-summary">
-                        <span class="composer-plan-label">{move || t(locale.get(), if complete.get() {
-                            "execution_plan.complete"
-                        } else if current.get().is_none() {
-                            "execution_plan.ended"
-                        } else if !busy.get() {
-                            "execution_plan.idle"
-                        } else { "execution_plan.title" })}</span>
-                        <span class="composer-plan-count">{move || tf(locale.get(), "execution_plan.count", &[("done", &done.get().to_string()), ("total", &total.get().to_string())])}</span>
-                    </div>
-                    <For each=move || { current.get().into_iter().collect::<Vec<_>>() } key=|step| step.clone()
-                        children=move |(_, text)| view! {
-                            <div class="composer-plan-current" title=text.clone()>{text}</div>
-                        } />
+                <div class="composer-plan-head">
+                    <button type="button" class="composer-plan-toggle" data-testid="composer-plan-toggle"
+                        aria-expanded=move || open.get().to_string()
+                        on:click=move |_| open.update(|open| *open = !*open)>
+                        <span class="composer-plan-mark" aria-hidden="true">
+                            {move || compose_icon(if complete.get() { "circle-check" } else if animating.get() { "activity-orbit" } else { "plan" })}
+                        </span>
+                        <div class="composer-plan-copy" role="status" aria-live="polite" aria-atomic="true">
+                            <div class="composer-plan-summary">
+                                <span class="composer-plan-label">{move || t(locale.get(), if complete.get() {
+                                    "execution_plan.complete"
+                                } else if current.get().is_none() {
+                                    "execution_plan.ended"
+                                } else if !busy.get() {
+                                    "execution_plan.idle"
+                                } else { "execution_plan.title" })}</span>
+                                <span class="composer-plan-count">{move || tf(locale.get(), "execution_plan.count", &[("done", &done.get().to_string()), ("total", &total.get().to_string())])}</span>
+                            </div>
+                            <For each=move || {
+                                if open.get() { Vec::new() } else { current.get().into_iter().collect() }
+                            } key=|step| step.clone()
+                                children=move |(_, text)| view! {
+                                    <div class="composer-plan-current" title=text.clone()>{text}</div>
+                                } />
+                        </div>
+                        <span class="execution-plan-chevron" class:expanded=move || open.get() aria-hidden="true">{compose_icon("chevron-right")}</span>
+                    </button>
+                    {move || complete.get().then(|| {
+                        let tip = t(locale.get(), "execution_plan.dismiss");
+                        view! {
+                            <button type="button" class="composer-plan-dismiss" data-testid="composer-plan-dismiss"
+                                title=tip.clone() aria-label=tip
+                                on:click=move |ev| {
+                                    ev.stop_propagation();
+                                    dismissed.set(Some(plan_key.get_untracked()));
+                                    open.set(false);
+                                }>{compose_icon("close")}</button>
+                        }
+                    })}
                 </div>
+                {move || open.get().then(|| {
+                    let rows = steps.get();
+                    view! {
+                        <ol class="execution-plan-list composer-plan-steps" data-testid="composer-plan-steps">
+                            {rows.into_iter().map(|(status, text)| {
+                                let key = plan_step_status_key(status);
+                                view! {
+                                    <li data-status=status>
+                                        <span class="execution-plan-mark" aria-hidden="true">{compose_icon(plan_step_icon(status))}</span>
+                                        <span class="execution-plan-text">{text}</span>
+                                        <span class="execution-plan-status">{move || t(locale.get(), key)}</span>
+                                    </li>
+                                }
+                            }).collect_view()}
+                        </ol>
+                    }
+                })}
                 <div class="composer-plan-track" role="progressbar"
                     aria-label=move || t(locale.get(), "execution_plan.progress")
                     aria-valuemin="0" aria-valuemax=move || total.get().to_string()
@@ -1636,21 +1717,10 @@ fn render_execution_plan(
                             </div>
                             <ol class="execution-plan-list">
                                 {steps.get_value().into_iter().map(|(status, text)| {
-                                    let key = match status {
-                                        "done" => "execution_plan.done",
-                                        "running" => "execution_plan.running",
-                                        "cancelled" => "execution_plan.cancelled",
-                                        _ => "execution_plan.pending",
-                                    };
-                                    let icon = match status {
-                                        "done" => "circle-check",
-                                        "running" => "activity-orbit",
-                                        "cancelled" => "circle-minus",
-                                        _ => "circle",
-                                    };
+                                    let key = plan_step_status_key(status);
                                     view! {
                                         <li data-status=status>
-                                            <span class="execution-plan-mark" aria-hidden="true">{compose_icon(icon)}</span>
+                                            <span class="execution-plan-mark" aria-hidden="true">{compose_icon(plan_step_icon(status))}</span>
                                             <span class="execution-plan-text">{text}</span>
                                             <span class="execution-plan-status">{move || t(locale.get(), key)}</span>
                                         </li>
@@ -1689,7 +1759,7 @@ fn render_execution_plan(
 
 #[cfg(test)]
 mod execution_plan_tests {
-    use super::{composer_plan_steps, execution_plan_data};
+    use super::{composer_plan_dismiss_key, composer_plan_steps, execution_plan_data};
     use crate::dto::ChatItem;
 
     #[test]
@@ -1725,6 +1795,18 @@ mod execution_plan_tests {
         );
         items.push(ChatItem::User("Next task".into()));
         assert!(composer_plan_steps(&items).is_empty());
+    }
+
+    #[test]
+    fn composer_plan_dismiss_key_is_scoped_to_session_and_steps() {
+        let steps = vec![("done", "Inspect".into()), ("done", "Write".into())];
+        let key = composer_plan_dismiss_key(Some("s-a"), &steps);
+        assert_eq!(key, composer_plan_dismiss_key(Some("s-a"), &steps));
+        assert_ne!(key, composer_plan_dismiss_key(Some("s-b"), &steps));
+        assert_ne!(
+            key,
+            composer_plan_dismiss_key(Some("s-a"), &[("done", "Inspect".into())])
+        );
     }
 
     #[test]
