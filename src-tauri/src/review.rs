@@ -399,6 +399,24 @@ pub fn parse_report(raw: &str, reviewer_model: &str) -> Result<ReviewReport, Str
 // ponytail: this heuristic avoids reviewing greetings; replace it with explicit
 // checkpoints only if real sessions show false positives/negatives.
 pub fn should_auto_review(turn: &[Message]) -> bool {
+    // A turn parked on `ask_user` / `propose_plan` is waiting on the user, not
+    // an answer. A failed call lets the loop continue, so only the last
+    // assistant step counts.
+    let awaits_user = turn
+        .iter()
+        .rev()
+        .find(|message| message.role == Role::Assistant)
+        .is_some_and(|message| {
+            message.tool_calls.iter().any(|call| {
+                matches!(
+                    call.function.name.as_str(),
+                    wisp_tools::ask_user::ASK_USER | wisp_tools::plan::PROPOSE_PLAN
+                )
+            })
+        });
+    if awaits_user {
+        return false;
+    }
     let has_tool_result = turn.iter().any(|message| {
         message.role == Role::Tool && message.tool_name.as_deref() != Some("attempt_completion")
     });
@@ -574,6 +592,35 @@ mod tests {
         )]));
         assert!(should_auto_review(&[Message::tool("t1", "python", "42")]));
         assert!(should_auto_review(&[Message::assistant("x".repeat(600))]));
+    }
+
+    #[test]
+    fn auto_review_skips_a_turn_waiting_on_the_user() {
+        for tool in [
+            wisp_tools::ask_user::ASK_USER,
+            wisp_tools::plan::PROPOSE_PLAN,
+        ] {
+            let mut ask = Message::assistant("");
+            ask.tool_calls = vec![wisp_llm::ToolCall {
+                id: "q1".into(),
+                kind: "function".into(),
+                function: wisp_llm::FunctionCall {
+                    name: tool.into(),
+                    arguments: "{}".into(),
+                },
+            }];
+            let lookup = Message::tool("t1", "python", "42");
+            let question = Message::tool("q1", tool, "{}");
+            assert!(
+                !should_auto_review(&[lookup.clone(), ask.clone(), question.clone()]),
+                "{tool}"
+            );
+            // A rejected call keeps the loop going; the final answer is reviewed.
+            assert!(
+                should_auto_review(&[lookup, ask, question, Message::assistant("x".repeat(600))]),
+                "{tool}"
+            );
+        }
     }
 
     #[test]

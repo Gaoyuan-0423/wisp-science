@@ -4803,9 +4803,14 @@ async fn save_memory_enabled(store: &Store, on: bool) -> Result<(), String> {
 
 /// Default for sessions that never touched the composer toggle. The settings
 /// pane writes this one; a session that has its own flag ignores it.
+/// Not the old `auto_review_enabled` key: before #1293 the composer toggle
+/// wrote that one, so reading it would turn review on in every new session
+/// for anyone who ever tried the toggle.
+const DEFAULT_AUTO_REVIEW_KEY: &str = "auto_review_default_enabled";
+
 async fn load_default_auto_review_enabled(store: &Store) -> bool {
     store
-        .get_setting("auto_review_enabled")
+        .get_setting(DEFAULT_AUTO_REVIEW_KEY)
         .await
         .ok()
         .flatten()
@@ -4815,7 +4820,7 @@ async fn load_default_auto_review_enabled(store: &Store) -> bool {
 
 async fn save_default_auto_review_enabled(store: &Store, enabled: bool) -> Result<(), String> {
     store
-        .set_setting("auto_review_enabled", &enabled.to_string())
+        .set_setting(DEFAULT_AUTO_REVIEW_KEY, &enabled.to_string())
         .await
         .map_err(|e| e.to_string())
 }
