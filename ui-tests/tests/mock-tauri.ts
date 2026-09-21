@@ -510,7 +510,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
     { path: "manuscript.docx", is_dir: false, size: 11351 },
     { path: "office-preview.xlsx", is_dir: false, size: 3600 },
     { path: "office-preview.pptx", is_dir: false, size: 8600 },
-  ].map((entry) => ({)
+  ].map((entry) => ({
     ...entry,
     modified_unix_millis: workspaceMtimes[entry.path] ?? FILE_NOW - 30 * 86_400_000,
   }));
