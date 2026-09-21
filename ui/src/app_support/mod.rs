@@ -8,7 +8,7 @@ use crate::bindings::{
     set_highlighted_code, upload_files, upload_input_files, upload_pasted_images,
 };
 use crate::dto::*;
-use crate::i18n::{localize_backend, t, tf, use_locale, Locale};
+use crate::i18n::{document_locale, localize_backend, t, tf, use_locale, Locale};
 use crate::publication::PublicationEvidenceSource;
 use crate::text::{
     decode_href, dom_value, event_target_value, extract_href_from_tag, fasta_seq_count,

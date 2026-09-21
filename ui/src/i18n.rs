@@ -48,6 +48,15 @@ pub fn t(locale: Locale, key: &str) -> String {
     lookup(locale, key).unwrap_or(key).into()
 }
 
+pub fn document_locale() -> Locale {
+    web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+        .and_then(|element| element.get_attribute("lang"))
+        .map(|lang| Locale::from_code(&lang))
+        .unwrap_or_default()
+}
+
 pub fn empty_title(locale: Locale, index: usize) -> String {
     t(
         locale,
@@ -1289,6 +1298,9 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "preview.xlsx_truncated") => Some("Large workbook: only a bounded preview is shown."),
         (Locale::En, "preview.text_truncated") => Some("Large file ({total}): showing the first {shown}."),
         (Locale::En, "preview.unsupported_file") => Some("Preview is not supported for this file type."),
+        (Locale::En, "preview.unresolved_chat_path") => {
+            Some("This file path could not be opened from the message. Open it from the sidebar instead.")
+        }
         (Locale::En, "preview.output_omitted") => Some("Skipped {kind} output ({size}) because it exceeds the preview limit."),
         (Locale::En, "preview.pdf_page") => Some("Page {page} of {total}"),
         (Locale::En, "preview.pdf_prev_page") => Some("Previous page"),
@@ -4148,6 +4160,9 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "preview.xlsx_truncated") => Some("工作簿较大，仅显示受限范围内的预览。"),
         (Locale::Zh, "preview.text_truncated") => Some("文件较大（{total}），仅显示前 {shown}。"),
         (Locale::Zh, "preview.unsupported_file") => Some("不支持预览此文件类型。"),
+        (Locale::Zh, "preview.unresolved_chat_path") => {
+            Some("该文件路径没有正确渲染，请通过侧边栏打开。")
+        }
         (Locale::Zh, "preview.output_omitted") => Some("{kind} 输出大小为 {size}，超过预览限制，已跳过。"),
         (Locale::Zh, "preview.pdf_page") => Some("第 {page} 页，共 {total} 页"),
         (Locale::Zh, "preview.pdf_prev_page") => Some("上一页"),

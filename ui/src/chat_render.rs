@@ -2497,15 +2497,7 @@ pub(crate) fn render_item(
             }.into_view()
         }
         ChatItem::Assistant { text, .. } if compact_assistant => {
-            let project_root = use_context::<ReadSignal<Option<ProjectInfo>>>()
-                .and_then(|project| project.get().map(|project| project.root));
-            let html = enrich_md_html(
-                md_to_html(text),
-                &[],
-                &[],
-                locale.get(),
-                project_root.as_deref(),
-            );
+            let html = enrich_app_markdown(md_to_html(text), &[], &[], locale.get());
             view! {
                 <div class="assistant-wrap">
                     <div class="body md compact-markdown"
@@ -2768,8 +2760,6 @@ pub(crate) fn render_item(
         ChatItem::Plan(plan) => {
             let streaming = plan.state == PlanState::Streaming;
             let entries = plan.entries.clone();
-            let project_root = use_context::<ReadSignal<Option<ProjectInfo>>>()
-                .and_then(|project| project.get().map(|project| project.root));
             view! {
                 <article class="plan-card" class:streaming=streaming
                     class:compat=move || plan_compat.get() data-testid="plan-card">
@@ -2800,12 +2790,11 @@ pub(crate) fn render_item(
                                 PlanStatus::Pending => ("pending", "", "plan.status.pending"),
                             };
                             let high = entry.priority == PlanPriority::High;
-                            let html = enrich_md_html(
+                            let html = enrich_app_markdown(
                                 md_to_html(&entry.content),
                                 &[],
                                 &[],
                                 locale.get(),
-                                project_root.as_deref(),
                             );
                             let entry_artifact = on_artifact.clone();
                             let entry_file = on_file.clone();
@@ -2858,15 +2847,8 @@ pub(crate) fn render_item(
             };
             let request_id_keydown = request_id.clone();
             let request_id_click = request_id.clone();
-            let project_root = use_context::<ReadSignal<Option<ProjectInfo>>>()
-                .and_then(|project| project.get().map(|project| project.root));
-            let question_html = enrich_md_html(
-                md_to_html(&question.question),
-                &[],
-                &[],
-                locale.get(),
-                project_root.as_deref(),
-            );
+            let question_html =
+                enrich_app_markdown(md_to_html(&question.question), &[], &[], locale.get());
             view! {
                 <section class="plan-question-card" data-testid="question-card" data-state=data_state>
                     <div class="plan-question-head">

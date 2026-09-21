@@ -549,6 +549,7 @@ button.run-status:hover { filter:brightness(0.96); }
 .rp-pptx [data-slide-index] { max-width: 100%; }
 .rp-img { max-width: 100%; border-radius: var(--radius-sm); }
 .file-preview-zoom { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; gap: 8px; width: 100%; }
+.file-preview-zoom:has(.rp-error) .file-preview-zoom-bar { display: none; }
 .file-preview-zoom-bar { display: flex; justify-content: center; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 2; }
 .file-preview-zoom-bar button { min-width: 30px; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); background: var(--bg-elev); color: var(--text-muted); border-radius: var(--radius-xs); font: inherit; font-size: 12px; cursor: pointer; }
 .file-preview-zoom-bar button:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }

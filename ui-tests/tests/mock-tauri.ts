@@ -510,6 +510,10 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
     { path: "manuscript.docx", is_dir: false, size: 11351 },
     { path: "office-preview.xlsx", is_dir: false, size: 3600 },
     { path: "office-preview.pptx", is_dir: false, size: 8600 },
+    { path: "notes", is_dir: true, size: 0 },
+    { path: "notes/FIGURE_LEGEND.md", is_dir: false, size: 256 },
+    { path: "results", is_dir: true, size: 0 },
+    { path: "results/new.png", is_dir: false, size: 2048 },
   ].map((entry) => ({
     ...entry,
     modified_unix_millis: workspaceMtimes[entry.path] ?? FILE_NOW - 30 * 86_400_000,
@@ -4648,7 +4652,13 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
             throw new Error("Artifact version bytes not found");
           case "missing_files": {
             const paths = Array.isArray(arg("paths")) ? arg("paths") : [];
-            return paths.filter((p) => String(p).includes("/.pdf") || String(p).includes("\\.pdf"));
+            return paths.filter((value) => {
+              const path = String(value).replaceAll("\\", "/");
+              return path.includes("/.pdf")
+                || path.includes(".cache/")
+                || path === "old.csv"
+                || path.endsWith("/old.csv");
+            });
           }
           case "append_review_note": {
             const src = String(arg("sourcePath") ?? "");
@@ -5950,7 +5960,7 @@ export function tauriMock(fixtures?: { xlsxBase64?: string; pptxBase64?: string;
                 emit("agent", {
                   kind: "Text",
                   frame_id: fid,
-                  delta: "I inspected `old.csv` and created the requested output `new.png`. See `notes/FIGURE_LEGEND.md` and [the results folder](results/).",
+                  delta: "I inspected `old.csv` and created the requested output `new.png`. See `notes/FIGURE_LEGEND.md` and [the results folder](results/). 已删除本次生成的临时放大图（`.cache/Figure-style-rbq.png`）。",
                 });
                 emit("agent", { kind: "Done", frame_id: fid });
               }, 30);
