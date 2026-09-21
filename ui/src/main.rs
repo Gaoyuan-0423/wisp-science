@@ -38,7 +38,8 @@ use agent_workflows::{
 use app_overlays::{
     advance_browser_tab_cleanup, present_browser_needs_human, present_browser_tab_cleanup,
     BrowserNeedsHumanOverlay, BrowserNeedsHumanOverlayState, BrowserTabCleanupOverlay,
-    BrowserTabCleanupOverlayState, CompactOverlay, CompactOverlayState, ContextRecoveryOverlay,
+    BrowserTabCleanupOverlayState, CompactDialogMode, CompactIdlePromptOverlay,
+    CompactIdlePromptOverlayState, CompactOverlay, CompactOverlayState, ContextRecoveryOverlay,
     ContextRecoveryOverlayState, ExternalLinkConfirm, ProjectExportPrompt,
     ProjectExportPromptState, ProjectTransferOverlay, ProjectTransferOverlayState,
     SshConnectivityOverlay, SshConnectivityOverlayState, TurnMemoryOverlay, TurnMemoryOverlayState,
@@ -1114,10 +1115,13 @@ fn App() -> impl IntoView {
             .get()
             .is_some_and(|id| compacting_sessions.with(|sessions| sessions.contains(&id)))
     });
+    let semantic_compact_after_model = create_rw_signal::<Option<String>>(None);
     let switch_http_model = Callback::new(move |(id, dont_ask_again): (String, bool)| {
         provisional_acp_selection.set(None);
         active_acp_agent_id.set(None);
         let session_id = active_session.get_untracked();
+        let auto_semantic = settings.get_untracked().semantic_compact_on_model_switch
+            && items.with_untracked(|rows| !rows.is_empty());
         spawn_local(async move {
             let arg = to_value(&serde_json::json!({
                 "id": id.clone(),
@@ -1131,8 +1135,11 @@ fn App() -> impl IntoView {
                     }
                     if let Some(session_id) = session_id {
                         session_model_ids.update(|models| {
-                            models.insert(session_id, id);
+                            models.insert(session_id.clone(), id);
                         });
+                        if auto_semantic {
+                            semantic_compact_after_model.set(Some(session_id));
+                        }
                     }
                     if dont_ask_again {
                         disable_model_switch_warning();
@@ -1284,29 +1291,37 @@ fn App() -> impl IntoView {
     let context_recovery_dialog = create_rw_signal::<Option<String>>(None);
     let context_recovery_busy = create_rw_signal(false);
     let context_recovery_error = create_rw_signal::<Option<String>>(None);
-    // Manual semantic compaction is a two-step flow: collect an optional
-    // summarization instruction first, then keep the modal locked until the
-    // archive and new context epoch are durable.
+    // Manual compaction is a two-step flow: choose regular prune vs semantic
+    // checkpoint (optional instruction only for semantic), then keep the modal
+    // locked until the archive and new context epoch are durable.
     let compact_dialog = create_rw_signal::<Option<String>>(None);
+    let compact_mode = create_rw_signal(CompactDialogMode::Regular);
     let compact_instruction = create_rw_signal(String::new());
     let compact_busy = create_rw_signal(false);
     let compact_error = create_rw_signal::<Option<String>>(None);
+    let compact_idle_prompt = create_rw_signal::<Option<(String, u64)>>(None);
+    let compact_idle_dismissed = create_rw_signal::<HashSet<String>>(HashSet::new());
     // Set only when the dialog was opened from the context-limit recovery
     // offer: that flow promises "compact and continue", so the interrupted
     // turn still has to resume once the new epoch is durable. Cancelling the
     // dialog clears it.
     let compact_resume = create_rw_signal::<Option<String>>(None);
-    let open_compact_dialog = Callback::new(move |(id, instruction): (String, String)| {
-        if id.trim().is_empty() || compact_busy.get_untracked() {
-            return;
-        }
-        compact_instruction.set(instruction);
-        compact_error.set(None);
-        compact_dialog.set(Some(id));
-    });
+    let open_compact_dialog = Callback::new(
+        move |(id, instruction, mode): (String, String, CompactDialogMode)| {
+            if id.trim().is_empty() || compact_busy.get_untracked() {
+                return;
+            }
+            compact_idle_prompt.set(None);
+            compact_mode.set(mode);
+            compact_instruction.set(instruction);
+            compact_error.set(None);
+            compact_dialog.set(Some(id));
+        },
+    );
     let close_compact_dialog = Callback::new(move |_: ()| {
         if !compact_busy.get_untracked() {
             compact_dialog.set(None);
+            compact_mode.set(CompactDialogMode::Regular);
             compact_instruction.set(String::new());
             compact_error.set(None);
             compact_resume.set(None);
@@ -1318,10 +1333,15 @@ fn App() -> impl IntoView {
         }
         compact_busy.set(true);
         compact_error.set(None);
-        let message = if instruction.trim().is_empty() {
-            "/compact".to_string()
+        let semantic = compact_mode.get_untracked() == CompactDialogMode::Semantic;
+        let message = if semantic {
+            if instruction.trim().is_empty() {
+                "/compact --semantic".to_string()
+            } else {
+                format!("/compact --semantic {}", instruction.trim())
+            }
         } else {
-            format!("/compact {}", instruction.trim())
+            "/compact".to_string()
         };
         let locale = locale;
         spawn_local(async move {
@@ -1344,6 +1364,46 @@ fn App() -> impl IntoView {
                 compact_busy.set(false);
             }
         });
+    });
+    create_effect(move |_| {
+        let Some(id) = semantic_compact_after_model.get() else {
+            return;
+        };
+        semantic_compact_after_model.set(None);
+        if compact_busy.get_untracked() || id.trim().is_empty() {
+            return;
+        }
+        open_compact_dialog.call((id.clone(), String::new(), CompactDialogMode::Semantic));
+        start_compact_dialog.call((id, String::new()));
+    });
+    create_effect(move |_| {
+        let session_id = active_session.get();
+        let on_projects = show_projects.get();
+        if on_projects || session_id.is_none() {
+            return;
+        }
+        let id = session_id.as_ref().unwrap().clone();
+        if compact_dialog.get_untracked().is_some()
+            || compact_busy.get_untracked()
+            || active_acp_agent_id.get_untracked().is_some()
+            || compact_idle_dismissed.with_untracked(|set| set.contains(&id))
+            || items.with_untracked(|rows| rows.iter().all(|row| !matches!(row, ChatItem::User(_))))
+        {
+            return;
+        }
+        let hours = settings.with_untracked(|cfg| cfg.semantic_compact_idle_hours);
+        let last_activity = sessions.with_untracked(|list| {
+            list.iter()
+                .find(|session| session.id == id)
+                .map(|session| session.ts)
+                .unwrap_or(0)
+        });
+        let now = js_sys::Date::now() as i64;
+        if should_prompt_semantic_compact_idle(hours, last_activity, now, true)
+            && compact_idle_prompt.get_untracked().is_none()
+        {
+            compact_idle_prompt.set(Some((id, hours)));
+        }
     });
     let refresh_models = move || model_settings.refresh_models();
     // Tauri's native drag/drop event contains absolute paths (including
@@ -5397,7 +5457,7 @@ fn App() -> impl IntoView {
         context_recovery_dialog.set(None);
         context_recovery_error.set(None);
         compact_resume.set(Some(id.clone()));
-        open_compact_dialog.call((id, String::new()));
+        open_compact_dialog.call((id, String::new(), CompactDialogMode::Semantic));
     });
 
     // The guided dialog only rewrites the model context. A compaction that
@@ -6060,7 +6120,7 @@ fn App() -> impl IntoView {
             return;
         }
         context_usage_open.set(false);
-        open_compact_dialog.call((id, String::new()));
+        open_compact_dialog.call((id, String::new(), CompactDialogMode::Regular));
     });
     let new_session_from_usage = Callback::new(move |_: ()| {
         context_usage_open.set(false);
@@ -6992,7 +7052,12 @@ fn App() -> impl IntoView {
                         "ACP conversations cannot be compacted from this desktop view.",
                     ));
                 } else if let Some(id) = active_session.get_untracked() {
-                    open_compact_dialog.call((id, payload.to_string()));
+                    let mode = if payload.trim().is_empty() {
+                        CompactDialogMode::Regular
+                    } else {
+                        CompactDialogMode::Semantic
+                    };
+                    open_compact_dialog.call((id, payload.to_string(), mode));
                 } else {
                     status.set(localize_backend(
                         locale.get_untracked(),
@@ -9297,6 +9362,16 @@ fn App() -> impl IntoView {
                 turn_memory_replace_id.set(String::new());
                 turn_memory_error.set(None);
             }
+            return;
+        }
+        if compact_idle_prompt.get().is_some() {
+            ev.prevent_default();
+            if let Some((id, _)) = compact_idle_prompt.get_untracked() {
+                compact_idle_dismissed.update(|dismissed| {
+                    dismissed.insert(id);
+                });
+            }
+            compact_idle_prompt.set(None);
             return;
         }
         if compact_dialog.get().is_some() {
@@ -17677,12 +17752,34 @@ fn App() -> impl IntoView {
             state=CompactOverlayState {
                 locale,
                 dialog: compact_dialog,
+                mode: compact_mode,
                 instruction: compact_instruction,
                 busy: compact_busy,
                 error: compact_error,
             }
             on_start=start_compact_dialog
             on_close=close_compact_dialog
+        />
+        <CompactIdlePromptOverlay
+            state=CompactIdlePromptOverlayState {
+                locale,
+                prompt: compact_idle_prompt,
+            }
+            on_accept=Callback::new(move |id: String| {
+                compact_idle_dismissed.update(|dismissed| {
+                    dismissed.insert(id.clone());
+                });
+                compact_idle_prompt.set(None);
+                open_compact_dialog.call((id, String::new(), CompactDialogMode::Semantic));
+            })
+            on_dismiss=Callback::new(move |_| {
+                if let Some((id, _)) = compact_idle_prompt.get_untracked() {
+                    compact_idle_dismissed.update(|dismissed| {
+                        dismissed.insert(id);
+                    });
+                }
+                compact_idle_prompt.set(None);
+            })
         />
         <ContextMenuPortal menu=ctx_menu.read_only() set_menu=ctx_menu.write_only() on_pick=on_ctx_pick />
         {move ||archive_frame.get().map(|id|view!{

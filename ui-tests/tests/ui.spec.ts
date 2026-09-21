@@ -3112,6 +3112,7 @@ test("danger context usage panel offers compact and a new session (#931)", async
   await nudge.getByRole("button", { name: "Compact" }).click();
   await expect(panel).toHaveCount(0);
   await expect(page.getByTestId("compact-modal")).toBeVisible();
+  await expect(page.getByTestId("compact-mode-regular")).toHaveAttribute("aria-pressed", "true");
   await page.getByTestId("compact-start").click();
   await expect.poll(() => lastInvokeArgs(page, "send_message")).toMatchObject({
     message: "/compact",
@@ -14574,6 +14575,20 @@ test("session settings enable automatic context compaction by default", async ({
   });
 });
 
+test("session settings include model-switch semantic compact and idle hours", async ({ page }) => {
+  await page.goto("/");
+  await openSettingsSection(page, "Session");
+  const toggle = page.getByTestId("semantic-compact-on-model-switch");
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByTestId("semantic-compact-idle-hours")).toHaveValue("24");
+  await toggle.locator("..").click();
+  await page.getByTestId("semantic-compact-idle-hours").fill("12");
+  await page.locator(".settings-footer").getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => lastInvokeArgs(page, "set_settings")).toMatchObject({
+    settings: { semantic_compact_on_model_switch: true, semantic_compact_idle_hours: 12 },
+  });
+});
+
 test("session settings configure truncated-output auto-continue", async ({ page }) => {
   await page.goto("/");
   await openSettingsSection(page, "Session");
@@ -14936,11 +14951,12 @@ test("context-limit recovery offers three actions and owns the first Escape", as
   // still resumes after the new epoch is durable.
   await expect(modal).toHaveCount(0);
   await expect(page.getByTestId("compact-modal")).toBeVisible();
+  await expect(page.getByTestId("compact-mode-semantic")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("compact-instruction")).toHaveValue("");
   await page.getByTestId("compact-start").click();
   await expect.poll(async () => {
     const calls = await invokeArgsList(page, "send_message");
-    return calls.some((args) => args.message === "/compact")
+    return calls.some((args) => args.message === "/compact --semantic")
       && calls.some((args) => args.resume === true);
   }).toBe(true);
 });

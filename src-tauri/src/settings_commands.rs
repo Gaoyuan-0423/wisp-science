@@ -165,6 +165,9 @@ pub(super) async fn get_settings(state: State<'_, AppState>) -> Result<Settings,
         .unwrap_or_default();
     let notifications_enabled = super::load_notifications_enabled(&state.store).await;
     let auto_compact = super::load_auto_compact_enabled(&state.store).await;
+    let semantic_compact_on_model_switch =
+        super::load_semantic_compact_on_model_switch(&state.store).await;
+    let semantic_compact_idle_hours = super::load_semantic_compact_idle_hours(&state.store).await;
     let (auto_continue, auto_continue_limit) =
         super::load_auto_continue_settings(&state.store).await;
     let follow_up_questions = state
@@ -194,6 +197,8 @@ pub(super) async fn get_settings(state: State<'_, AppState>) -> Result<Settings,
         workspace_dir,
         max_iter,
         auto_compact,
+        semantic_compact_on_model_switch,
+        semantic_compact_idle_hours,
         auto_continue,
         auto_continue_limit: auto_continue_limit as u64,
         follow_up_questions,
@@ -361,6 +366,22 @@ pub(super) async fn set_settings(
     state
         .store
         .set_setting("auto_compact", &settings.auto_compact.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    state
+        .store
+        .set_setting(
+            "semantic_compact_on_model_switch",
+            &settings.semantic_compact_on_model_switch.to_string(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    state
+        .store
+        .set_setting(
+            "semantic_compact_idle_hours",
+            &settings.semantic_compact_idle_hours.to_string(),
+        )
         .await
         .map_err(|e| e.to_string())?;
     state

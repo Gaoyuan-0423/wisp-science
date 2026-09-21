@@ -1314,10 +1314,17 @@ pub(crate) fn ContextRecoveryOverlay(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompactDialogMode {
+    Regular,
+    Semantic,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct CompactOverlayState {
     pub(crate) locale: RwSignal<Locale>,
     pub(crate) dialog: RwSignal<Option<String>>,
+    pub(crate) mode: RwSignal<CompactDialogMode>,
     pub(crate) instruction: RwSignal<String>,
     pub(crate) busy: RwSignal<bool>,
     pub(crate) error: RwSignal<Option<String>>,
@@ -1332,6 +1339,7 @@ pub(crate) fn CompactOverlay(
     let CompactOverlayState {
         locale,
         dialog,
+        mode,
         instruction,
         busy,
         error,
@@ -1367,7 +1375,37 @@ pub(crate) fn CompactOverlay(
                                 </button>
                             })}
                         </div>
-                        <label for="compact-instruction">
+                        <div class="compact-mode-row">
+                            <button
+                                type="button"
+                                class="compact-mode"
+                                class:active=move || mode.get() == CompactDialogMode::Regular
+                                data-testid="compact-mode-regular"
+                                aria-pressed=move || (mode.get() == CompactDialogMode::Regular).to_string()
+                                disabled=move || busy.get()
+                                on:click=move |_| mode.set(CompactDialogMode::Regular)
+                            >
+                                <strong>{move || t(locale.get(), "compact.mode_regular")}</strong>
+                                <span>{move || t(locale.get(), "compact.mode_regular_hint")}</span>
+                            </button>
+                            <button
+                                type="button"
+                                class="compact-mode"
+                                class:active=move || mode.get() == CompactDialogMode::Semantic
+                                data-testid="compact-mode-semantic"
+                                aria-pressed=move || (mode.get() == CompactDialogMode::Semantic).to_string()
+                                disabled=move || busy.get()
+                                on:click=move |_| mode.set(CompactDialogMode::Semantic)
+                            >
+                                <strong>{move || t(locale.get(), "compact.mode_semantic")}</strong>
+                                <span>{move || t(locale.get(), "compact.mode_semantic_hint")}</span>
+                            </button>
+                        </div>
+                        <label
+                            for="compact-instruction"
+                            class="compact-instruction-field"
+                            class:hidden=move || mode.get() != CompactDialogMode::Semantic
+                        >
                             {move || t(locale.get(), "compact.instruction_label")}
                             <textarea
                                 id="compact-instruction"
@@ -1380,7 +1418,14 @@ pub(crate) fn CompactOverlay(
                                 on:input=move |ev| instruction.set(event_target_value(&ev))
                             ></textarea>
                         </label>
-                        <p class="compact-modal-hint">{move || t(locale.get(), "compact.hint")}</p>
+                        <p class="compact-modal-hint">{move || t(
+                            locale.get(),
+                            if mode.get() == CompactDialogMode::Semantic {
+                                "compact.hint_semantic"
+                            } else {
+                                "compact.hint_regular"
+                            },
+                        )}</p>
                         {move || busy.get().then(|| view! {
                             <div class="compact-progress" data-testid="compact-progress" role="status" aria-live="polite">
                                 <span class="compact-progress-dot" aria-hidden="true"></span>
@@ -1408,6 +1453,54 @@ pub(crate) fn CompactOverlay(
                     </div>
                 </div>
             }
+        })}
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CompactIdlePromptOverlayState {
+    pub(crate) locale: RwSignal<Locale>,
+    pub(crate) prompt: RwSignal<Option<(String, u64)>>,
+}
+
+#[component]
+pub(crate) fn CompactIdlePromptOverlay(
+    state: CompactIdlePromptOverlayState,
+    on_accept: Callback<String>,
+    on_dismiss: Callback<()>,
+) -> impl IntoView {
+    let CompactIdlePromptOverlayState { locale, prompt } = state;
+    view! {
+        {move || prompt.get().map(|(session_id, hours)| {
+            let accept_id = session_id.clone();
+            view! {
+                <div class="overlay compact-overlay" data-testid="compact-idle-overlay">
+                    <div
+                        class="modal compact-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="compact-idle-title"
+                        data-testid="compact-idle-prompt"
+                    >
+                        <h2 id="compact-idle-title">{move || t(locale.get(), "compact.idle_title")}</h2>
+                        <p class="compact-modal-hint">{move || tf(
+                            locale.get(),
+                            "compact.idle_body",
+                            &[("hours", &hours.to_string())],
+                        )}</p>
+                        <div class="row">
+                            <button type="button" data-testid="compact-idle-dismiss" on:click=move |_| on_dismiss.call(())>
+                                {move || t(locale.get(), "compact.idle_dismiss")}
+                            </button>
+                            <button type="button" class="primary" data-testid="compact-idle-accept" on:click=move |_| {
+                                on_accept.call(accept_id.clone());
+                            }>
+                                {move || t(locale.get(), "compact.idle_accept")}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }.into_view()
         })}
     }
 }

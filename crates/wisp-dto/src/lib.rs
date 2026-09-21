@@ -1813,6 +1813,10 @@ pub struct Settings {
     #[serde(default = "default_auto_compact")]
     pub auto_compact: bool,
     #[serde(default)]
+    pub semantic_compact_on_model_switch: bool,
+    #[serde(default = "default_semantic_compact_idle_hours")]
+    pub semantic_compact_idle_hours: u64,
+    #[serde(default)]
     pub auto_continue: bool,
     #[serde(default = "default_auto_continue_limit")]
     pub auto_continue_limit: u64,
@@ -1995,6 +1999,10 @@ fn default_auto_compact() -> bool {
     true
 }
 
+fn default_semantic_compact_idle_hours() -> u64 {
+    24
+}
+
 fn default_auto_continue_limit() -> u64 {
     10
 }
@@ -2127,6 +2135,8 @@ impl Default for Settings {
             workspace_dir: String::new(),
             max_iter: default_max_iter(),
             auto_compact: true,
+            semantic_compact_on_model_switch: false,
+            semantic_compact_idle_hours: default_semantic_compact_idle_hours(),
             auto_continue: false,
             auto_continue_limit: default_auto_continue_limit(),
             follow_up_questions: true,

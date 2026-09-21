@@ -392,19 +392,21 @@ test("slash compact opens a guided locked flow and reveals the compacted model c
   const modal = page.getByTestId("compact-modal");
   await expect(modal).toBeVisible();
   await expect(page.getByTestId("compact-instruction")).toHaveValue("preserve the QC thresholds and blockers");
-  await page.getByTestId("compact-start").click();
+  await page.getByTestId("compact-start").click({ force: true });
   await expect(page.getByTestId("compact-progress")).toBeVisible();
   await expect(page.getByTestId("compact-close")).toHaveCount(0);
   await expect(page.getByTestId("compact-cancel")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(modal).toBeVisible();
+  await expect(page.getByTestId("compact-mode-semantic")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("compact-instruction")).toHaveValue("preserve the QC thresholds and blockers");
   await expect.poll(() => page.evaluate(() => (window as any).__compactInstruction)).toBe(
-    "/compact preserve the QC thresholds and blockers",
+    "/compact --semantic preserve the QC thresholds and blockers",
   );
   await expect(modal).toHaveCount(0);
   await expect(page.locator(".thread")).toHaveAttribute("data-model-view", "true");
   await expect(page.getByTestId("context-checkpoint-row")).toContainText("New context after manual compaction.");
-  await page.getByTestId("context-usage-trigger").click();
+  await page.getByTestId("context-usage-trigger").click({ force: true });
   await expect(page.getByTestId("context-usage-panel")).toContainText("150");
   await expect(page.getByTestId("context-usage-epoch")).toContainText("Epoch 2");
 });
@@ -414,10 +416,25 @@ test("context usage compact button opens the same instruction dialog", async ({ 
   await page.getByTestId("context-usage-trigger").click();
   await page.getByTestId("context-usage-compact-header").click();
   await expect(page.getByTestId("compact-modal")).toBeVisible();
-  await expect(page.getByTestId("compact-instruction")).toHaveValue("");
+  await expect(page.getByTestId("compact-mode-regular")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("compact-instruction")).toBeHidden();
   await expect(page.getByTestId("compact-modal")).toContainText("压缩上下文");
+  await page.getByTestId("compact-mode-semantic").click();
+  await expect(page.getByTestId("compact-instruction")).toBeVisible();
+  await expect(page.getByTestId("compact-instruction")).toHaveValue("");
   await page.getByTestId("compact-cancel").click();
   await expect(page.getByTestId("compact-modal")).toHaveCount(0);
+});
+
+test("regular compact sends /compact and semantic compact sends --semantic", async ({ page }) => {
+  await openCompactedSession(page);
+  await wireManualCompaction(page);
+  await page.getByTestId("context-usage-trigger").click({ force: true });
+  await page.getByTestId("context-usage-compact-header").click({ force: true });
+  await expect(page.getByTestId("compact-mode-regular")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("compact-instruction")).toBeHidden();
+  await page.getByTestId("compact-start").click({ force: true });
+  await expect.poll(() => page.evaluate(() => (window as any).__compactInstruction)).toBe("/compact");
 });
 
 for (const locale of ["en", "zh"]) {

@@ -2187,7 +2187,15 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
         (Locale::En, "settings.max_iter") => Some("Maximum agent iterations per turn"),
         (Locale::En, "settings.max_iter_hint") => Some("Limits model/tool rounds in one turn, followed by one tool-free summary. Default: 100; 0 means unlimited."),
         (Locale::En, "settings.auto_compact") => Some("Automatically compact long conversations"),
-        (Locale::En, "settings.auto_compact_hint") => Some("Enabled by default. Before each model call, Wisp archives and compacts the conversation when its estimated context reaches 80%."),
+        (Locale::En, "settings.auto_compact_hint") => Some("Enabled by default. Before each model call, Wisp archives and compacts the conversation when its estimated context reaches 80%. That path prunes tool output first and only writes a semantic checkpoint if the window is still full."),
+        (Locale::En, "settings.semantic_compact_on_model_switch") => {
+            Some("Semantic compact when switching models")
+        }
+        (Locale::En, "settings.semantic_compact_on_model_switch_hint") => Some("Off by default. After you change this conversation's model, fold older turns into a checkpoint so the new model starts from a summary instead of the full history."),
+        (Locale::En, "settings.semantic_compact_idle_hours") => {
+            Some("Prompt for semantic compact after idle hours")
+        }
+        (Locale::En, "settings.semantic_compact_idle_hours_hint") => Some("Default: 24 hours. When you reopen a conversation that has been idle this long, ask whether to write a semantic checkpoint. 0 disables the prompt."),
         (Locale::En, "settings.auto_continue") => Some("Auto-continue truncated output"),
         (Locale::En, "settings.auto_continue_hint") => Some("When a model reaches its output-token limit, continue the current turn automatically."),
         (Locale::En, "settings.auto_continue_limit") => Some("Maximum automatic continuations per turn"),
@@ -2513,11 +2521,21 @@ fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
             Some("Epoch {epoch} · system + {turns} kept turns")
         }
         (Locale::En, "compact.title") => Some("Compact context"),
-        (Locale::En, "compact.subtitle") => Some("Review the instruction before Wisp rewrites the model context."),
+        (Locale::En, "compact.subtitle") => Some("Choose regular pruning or a semantic checkpoint before rewriting the model context."),
+        (Locale::En, "compact.mode_regular") => Some("Regular compact"),
+        (Locale::En, "compact.mode_regular_hint") => Some("Archive the transcript, then replace old tool results with short stubs. User and assistant turns stay in place."),
+        (Locale::En, "compact.mode_semantic") => Some("Semantic compact"),
+        (Locale::En, "compact.mode_semantic_hint") => Some("Fold older turns into a checkpoint plus a short retained tail. This is what the model view should show as a summary."),
         (Locale::En, "compact.instruction_label") => Some("Optional summarization instruction"),
         (Locale::En, "compact.instruction_placeholder") => Some("For example: preserve the unresolved QC blockers and exact file paths."),
-        (Locale::En, "compact.hint") => Some("The full transcript is archived first. After completion, the model view shows the new checkpoint and retained tail."),
+        (Locale::En, "compact.hint") => Some("The full transcript is archived first. Regular compact keeps the turns; semantic compact shows a checkpoint and retained tail in model view."),
+        (Locale::En, "compact.hint_regular") => Some("The full transcript is archived first. Model view keeps the original turns, with old tool results collapsed to archived stubs."),
+        (Locale::En, "compact.hint_semantic") => Some("The full transcript is archived first. After completion, model view shows the new checkpoint and retained tail."),
         (Locale::En, "compact.start") => Some("Start compaction"),
+        (Locale::En, "compact.idle_title") => Some("Semantic compact?"),
+        (Locale::En, "compact.idle_body") => Some("This conversation has been idle for {hours} hours. Fold older turns into a checkpoint so the next model call starts from a summary?"),
+        (Locale::En, "compact.idle_accept") => Some("Semantic compact"),
+        (Locale::En, "compact.idle_dismiss") => Some("Not now"),
         (Locale::En, "compact.cancel") => Some("Cancel"),
         (Locale::En, "compact.close") => Some("Close compaction dialog"),
         (Locale::En, "compact.running") => Some("Compacting context — this window is locked until the new context is ready."),
@@ -5026,7 +5044,11 @@ Do not leave generated files in the project root.",
         (Locale::Zh, "settings.max_iter") => Some("每轮最大 Agent 迭代次数"),
         (Locale::Zh, "settings.max_iter_hint") => Some("限制单轮对话中的模型/工具循环次数；达到上限后额外生成一次无工具收尾总结。默认 100，0 表示不限制。"),
         (Locale::Zh, "settings.auto_compact") => Some("自动压缩过长对话"),
-        (Locale::Zh, "settings.auto_compact_hint") => Some("默认开启。每次模型调用前，当预估上下文达到 80% 时，Wisp 会先归档完整对话，再自动压缩。"),
+        (Locale::Zh, "settings.auto_compact_hint") => Some("默认开启。每次模型调用前，当预估上下文达到 80% 时，Wisp 会先归档完整对话，再自动压缩。该路径先收工具输出，只有窗口仍然不够时才写语义摘要。"),
+        (Locale::Zh, "settings.semantic_compact_on_model_switch") => Some("切换模型时自动语义压缩"),
+        (Locale::Zh, "settings.semantic_compact_on_model_switch_hint") => Some("默认关闭。更换本对话模型后，把较早轮次折成摘要 checkpoint，让新模型从摘要而不是全量历史开始。"),
+        (Locale::Zh, "settings.semantic_compact_idle_hours") => Some("空闲多久后提示语义压缩"),
+        (Locale::Zh, "settings.semantic_compact_idle_hours_hint") => Some("默认 24 小时。重新打开空闲这么久的对话时，询问是否写语义摘要。0 表示不提示。"),
         (Locale::Zh, "settings.auto_continue") => Some("截断后自动继续"),
         (Locale::Zh, "settings.auto_continue_hint") => Some("模型达到输出 token 上限时，自动继续当前任务。"),
         (Locale::Zh, "settings.auto_continue_limit") => Some("每轮自动继续次数上限"),
@@ -5255,11 +5277,21 @@ Do not leave generated files in the project root.",
             Some("纪元 {epoch} · system + {turns} 轮 tail")
         }
         (Locale::Zh, "compact.title") => Some("压缩上下文"),
-        (Locale::Zh, "compact.subtitle") => Some("先确认压缩引导，再重写模型实际使用的上下文。"),
+        (Locale::Zh, "compact.subtitle") => Some("先选择常规压缩或语义压缩，再重写模型实际使用的上下文。"),
+        (Locale::Zh, "compact.mode_regular") => Some("常规压缩"),
+        (Locale::Zh, "compact.mode_regular_hint") => Some("先归档完整对话，再把旧工具结果收成短桩。用户和助手轮次保持原位。"),
+        (Locale::Zh, "compact.mode_semantic") => Some("语义压缩"),
+        (Locale::Zh, "compact.mode_semantic_hint") => Some("把较早轮次折成摘要 checkpoint，只保留很短的 tail。这才是模型视角里应出现的摘要。"),
         (Locale::Zh, "compact.instruction_label") => Some("可选的压缩引导"),
         (Locale::Zh, "compact.instruction_placeholder") => Some("例如：保留未解决的 QC 阻塞、精确文件路径和下一步动作。"),
-        (Locale::Zh, "compact.hint") => Some("完整对话会先归档。完成后将自动展示新的摘要 checkpoint 和保留的对话 tail。"),
+        (Locale::Zh, "compact.hint") => Some("完整对话会先归档。常规压缩保留原轮次；语义压缩后模型视角显示摘要 checkpoint 和保留 tail。"),
+        (Locale::Zh, "compact.hint_regular") => Some("完整对话会先归档。模型视角保留原来的轮次，旧工具结果收成已归档短桩。"),
+        (Locale::Zh, "compact.hint_semantic") => Some("完整对话会先归档。完成后模型视角显示新的摘要 checkpoint 和保留的对话 tail。"),
         (Locale::Zh, "compact.start") => Some("开始压缩"),
+        (Locale::Zh, "compact.idle_title") => Some("要做语义压缩吗？"),
+        (Locale::Zh, "compact.idle_body") => Some("这次对话已空闲 {hours} 小时。要把较早轮次折成摘要，让下一轮模型调用从 checkpoint 开始吗？"),
+        (Locale::Zh, "compact.idle_accept") => Some("语义压缩"),
+        (Locale::Zh, "compact.idle_dismiss") => Some("暂不"),
         (Locale::Zh, "compact.cancel") => Some("取消"),
         (Locale::Zh, "compact.close") => Some("关闭压缩对话框"),
         (Locale::Zh, "compact.running") => Some("正在压缩上下文——新上下文准备好前，当前界面不可退出。"),
@@ -6785,6 +6817,12 @@ mod queue_label_tests {
     fn context_usage_dock_and_resize_labels_exist_in_both_locales() {
         assert_eq!(t(Locale::En, "chat.view_model"), "Model view");
         assert_eq!(t(Locale::Zh, "chat.view_model"), "模型视角");
+        assert_eq!(t(Locale::En, "compact.mode_semantic"), "Semantic compact");
+        assert_eq!(t(Locale::Zh, "compact.mode_semantic"), "语义压缩");
+        assert_eq!(
+            t(Locale::Zh, "settings.semantic_compact_on_model_switch"),
+            "切换模型时自动语义压缩"
+        );
         assert_eq!(
             t(Locale::En, "chat.context_tombstone"),
             "Archived tool result"

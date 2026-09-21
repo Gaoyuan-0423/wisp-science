@@ -228,6 +228,8 @@ pub(crate) struct AppPrefsPatch {
     pub locale: Option<String>,
     pub max_iter: Option<i64>,
     pub auto_compact: Option<bool>,
+    pub semantic_compact_on_model_switch: Option<bool>,
+    pub semantic_compact_idle_hours: Option<u64>,
     pub auto_continue: Option<bool>,
     pub auto_continue_limit: Option<u64>,
     pub follow_up_questions: Option<bool>,
@@ -295,6 +297,12 @@ pub(crate) fn parse_app_prefs_payload(payload: &serde_json::Value) -> AppPrefsPa
         auto_compact: payload
             .get("auto_compact")
             .and_then(|value| value.as_bool()),
+        semantic_compact_on_model_switch: payload
+            .get("semantic_compact_on_model_switch")
+            .and_then(|value| value.as_bool()),
+        semantic_compact_idle_hours: payload
+            .get("semantic_compact_idle_hours")
+            .and_then(|value| value.as_u64()),
         auto_continue: payload
             .get("auto_continue")
             .and_then(|value| value.as_bool()),
@@ -375,6 +383,12 @@ pub(crate) fn apply_prefs_patch(
         if let Some(value) = patch.auto_compact {
             cfg.auto_compact = value;
         }
+        if let Some(value) = patch.semantic_compact_on_model_switch {
+            cfg.semantic_compact_on_model_switch = value;
+        }
+        if let Some(value) = patch.semantic_compact_idle_hours {
+            cfg.semantic_compact_idle_hours = value;
+        }
         if let Some(value) = patch.auto_continue {
             cfg.auto_continue = value;
         }
@@ -391,6 +405,21 @@ pub(crate) fn apply_prefs_patch(
             cfg.notifications_enabled = value;
         }
     });
+}
+
+/// Session list timestamps below this are ranking stubs, not real activity.
+pub(crate) const SEMANTIC_COMPACT_IDLE_TS_MIN_MS: i64 = 1_000_000_000_000;
+
+pub(crate) fn should_prompt_semantic_compact_idle(
+    idle_hours: u64,
+    last_activity_ms: i64,
+    now_ms: i64,
+    has_transcript: bool,
+) -> bool {
+    idle_hours > 0
+        && has_transcript
+        && last_activity_ms >= SEMANTIC_COMPACT_IDLE_TS_MIN_MS
+        && now_ms.saturating_sub(last_activity_ms) >= (idle_hours as i64).saturating_mul(3_600_000)
 }
 
 pub(crate) fn apply_font_prefs(ui_size: u16, code_size: u16, ui_family: &str, code_family: &str) {
@@ -809,5 +838,40 @@ mod app_prefs_payload_tests {
             patch.custom_css.as_deref(),
             Some(":root { --md-lead-bar-width: 0; }")
         );
+    }
+}
+
+#[cfg(test)]
+mod semantic_compact_idle_tests {
+    use super::{should_prompt_semantic_compact_idle, SEMANTIC_COMPACT_IDLE_TS_MIN_MS};
+
+    #[test]
+    fn idle_prompt_requires_a_real_timestamp_and_transcript() {
+        let now = 1_700_000_000_000;
+        assert!(!should_prompt_semantic_compact_idle(24, 2000, now, true));
+        assert!(!should_prompt_semantic_compact_idle(
+            24,
+            SEMANTIC_COMPACT_IDLE_TS_MIN_MS,
+            now,
+            false
+        ));
+        assert!(!should_prompt_semantic_compact_idle(
+            0,
+            now - 48 * 3_600_000,
+            now,
+            true
+        ));
+        assert!(!should_prompt_semantic_compact_idle(
+            24,
+            now - 12 * 3_600_000,
+            now,
+            true
+        ));
+        assert!(should_prompt_semantic_compact_idle(
+            24,
+            now - 25 * 3_600_000,
+            now,
+            true
+        ));
     }
 }

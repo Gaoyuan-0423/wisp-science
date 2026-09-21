@@ -1012,7 +1012,10 @@ pub(crate) const SETTINGS_NAV_GROUPS: &[(&str, &[(&str, &str)])] = &[
                 "general",
                 "notifications updates language network proxy 通知 更新 语言 网络 代理",
             ),
-            ("session", "context tokens conversation 上下文 对话"),
+            (
+                "session",
+                "context tokens conversation compact semantic 语义压缩 上下文 对话",
+            ),
             ("appearance", "theme font 主题 字体"),
             ("pet", "companion 桌宠"),
         ],

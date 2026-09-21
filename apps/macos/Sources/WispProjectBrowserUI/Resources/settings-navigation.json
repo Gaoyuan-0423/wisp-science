@@ -11,7 +11,7 @@
     "en": "Session",
     "group": "基础偏好",
     "group_en": "Preferences",
-    "aliases": "context tokens conversation 上下文 对话"
+    "aliases": "context tokens conversation compact semantic 语义压缩 上下文 对话"
   },
   "appearance": {
     "zh": "外观",
