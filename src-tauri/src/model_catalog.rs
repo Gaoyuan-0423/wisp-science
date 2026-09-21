@@ -23,6 +23,14 @@ pub fn lookup(provider: &str, api_url: &str, model: &str) -> Option<&'static Cat
     crate::model_catalog_shared::lookup(catalog(), provider, api_url, model)
 }
 
+/// The model's own output ceiling, when the catalog knows this exact model id.
+/// Callers use it to cap a one-shot job's budget at what the model will accept.
+pub fn output_tokens(provider: &str, api_url: &str, model: &str) -> Option<u64> {
+    lookup(provider, api_url, model)
+        .map(|entry| entry.o)
+        .filter(|tokens| *tokens >= 16)
+}
+
 /// Settings-form projection of one catalog entry.
 #[derive(Debug, Clone, Serialize)]
 pub struct CatalogEntryDto {

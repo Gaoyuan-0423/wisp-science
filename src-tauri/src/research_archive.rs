@@ -65,12 +65,6 @@ fn archive_provider_config(
     Ok(cfg)
 }
 
-fn catalog_output_tokens(provider: &str, api_url: &str, model: &str) -> Option<u64> {
-    crate::model_catalog::lookup(provider, api_url, model)
-        .map(|entry| entry.o)
-        .filter(|tokens| *tokens >= 16)
-}
-
 fn archive_output_budget(profile_max: u64, catalog_max: Option<u64>) -> u64 {
     let desired = profile_max.max(ARCHIVE_OUTPUT_TOKENS);
     match catalog_max {
@@ -406,7 +400,7 @@ pub(super) async fn prepare_research_archive(
     let files = candidates(&state.store, &project.root, &frame_id).await?;
     let (provider, url, model, key, profile_max, _, tier, agent, send_agent, send_session, header) =
         load_session_settings(&state.store, &frame_id).await;
-    let catalog_max = catalog_output_tokens(&provider, &url, &model);
+    let catalog_max = crate::model_catalog::output_tokens(&provider, &url, &model);
     let first_tokens = archive_output_budget(profile_max, catalog_max);
     let llm = wisp_llm::build(archive_provider_config(
         &provider,

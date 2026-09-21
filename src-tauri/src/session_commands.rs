@@ -207,6 +207,16 @@ fn branch_summary_payload(
     }
 }
 
+/// Profile budget or the summary floor, whichever is larger, capped at what
+/// the model accepts.
+fn branch_summary_output_budget(profile_max: u64, catalog_max: Option<u64>) -> u64 {
+    let desired = profile_max.max(BRANCH_SUMMARY_OUTPUT_TOKENS);
+    match catalog_max {
+        Some(cap) => desired.min(cap).max(16),
+        None => desired,
+    }
+}
+
 #[tauri::command]
 pub(super) async fn summarize_session_branch_merge(
     state: State<'_, AppState>,
@@ -241,7 +251,7 @@ pub(super) async fn summarize_session_branch_merge(
         api_url,
         model,
         api_key,
-        _,
+        profile_max_tokens,
         reasoning_effort,
         service_tier,
         user_agent,
@@ -254,7 +264,10 @@ pub(super) async fn summarize_session_branch_merge(
         &api_url,
         &api_key,
         &model,
-        BRANCH_SUMMARY_OUTPUT_TOKENS,
+        branch_summary_output_budget(
+            profile_max_tokens,
+            crate::model_catalog::output_tokens(&provider, &api_url, &model),
+        ),
         &reasoning_effort,
         &service_tier,
         &user_agent,
@@ -271,7 +284,12 @@ pub(super) async fn summarize_session_branch_merge(
         ),
     )
     .await
-    .map_err(|_| "Branch summary model timed out after 120 seconds.".to_string())?
+    .map_err(|_| {
+        format!(
+            "Branch summary model timed out after {} seconds.",
+            BRANCH_SUMMARY_TIMEOUT.as_secs()
+        )
+    })?
     .map_err(|error| format!("Branch summary model failed: {error}"))?;
     let summary = completion.content.trim();
     if summary.is_empty() {
@@ -350,8 +368,13 @@ pub(super) async fn merge_session_branch_summary(
     Ok(merged)
 }
 
-const BRANCH_SUMMARY_OUTPUT_TOKENS: u64 = 4_096;
-const BRANCH_SUMMARY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Floor, not a cap: a branch summary inherits the session's reasoning effort,
+/// so the chain of thought spends this budget before any Markdown is written.
+/// The profile's own Max output tokens wins when it is larger, and the model's
+/// catalog ceiling caps both — that is what the "raise Max output tokens"
+/// error advice acts on.
+const BRANCH_SUMMARY_OUTPUT_TOKENS: u64 = 16_384;
+const BRANCH_SUMMARY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 const BRANCH_MERGE_BUSY: &str =
     "Wait for the branch and main conversation to finish before merging.";
 
@@ -1960,7 +1983,20 @@ pub(super) async fn search_sessions(
 
 #[cfg(test)]
 mod branch_summary_tests {
-    use super::branch_summary_payload;
+    use super::{
+        branch_summary_output_budget, branch_summary_payload, BRANCH_SUMMARY_OUTPUT_TOKENS,
+    };
+
+    #[test]
+    fn output_budget_follows_the_profile_up_to_the_model_ceiling() {
+        assert_eq!(
+            branch_summary_output_budget(4_096, None),
+            BRANCH_SUMMARY_OUTPUT_TOKENS
+        );
+        assert_eq!(branch_summary_output_budget(65_536, None), 65_536);
+        assert_eq!(branch_summary_output_budget(65_536, Some(32_768)), 32_768);
+        assert_eq!(branch_summary_output_budget(4_096, Some(8_192)), 8_192);
+    }
 
     #[test]
     fn guided_generation_keeps_the_three_context_sections_in_order() {
