@@ -67,6 +67,7 @@ impl From<&MessageResourceLink> for UiMessageResource {
 
 fn markdown_resources(markdown: &str) -> Vec<MarkdownResource> {
     let markdown = rewrite_codex_image_tags(markdown);
+    let markdown = rewrite_codex_file_citations(&markdown);
     let parser = Parser::new_ext(&markdown, Options::ENABLE_TABLES);
     let mut resources = Vec::new();
     for event in parser {
@@ -143,6 +144,104 @@ fn image_tag_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
         return Some(&value[1..value.find(']')?]);
     }
     Some(&value[..value.find([' ', '>']).unwrap_or(value.len())])
+}
+
+/// Codex Desktop file chips: `:codex-file-citation{path="..." purpose="output"}`.
+fn rewrite_codex_file_citations(markdown: &str) -> Cow<'_, str> {
+    if !markdown.contains("codex-file-citation{") {
+        return Cow::Borrowed(markdown);
+    }
+    let mut out = String::with_capacity(markdown.len());
+    let mut rest = markdown;
+    let mut changed = false;
+    while let Some(idx) = rest.find("codex-file-citation{") {
+        let colon_count = rest[..idx]
+            .bytes()
+            .rev()
+            .take_while(|&byte| byte == b':')
+            .count();
+        if !(1..=3).contains(&colon_count) {
+            out.push_str(&rest[..idx + 1]);
+            rest = &rest[idx + 1..];
+            continue;
+        }
+        let start = idx - colon_count;
+        out.push_str(&rest[..start]);
+        let body = &rest[idx + "codex-file-citation{".len()..];
+        if let Some((path, consumed)) = parse_codex_file_citation_body(body) {
+            if path.is_empty() {
+                let token_end = idx + "codex-file-citation{".len() + consumed;
+                out.push_str(&rest[start..token_end]);
+                rest = &rest[token_end..];
+                continue;
+            }
+            changed = true;
+            out.push_str("[citation](<");
+            out.push_str(&path);
+            out.push_str(">)");
+            rest = &body[consumed..];
+            continue;
+        }
+        out.push_str(&rest[start..idx + "codex-file-citation{".len()]);
+        rest = &rest[idx + "codex-file-citation{".len()..];
+    }
+    out.push_str(rest);
+    if changed {
+        Cow::Owned(out)
+    } else {
+        Cow::Borrowed(markdown)
+    }
+}
+
+fn parse_codex_file_citation_body(body: &str) -> Option<(String, usize)> {
+    let mut rest = body;
+    let mut path = None;
+    loop {
+        rest = rest.trim_start_matches([' ', '\t']);
+        if rest.starts_with('}') {
+            let consumed = body.len() - rest.len() + 1;
+            return path.map(|path| (path, consumed));
+        }
+        if rest.is_empty() || rest.starts_with(['\n', '\r']) {
+            return None;
+        }
+        let key_len = rest
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+            .count();
+        if key_len == 0 {
+            return None;
+        }
+        let key = &rest[..key_len];
+        rest = rest[key_len..].trim_start_matches([' ', '\t']);
+        rest = rest.strip_prefix('=')?;
+        rest = rest.trim_start_matches([' ', '\t']);
+        let (value, after) = parse_codex_file_citation_attr_value(rest)?;
+        if key == "path" {
+            path = Some(value);
+        }
+        rest = after;
+    }
+}
+
+fn parse_codex_file_citation_attr_value(rest: &str) -> Option<(String, &str)> {
+    let first = rest.as_bytes().first().copied()?;
+    if first == b'"' || first == b'\'' {
+        let inner = &rest[1..];
+        let end = inner.find(first as char)?;
+        if inner[..end].contains(['\n', '\r']) {
+            return None;
+        }
+        Some((inner[..end].to_string(), &inner[end + 1..]))
+    } else {
+        let end = rest
+            .find([' ', '\t', '}', '\n', '\r'])
+            .unwrap_or(rest.len());
+        if end == 0 {
+            return None;
+        }
+        Some((rest[..end].to_string(), &rest[end..]))
+    }
 }
 
 fn is_external_reference(reference: &str) -> bool {
@@ -555,6 +654,21 @@ mod tests {
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].reference, "D:/work/plot one.png");
         assert_eq!(resources[0].kind, "file");
+    }
+
+    #[test]
+    fn extracts_codex_desktop_file_citations() {
+        let resources = markdown_resources(concat!(
+            r#":codex-file-citation{path="E:/work/results/original_microscopy_panels.pdf" purpose="output"} "#,
+            r#"::codex-file-citation{path="results/panel_index.csv" purpose="output"}"#,
+        ));
+        assert_eq!(resources.len(), 2);
+        assert_eq!(
+            resources[0].reference,
+            "E:/work/results/original_microscopy_panels.pdf"
+        );
+        assert_eq!(resources[1].reference, "results/panel_index.csv");
+        assert!(resources.iter().all(|resource| resource.kind == "file"));
     }
 
     #[test]
