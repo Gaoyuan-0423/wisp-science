@@ -185,10 +185,12 @@ pub struct BrowserBridge {
     /// take them, and so the UI can remind the user independently of the LLM.
     needs_human: Mutex<HashMap<(String, i64), BrowserNeedsHumanTab>>,
     needs_human_tx: Mutex<Option<mpsc::UnboundedSender<Vec<BrowserNeedsHumanTab>>>>,
-    /// One real Chrome session. Occupancy is held from the first browser tool
-    /// of a project+turn until `complete_turn`, not per tool call — two tools
-    /// in the same turn must not open a gap a foreign project can sneak into.
-    occupancy: StdMutex<Option<BrowserOccupancy>>,
+    /// One lease per real browser session. Occupancy is held from the first
+    /// browser tool of a project+turn until `complete_turn`, not per tool call
+    /// — two tools in the same turn must not open a gap a foreign project can
+    /// sneak into. Independent sessions can still serve different projects in
+    /// parallel.
+    occupancy: StdMutex<HashMap<String, BrowserOccupancy>>,
 }
 
 struct BrowserOccupancy {
@@ -322,26 +324,29 @@ impl BrowserBridge {
             pending_cleanups: Mutex::new(HashMap::new()),
             needs_human: Mutex::new(HashMap::new()),
             needs_human_tx: Mutex::new(None),
-            occupancy: StdMutex::new(None),
+            occupancy: StdMutex::new(HashMap::new()),
         }
     }
 
-    fn occupy_turn(&self, project_id: &str, turn_id: &str) -> Result<(), String> {
+    fn occupy_turn(&self, session: &str, project_id: &str, turn_id: &str) -> Result<(), String> {
         let mut occupancy = self.occupancy.lock().unwrap_or_else(|p| p.into_inner());
-        match occupancy.as_mut() {
+        match occupancy.get_mut(session) {
             Some(current) if current.project_id == project_id => {
                 current.turns.insert(turn_id.to_string());
                 Ok(())
             }
             Some(current) => Err(format!(
-                "browser is currently in use by another project ({}). Only one project's agent can drive the shared Chrome session at a time; wait until that turn finishes or stop it.",
-                current.project_id
+                "browser session '{session}' is currently in use by another project ({}). Only one project's agent can drive the same browser session at a time; wait until that turn finishes or stop it.",
+                current.project_id,
             )),
             None => {
-                *occupancy = Some(BrowserOccupancy {
-                    project_id: project_id.to_string(),
-                    turns: HashSet::from([turn_id.to_string()]),
-                });
+                occupancy.insert(
+                    session.to_string(),
+                    BrowserOccupancy {
+                        project_id: project_id.to_string(),
+                        turns: HashSet::from([turn_id.to_string()]),
+                    },
+                );
                 Ok(())
             }
         }
@@ -349,13 +354,10 @@ impl BrowserBridge {
 
     fn release_turn(&self, turn_id: &str) {
         let mut occupancy = self.occupancy.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(current) = occupancy.as_mut() else {
-            return;
-        };
-        current.turns.remove(turn_id);
-        if current.turns.is_empty() {
-            *occupancy = None;
-        }
+        occupancy.retain(|_, current| {
+            current.turns.remove(turn_id);
+            !current.turns.is_empty()
+        });
     }
 
     fn new(extension_dir: PathBuf) -> Self {
@@ -390,7 +392,7 @@ impl BrowserBridge {
             pending_cleanups: Mutex::new(HashMap::new()),
             needs_human: Mutex::new(HashMap::new()),
             needs_human_tx: Mutex::new(None),
-            occupancy: StdMutex::new(None),
+            occupancy: StdMutex::new(HashMap::new()),
         });
         bridge.load_pending_cleanups().await;
         bridge.load_pending_needs_human().await;
@@ -2403,8 +2405,11 @@ struct ChatTurn {
     site: chat_site::ChatSite,
 }
 
-async fn begin_chat_turn(bridge: &BrowserBridge, args: &Value) -> Result<ChatTurn, String> {
-    let session = session_arg(args)?;
+async fn begin_chat_turn(
+    bridge: &BrowserBridge,
+    args: &Value,
+    session: Option<String>,
+) -> Result<ChatTurn, String> {
     bridge.require_chat_capability(session.as_deref()).await?;
     let requested = tab_id_arg(args)?;
     let tabs = bridge.tabs_on(session.as_deref()).await?;
@@ -2517,18 +2522,24 @@ const TEXT_SCAN_SCRIPT: &str = r#"(() => ({
   text: (document.body?.innerText || '').slice(0, 50000)
 }))()"#;
 
-/// Acquire occupancy for this project+turn, or skip when the host has no
-/// project/turn (CLI and tests). Does not release on Drop — `complete_turn`
-/// owns the lifetime so two tools in one turn cannot open a gap.
-fn occupy_or_fail(bridge: &BrowserBridge, env: &dyn ToolEnv) -> Result<(), ToolResult> {
+/// Acquire occupancy for this browser session and project+turn, or skip when
+/// the host has no project/turn (CLI and tests). Does not release on Drop —
+/// `complete_turn` owns the lifetime so two tools in one turn cannot open a
+/// gap. Independent sessions use independent leases.
+fn occupy_or_fail(
+    bridge: &BrowserBridge,
+    env: &dyn ToolEnv,
+    requested_session: Option<&str>,
+) -> Result<(), ToolResult> {
     let Some(project_id) = env.project_id().filter(|id| !id.is_empty()) else {
         return Ok(());
     };
     let Some(turn_id) = env.turn_id().filter(|id| !id.is_empty()) else {
         return Ok(());
     };
+    let session = resolve_session_name(requested_session).map_err(ToolResult::fail)?;
     bridge
-        .occupy_turn(project_id, turn_id)
+        .occupy_turn(&session, project_id, turn_id)
         .map_err(ToolResult::fail)
 }
 
@@ -2569,15 +2580,20 @@ impl Tool for BrowserSetupTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
-            return fail;
-        }
-        if let Some(action) = args
+        let action = args
             .get("action")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|action| !action.is_empty())
-        {
+            .filter(|action| !action.is_empty());
+        let lease_session = if matches!(action, Some("start_workspace" | "stop_workspace")) {
+            Some("workspace")
+        } else {
+            Some("shared")
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, lease_session) {
+            return fail;
+        }
+        if let Some(action) = action {
             let result = match action {
                 "update_extension" => {
                     let result = self.bridge.update_extension().await;
@@ -2679,13 +2695,13 @@ impl Tool for WebScanTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
-            return fail;
-        }
         let session = match session_arg(args) {
             Ok(session) => session,
             Err(error) => return ToolResult::fail(error),
         };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
+            return fail;
+        }
         if args
             .get("tabs_only")
             .and_then(Value::as_bool)
@@ -2808,7 +2824,11 @@ impl Tool for WebExecuteJsTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
         let Some(script) = args
@@ -2843,10 +2863,6 @@ impl Tool for WebExecuteJsTool {
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_TIMEOUT_MS)
             .clamp(1, MAX_TIMEOUT_MS);
-        let session = match session_arg(args) {
-            Ok(session) => session,
-            Err(error) => return ToolResult::fail(error),
-        };
         if let Err(error) = self
             .bridge
             .refuse_if_needs_human(session.as_deref(), tab_id, script)
@@ -2937,7 +2953,11 @@ impl Tool for WebOpenTabTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
         let Some(url) = args
@@ -2956,10 +2976,6 @@ impl Tool for WebOpenTabTool {
             return ToolResult::fail(browser_url_filters::block_message(url, rule));
         }
         let active = args.get("active").and_then(Value::as_bool).unwrap_or(false);
-        let session = match session_arg(args) {
-            Ok(session) => session,
-            Err(error) => return ToolResult::fail(error),
-        };
         match self
             .bridge
             .open_tab_on(session.as_deref(), url, active)
@@ -3028,7 +3044,11 @@ impl Tool for WebScreenshotTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
         let tab_id = match tab_id_arg(args) {
@@ -3037,10 +3057,6 @@ impl Tool for WebScreenshotTool {
         };
         // Viewport JPEG stays on the vision path. full_page / selector / save_path
         // write a PNG to the project and must not be treated as an original figure.
-        let session = match session_arg(args) {
-            Ok(session) => session,
-            Err(error) => return ToolResult::fail(error),
-        };
         let full_page = args
             .get("full_page")
             .and_then(Value::as_bool)
@@ -3198,13 +3214,13 @@ impl Tool for WebSaveAssetsTool {
     }
 
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
-            return fail;
-        }
         let session = match session_arg(args) {
             Ok(session) => session,
             Err(error) => return ToolResult::fail(error),
         };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
+            return fail;
+        }
         let Some(urls) = args.get("urls").and_then(Value::as_array) else {
             return ToolResult::fail("urls is required");
         };
@@ -3363,10 +3379,14 @@ impl Tool for WebAgentSendTool {
         )
     }
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
-        let turn = match begin_chat_turn(&self.bridge, args).await {
+        let turn = match begin_chat_turn(&self.bridge, args, session).await {
             Ok(turn) => turn,
             Err(error) => return ToolResult::fail(error),
         };
@@ -3464,10 +3484,14 @@ impl Tool for WebAgentWaitTool {
         "wait for in-browser chat reply".into()
     }
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
-        let turn = match begin_chat_turn(&self.bridge, args).await {
+        let turn = match begin_chat_turn(&self.bridge, args, session).await {
             Ok(turn) => turn,
             Err(error) => return ToolResult::fail(error),
         };
@@ -3544,10 +3568,14 @@ impl Tool for WebAgentReadTool {
         "read last in-browser chat answer".into()
     }
     async fn run(&self, args: &Value, env: &dyn ToolEnv) -> ToolResult {
-        if let Err(fail) = occupy_or_fail(&self.bridge, env) {
+        let session = match session_arg(args) {
+            Ok(session) => session,
+            Err(error) => return ToolResult::fail(error),
+        };
+        if let Err(fail) = occupy_or_fail(&self.bridge, env, session.as_deref()) {
             return fail;
         }
-        let turn = match begin_chat_turn(&self.bridge, args).await {
+        let turn = match begin_chat_turn(&self.bridge, args, session).await {
             Ok(turn) => turn,
             Err(error) => return ToolResult::fail(error),
         };
@@ -3809,40 +3837,68 @@ mod tests {
     #[test]
     fn occupancy_reenters_same_project_and_blocks_foreign_until_release() {
         let bridge = BrowserBridge::new(PathBuf::from("extension"));
-        bridge.occupy_turn("proj-a", "turn-1").unwrap();
-        bridge.occupy_turn("proj-a", "turn-2").unwrap();
-        let error = bridge.occupy_turn("proj-b", "turn-3").unwrap_err();
+        bridge.occupy_turn("shared", "proj-a", "turn-1").unwrap();
+        bridge.occupy_turn("shared", "proj-a", "turn-2").unwrap();
+        let error = bridge
+            .occupy_turn("shared", "proj-b", "turn-3")
+            .unwrap_err();
         assert!(
             error.contains("another project"),
             "foreign project should see occupancy: {error}"
         );
         assert!(error.contains("proj-a"), "{error}");
+        assert!(error.contains("'shared'"), "{error}");
         bridge.release_turn("turn-1");
-        let still_held = bridge.occupy_turn("proj-b", "turn-3").unwrap_err();
+        let still_held = bridge
+            .occupy_turn("shared", "proj-b", "turn-3")
+            .unwrap_err();
         assert!(still_held.contains("proj-a"), "{still_held}");
         bridge.release_turn("turn-2");
-        bridge.occupy_turn("proj-b", "turn-3").unwrap();
+        bridge.occupy_turn("shared", "proj-b", "turn-3").unwrap();
+    }
+
+    #[test]
+    fn occupancy_allows_foreign_projects_on_independent_sessions() {
+        let bridge = BrowserBridge::new(PathBuf::from("extension"));
+        bridge.occupy_turn("shared", "proj-a", "turn-a").unwrap();
+        bridge.occupy_turn("workspace", "proj-b", "turn-b").unwrap();
+
+        let shared_error = bridge
+            .occupy_turn("shared", "proj-c", "turn-c")
+            .unwrap_err();
+        assert!(shared_error.contains("proj-a"), "{shared_error}");
+        let workspace_error = bridge
+            .occupy_turn("workspace", "proj-c", "turn-c")
+            .unwrap_err();
+        assert!(workspace_error.contains("proj-b"), "{workspace_error}");
+
+        bridge.release_turn("turn-a");
+        bridge.occupy_turn("shared", "proj-c", "turn-c").unwrap();
+        let workspace_still_held = bridge
+            .occupy_turn("workspace", "proj-c", "turn-c")
+            .unwrap_err();
+        assert!(workspace_still_held.contains("proj-b"));
     }
 
     #[tokio::test]
     async fn occupancy_complete_turn_releases_holder() {
         let bridge = BrowserBridge::new(PathBuf::from("extension"));
-        bridge.occupy_turn("proj-a", "turn-a").unwrap();
+        bridge.occupy_turn("workspace", "proj-a", "turn-a").unwrap();
         assert!(matches!(
             bridge.complete_turn("turn-a").await,
             TabCleanupAction::None
         ));
-        bridge.occupy_turn("proj-b", "turn-b").unwrap();
+        bridge.occupy_turn("workspace", "proj-b", "turn-b").unwrap();
     }
 
     #[test]
     fn occupancy_holds_across_two_tools_in_one_turn() {
         let bridge = BrowserBridge::new(PathBuf::from("extension"));
         let env = OccupancyEnv::new("proj-a", "turn-1");
-        occupy_or_fail(&bridge, &env).unwrap();
-        occupy_or_fail(&bridge, &env).unwrap();
+        occupy_or_fail(&bridge, &env, None).unwrap();
+        occupy_or_fail(&bridge, &env, Some("shared")).unwrap();
         let foreign = OccupancyEnv::new("proj-b", "turn-2");
-        let fail = occupy_or_fail(&bridge, &foreign).unwrap_err();
+        let fail = occupy_or_fail(&bridge, &foreign, None).unwrap_err();
         assert!(!fail.success);
         assert!(
             fail.content.contains("proj-a"),
@@ -3850,6 +3906,67 @@ mod tests {
             fail.content
         );
         assert!(fail.content.contains("another project"), "{}", fail.content);
+    }
+
+    #[tokio::test]
+    async fn browser_tools_lease_the_resolved_session_independently() {
+        let bridge = Arc::new(BrowserBridge::new(PathBuf::from("extension")));
+        let (shared_tx, _shared_rx) = mpsc::unbounded_channel();
+        let (workspace_tx, _workspace_rx) = mpsc::unbounded_channel();
+        bridge.install_client_on(1, shared_tx, "shared").await;
+        bridge.install_client_on(2, workspace_tx, "workspace").await;
+
+        let shared = WebScanTool::new(bridge.clone())
+            .run(
+                &json!({ "tabs_only": true }),
+                &OccupancyEnv::new("proj-a", "turn-a"),
+            )
+            .await;
+        assert!(shared.success, "{}", shared.content);
+
+        let workspace = WebScanTool::new(bridge.clone())
+            .run(
+                &json!({ "tabs_only": true, "session": "workspace" }),
+                &OccupancyEnv::new("proj-b", "turn-b"),
+            )
+            .await;
+        assert!(workspace.success, "{}", workspace.content);
+
+        let blocked_shared = WebScanTool::new(bridge)
+            .run(
+                &json!({ "tabs_only": true, "session": "shared" }),
+                &OccupancyEnv::new("proj-c", "turn-c"),
+            )
+            .await;
+        assert!(!blocked_shared.success);
+        assert!(blocked_shared.content.contains("proj-a"));
+        assert!(blocked_shared.content.contains("'shared'"));
+    }
+
+    #[tokio::test]
+    async fn invalid_session_does_not_claim_the_default_shared_lease() {
+        let bridge = Arc::new(BrowserBridge::new(PathBuf::from("extension")));
+        let (shared_tx, _shared_rx) = mpsc::unbounded_channel();
+        bridge.install_client_on(1, shared_tx, "shared").await;
+
+        let invalid = WebScanTool::new(bridge.clone())
+            .run(
+                &json!({ "tabs_only": true, "session": "invalid" }),
+                &OccupancyEnv::new("proj-a", "turn-a"),
+            )
+            .await;
+        assert!(!invalid.success);
+        assert!(invalid
+            .content
+            .contains("session must be shared or workspace"));
+
+        let shared = WebScanTool::new(bridge)
+            .run(
+                &json!({ "tabs_only": true }),
+                &OccupancyEnv::new("proj-b", "turn-b"),
+            )
+            .await;
+        assert!(shared.success, "{}", shared.content);
     }
 
     #[test]
@@ -3860,12 +3977,12 @@ mod tests {
             project_id: None,
             turn_id: Some("turn-1".into()),
         };
-        occupy_or_fail(&bridge, &no_project).unwrap();
-        occupy_or_fail(&bridge, &NoEnv(PathBuf::from("."))).unwrap();
+        occupy_or_fail(&bridge, &no_project, None).unwrap();
+        occupy_or_fail(&bridge, &NoEnv(PathBuf::from(".")), None).unwrap();
 
-        occupy_or_fail(&bridge, &OccupancyEnv::new("proj-a", "turn-1")).unwrap();
-        occupy_or_fail(&bridge, &no_project).unwrap();
-        occupy_or_fail(&bridge, &NoEnv(PathBuf::from("."))).unwrap();
+        occupy_or_fail(&bridge, &OccupancyEnv::new("proj-a", "turn-1"), None).unwrap();
+        occupy_or_fail(&bridge, &no_project, Some("workspace")).unwrap();
+        occupy_or_fail(&bridge, &NoEnv(PathBuf::from(".")), Some("workspace")).unwrap();
         occupy_or_fail(
             &bridge,
             &OccupancyEnv {
@@ -3873,6 +3990,7 @@ mod tests {
                 project_id: Some(String::new()),
                 turn_id: Some("turn-2".into()),
             },
+            Some("workspace"),
         )
         .unwrap();
         occupy_or_fail(
@@ -3882,6 +4000,7 @@ mod tests {
                 project_id: Some("proj-b".into()),
                 turn_id: None,
             },
+            Some("workspace"),
         )
         .unwrap();
         occupy_or_fail(
@@ -3891,9 +4010,11 @@ mod tests {
                 project_id: Some("proj-b".into()),
                 turn_id: Some(String::new()),
             },
+            Some("workspace"),
         )
         .unwrap();
-        let fail = occupy_or_fail(&bridge, &OccupancyEnv::new("proj-b", "turn-3")).unwrap_err();
+        let fail =
+            occupy_or_fail(&bridge, &OccupancyEnv::new("proj-b", "turn-3"), None).unwrap_err();
         assert!(
             fail.content.contains("proj-a"),
             "skipping the lock must not release it: {}",

@@ -17,6 +17,9 @@ tool-created tabs.
 2. Open a WeChat article, `web_scan` with `mode=article`, confirm `images[]` includes the body figures, then `web_save_assets` copies them under the project `browser-assets/` with SHA-256. Do not use page `fetch`.
 3. `web_open_tab` on a GitHub repo and a Zenodo DOI returns a non-empty final `tab.url` / `tab.title`.
 4. `browser_setup` `action=start_workspace` opens a second Chrome only when the user explicitly requests isolation. Both sessions stay connected, and omitting `session` still uses `shared`; pass `session=workspace` to target the isolated browser.
+5. Hold a browser turn open in project A on `shared`. Project B can use
+   `session=workspace` concurrently, but another project targeting `shared`
+   receives an occupancy error naming the session and the occupying project.
 5. In an already-logged-in ChatGPT, Gemini, or Google AI Mode
    (`google.com/search?udm=50`) tab: `web_agent_send` → `web_agent_wait` →
    `web_agent_read` returns the assistant text and source links. Captcha/login
