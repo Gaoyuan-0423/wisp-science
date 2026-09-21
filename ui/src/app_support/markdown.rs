@@ -664,6 +664,7 @@ fn collect_markdown_workspace_paths(
     seen: &mut HashSet<String>,
 ) {
     collect_image_tag_paths(markdown, root, out, seen);
+    collect_file_citation_paths(markdown, root, out, seen);
     let mut in_fence = false;
     for line in markdown.lines() {
         let trimmed = line.trim_start();
@@ -734,6 +735,17 @@ fn collect_markdown_destinations(
             break;
         }
     }
+}
+
+fn collect_file_citation_paths(
+    markdown: &str,
+    root: &str,
+    out: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+) {
+    crate::text::for_each_codex_file_citation_path(markdown, |path| {
+        remember_workspace_path(root, path, out, seen);
+    });
 }
 
 fn collect_image_tag_paths(
@@ -1360,6 +1372,22 @@ mod art_ref_marker_tests {
         assert!(paths.contains(&".cache/Figure-style-rbq.png".into()));
         assert!(paths.contains(&"fix_obs_names.py".into()));
         assert!(!paths.iter().any(|path| path.contains('*')));
+    }
+
+    #[test]
+    fn collect_chat_workspace_paths_from_codex_file_citations() {
+        let items = vec![ChatItem::Assistant {
+            text: concat!(
+                r#":codex-file-citation{path="notes/FIGURE_LEGEND.md" purpose="output"} "#,
+                r#":codex-file-citation{path="E:/cross-species-root/root-cap/results/panel_index.csv" purpose="output"}"#,
+            )
+            .into(),
+            model: None,
+            resources: Vec::new(),
+        }];
+        let paths = collect_chat_workspace_paths(&items, r"E:\cross-species-root\root-cap");
+        assert!(paths.contains(&"notes/FIGURE_LEGEND.md".into()));
+        assert!(paths.contains(&"results/panel_index.csv".into()));
     }
 
     #[test]

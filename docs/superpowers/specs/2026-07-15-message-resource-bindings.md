@@ -3,7 +3,8 @@
 ## Problem
 
 Assistant and ACP output can contain relative paths, Windows drive paths,
-`file://` URIs, percent-encoded paths, and Codex `<image path="...">` blocks.
+`file://` URIs, percent-encoded paths, Codex `<image path="...">` blocks, and
+Codex Desktop `:codex-file-citation{path="..." purpose="output"}` chips.
 Passing those strings through Markdown, a WebView URL parser, and then back to
 the filesystem makes preview behavior dependent on quoting, operating system,
 and the UI surface that opened the file.

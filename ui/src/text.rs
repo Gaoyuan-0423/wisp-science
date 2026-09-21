@@ -351,13 +351,174 @@ pub(crate) fn md_document_to_html(src: &str) -> String {
 
 fn preprocess_markdown(src: &str) -> std::borrow::Cow<'_, str> {
     let src = rewrite_image_tags(src);
+    let src = match rewrite_file_citations(src.as_ref()) {
+        std::borrow::Cow::Borrowed(_) => src,
+        std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
+    };
     let src = match normalize_math_delimiters(src.as_ref()) {
         std::borrow::Cow::Borrowed(_) => src,
         std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
     };
-    match rejoin_empty_list_markers(src.as_ref()) {
+    let src = match rejoin_empty_list_markers(src.as_ref()) {
         std::borrow::Cow::Borrowed(_) => src,
         std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
+    };
+    match relax_emphasis_flanking(src.as_ref()) {
+        std::borrow::Cow::Borrowed(_) => src,
+        std::borrow::Cow::Owned(s) => std::borrow::Cow::Owned(s),
+    }
+}
+
+/// CommonMark will not close `**strong**` / `__strong__` / `~~strike~~` when
+/// the closer is preceded by punctuation and followed by a non-space,
+/// non-punctuation character (`**对得上。**两份`). Chinese replies do this
+/// constantly. Rewrite those pairs to inline HTML so they still render.
+/// Fenced code and inline code spans are left untouched.
+fn relax_emphasis_flanking(src: &str) -> std::borrow::Cow<'_, str> {
+    if !src.contains("**") && !src.contains("__") && !src.contains("~~") {
+        return std::borrow::Cow::Borrowed(src);
+    }
+    let mut out = String::with_capacity(src.len() + 32);
+    let mut changed = false;
+    let mut fence: Option<(char, usize)> = None;
+    for chunk in src.split_inclusive('\n') {
+        let line = chunk.trim_end_matches(['\r', '\n']);
+        let stripped = line.trim_start();
+        let mark = stripped.chars().next().filter(|c| matches!(c, '`' | '~'));
+        let run = mark.map_or(0, |m| stripped.chars().take_while(|&c| c == m).count());
+        match fence {
+            Some((m, n)) => {
+                out.push_str(chunk);
+                if mark == Some(m) && run >= n && stripped[run..].trim().is_empty() {
+                    fence = None;
+                }
+            }
+            None if run >= 3 => {
+                out.push_str(chunk);
+                fence = Some((mark.unwrap(), run));
+            }
+            None => rewrite_emphasis_outside_code(chunk, &mut out, &mut changed),
+        }
+    }
+    if changed {
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(src)
+    }
+}
+
+fn rewrite_emphasis_outside_code(seg: &str, out: &mut String, changed: &mut bool) {
+    let mut rest = seg;
+    loop {
+        let Some(bt) = rest.find('`') else {
+            rewrite_failing_emphasis(rest, out, changed);
+            return;
+        };
+        rewrite_failing_emphasis(&rest[..bt], out, changed);
+        let n = rest[bt..].chars().take_while(|&c| c == '`').count();
+        out.push_str(&rest[bt..bt + n]);
+        rest = &rest[bt + n..];
+        if let Some(end) = find_backtick_run(rest, n) {
+            out.push_str(&rest[..end + n]);
+            rest = &rest[end + n..];
+        }
+    }
+}
+
+fn rewrite_failing_emphasis(seg: &str, out: &mut String, changed: &mut bool) {
+    let mut owned: Option<String> = None;
+    for (mark, tag) in [("**", "strong"), ("__", "strong"), ("~~", "del")] {
+        let src = owned.as_deref().unwrap_or(seg);
+        if !src.contains(mark) {
+            continue;
+        }
+        let mut buf = String::new();
+        let mut local = false;
+        rewrite_failing_mark(src, mark, tag, &mut buf, &mut local);
+        if local {
+            *changed = true;
+            owned = Some(buf);
+        }
+    }
+    out.push_str(owned.as_deref().unwrap_or(seg));
+}
+
+fn rewrite_failing_mark(seg: &str, mark: &str, tag: &str, out: &mut String, changed: &mut bool) {
+    let mut rest = seg;
+    while let Some(start) = rest.find(mark) {
+        out.push_str(&rest[..start]);
+        let after_open = &rest[start + mark.len()..];
+        let search = &after_open[..paragraph_break(after_open)];
+        if let Some(rel) = search.find(mark) {
+            let inner = &search[..rel];
+            let after_close = &after_open[rel + mark.len()..];
+            if !inner.is_empty()
+                && !inner.chars().next().is_some_and(is_cmark_whitespace)
+                && closer_needs_relax(inner, after_close)
+            {
+                *changed = true;
+                out.push('<');
+                out.push_str(tag);
+                out.push('>');
+                out.push_str(&html_escape(inner));
+                out.push_str("</");
+                out.push_str(tag);
+                out.push('>');
+                rest = after_close;
+                continue;
+            }
+            out.push_str(mark);
+            out.push_str(inner);
+            out.push_str(mark);
+            rest = after_close;
+            continue;
+        }
+        out.push_str(mark);
+        rest = after_open;
+    }
+    out.push_str(rest);
+}
+
+fn closer_needs_relax(inner: &str, after_close: &str) -> bool {
+    let Some(before) = inner.chars().next_back() else {
+        return false;
+    };
+    let Some(after) = after_close.chars().next() else {
+        return false;
+    };
+    is_cmark_punctuation(before) && !is_cmark_whitespace(after) && !is_cmark_punctuation(after)
+}
+
+fn paragraph_break(s: &str) -> usize {
+    let n = s.find("\n\n");
+    let r = s.find("\r\n\r\n");
+    match (n, r) {
+        (Some(a), Some(b)) => a.min(b),
+        (Some(a), None) | (None, Some(a)) => a,
+        (None, None) => s.len(),
+    }
+}
+
+/// CommonMark punctuation: ASCII punctuation plus Unicode Pc/Pd/Pe/Pf/Pi/Po/Ps
+/// that actually show up next to emphasis closers in CJK replies.
+fn is_cmark_punctuation(c: char) -> bool {
+    if c.is_ascii_punctuation() {
+        return true;
+    }
+    let u = c as u32;
+    (0x3001..=0x303F).contains(&u)
+        || (0xFF01..=0xFF0F).contains(&u)
+        || (0xFF1A..=0xFF20).contains(&u)
+        || (0xFF3B..=0xFF40).contains(&u)
+        || (0xFF5B..=0xFF65).contains(&u)
+        || (0x2010..=0x2027).contains(&u)
+        || (0x2030..=0x205E).contains(&u)
+        || matches!(c, '«' | '»' | '·' | '¿' | '¡')
+}
+
+fn is_cmark_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}') || {
+        c.is_whitespace() && !matches!(c, '\u{000B}' | '\u{0085}' | '\u{2028}' | '\u{2029}')
     }
 }
 
@@ -717,6 +878,139 @@ fn image_tag_attr<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
         .find(|c: char| c.is_whitespace() || c == '>')
         .unwrap_or(rest.len());
     Some(&rest[..end])
+}
+
+/// Codex Desktop emits `:codex-file-citation{path="..." purpose="output"}`
+/// (one to three leading colons). Rewrite those tokens into ordinary Markdown
+/// file links so the existing click handler can open the file.
+fn rewrite_file_citations(src: &str) -> std::borrow::Cow<'_, str> {
+    if !src.contains("codex-file-citation{") {
+        return std::borrow::Cow::Borrowed(src);
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    let mut changed = false;
+    while let Some(idx) = rest.find("codex-file-citation{") {
+        let colon_count = rest[..idx]
+            .bytes()
+            .rev()
+            .take_while(|&byte| byte == b':')
+            .count();
+        if !(1..=3).contains(&colon_count) {
+            out.push_str(&rest[..idx + 1]);
+            rest = &rest[idx + 1..];
+            continue;
+        }
+        let start = idx - colon_count;
+        out.push_str(&rest[..start]);
+        let body = &rest[idx + "codex-file-citation{".len()..];
+        if let Some((path, consumed)) = parse_codex_file_citation_body(body) {
+            if path.is_empty() {
+                let token_end = idx + "codex-file-citation{".len() + consumed;
+                out.push_str(&rest[start..token_end]);
+                rest = &rest[token_end..];
+                continue;
+            }
+            changed = true;
+            out.push_str(&codex_file_citation_link(&path));
+            rest = &body[consumed..];
+            continue;
+        }
+        out.push_str(&rest[start..idx + "codex-file-citation{".len()]);
+        rest = &rest[idx + "codex-file-citation{".len()..];
+    }
+    out.push_str(rest);
+    if changed {
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(src)
+    }
+}
+
+pub(crate) fn for_each_codex_file_citation_path(src: &str, mut visit: impl FnMut(&str)) {
+    if !src.contains("codex-file-citation{") {
+        return;
+    }
+    let mut rest = src;
+    while let Some(idx) = rest.find("codex-file-citation{") {
+        let colon_count = rest[..idx]
+            .bytes()
+            .rev()
+            .take_while(|&byte| byte == b':')
+            .count();
+        let body = &rest[idx + "codex-file-citation{".len()..];
+        if (1..=3).contains(&colon_count) {
+            if let Some((path, consumed)) = parse_codex_file_citation_body(body) {
+                if !path.is_empty() {
+                    visit(&path);
+                }
+                rest = &body[consumed..];
+                continue;
+            }
+        }
+        rest = &rest[idx + 1..];
+    }
+}
+
+fn parse_codex_file_citation_body(body: &str) -> Option<(String, usize)> {
+    let mut rest = body;
+    let mut path = None;
+    loop {
+        rest = rest.trim_start_matches([' ', '\t']);
+        if rest.starts_with('}') {
+            let consumed = body.len() - rest.len() + 1;
+            return path.map(|path| (path, consumed));
+        }
+        if rest.is_empty() || rest.starts_with(['\n', '\r']) {
+            return None;
+        }
+        let key_len = rest
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+            .count();
+        if key_len == 0 {
+            return None;
+        }
+        let key = &rest[..key_len];
+        rest = rest[key_len..].trim_start_matches([' ', '\t']);
+        rest = rest.strip_prefix('=')?;
+        rest = rest.trim_start_matches([' ', '\t']);
+        let (value, after) = parse_codex_file_citation_attr_value(rest)?;
+        if key == "path" {
+            path = Some(value);
+        }
+        rest = after;
+    }
+}
+
+fn parse_codex_file_citation_attr_value(rest: &str) -> Option<(String, &str)> {
+    let first = rest.as_bytes().first().copied()?;
+    if first == b'"' || first == b'\'' {
+        let inner = &rest[1..];
+        let end = inner.find(first as char)?;
+        if inner[..end].contains(['\n', '\r']) {
+            return None;
+        }
+        Some((inner[..end].to_string(), &inner[end + 1..]))
+    } else {
+        let end = rest
+            .find([' ', '\t', '}', '\n', '\r'])
+            .unwrap_or(rest.len());
+        if end == 0 {
+            return None;
+        }
+        Some((rest[..end].to_string(), &rest[end..]))
+    }
+}
+
+fn codex_file_citation_link(path: &str) -> String {
+    let label = path
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path);
+    let label = label.replace('[', "\\[").replace(']', "\\]");
+    format!("[{label}](<{path}>)")
 }
 
 /// Bare runs of snake_case tool/API names collapse into one unreadable `<p>`
@@ -2209,6 +2503,66 @@ mod md_catalog_tests {
     }
 
     #[test]
+    fn renders_strong_when_cjk_punct_sits_against_the_closer() {
+        // CommonMark: a closer preceded by punctuation and followed by a letter
+        // is not right-flanking, so `**对得上。**两份` stays literal asterisks.
+        let html = md_to_html("**对得上。**两份调研在模块 b/c/d/f 的主路径上完全一致。");
+        assert!(
+            html.contains(
+                r#"<p class="md-lead-strong"><strong>对得上。</strong>两份调研在模块 b/c/d/f 的主路径上完全一致。</p>"#
+            ),
+            "{html}"
+        );
+
+        let html = md_to_html("结论：**注意：**后面还有正文");
+        assert!(
+            html.contains("<p>结论：<strong>注意：</strong>后面还有正文</p>"),
+            "{html}"
+        );
+
+        let html = md_to_html("**Hello.**World");
+        assert!(
+            html.contains(r#"<p class="md-lead-strong"><strong>Hello.</strong>World</p>"#),
+            "{html}"
+        );
+
+        let html = md_to_html("已完成 ~~删除。~~继续");
+        assert!(
+            html.contains("<p>已完成 <del>删除。</del>继续</p>"),
+            "{html}"
+        );
+
+        // Same paragraph as the chat screenshot: lead-in bold, then an inline path.
+        let html = md_to_html(
+            "**对得上。**两份调研一致；另一处是真出入（Cwa 输入文件不在 `test_full/h5ad/` ）。",
+        );
+        assert!(
+            html.contains("<strong>对得上。</strong>两份调研一致"),
+            "{html}"
+        );
+        assert!(html.contains("<code>test_full/h5ad/</code>"), "{html}");
+    }
+
+    #[test]
+    fn leaves_working_emphasis_and_code_alone() {
+        // Closer already right-flanking: space / punctuation / end of paragraph.
+        let html = md_to_html("**对得上。** 两份");
+        assert!(
+            html.contains(r#"<p class="md-lead-strong"><strong>对得上。</strong> 两份</p>"#),
+            "{html}"
+        );
+        let html = md_to_html("「**点**」");
+        assert!(html.contains("<p>「<strong>点</strong>」</p>"), "{html}");
+
+        // Fences and inline code must keep the asterisks as data.
+        let html = md_to_html("```\n**对得上。**两份\n```\n");
+        assert_eq!(html, "<pre><code>**对得上。**两份\n</code></pre>\n");
+        let html = md_to_html("看 `**对得上。**两份`");
+        assert!(html.contains("<code>**对得上。**两份</code>"), "{html}");
+        assert!(!html.contains("<strong>"), "{html}");
+    }
+
+    #[test]
     fn unwraps_lead_strong_paragraphs_for_inline_html() {
         assert_eq!(md_inline_to_html("**bold**"), "<strong>bold</strong>");
         assert_eq!(md_inline_to_html("plain"), "plain");
@@ -2385,6 +2739,40 @@ mod md_catalog_tests {
         assert!(html.contains("clipboard-preview.png"), "{html}");
         assert!(html.contains("<a href="), "{html}");
         assert!(!html.contains("<image"), "{html}");
+    }
+
+    #[test]
+    fn rewrites_codex_file_citations_to_clickable_links() {
+        let src = concat!(
+            r#":codex-file-citation{path="E:/cross-species-root/root-cap/results/rootcap_reviewed_analysis_20260831/rotated_pdf_20260921/original_microscopy_panels.pdf" purpose="output"}"#,
+            "\n",
+            r#":codex-file-citation{path="E:/cross-species-root/root-cap/results/rootcap_reviewed_analysis_20260831/rotated_pdf_20260921/panel_index.csv" purpose="output"}"#,
+        );
+        let html = md_to_html(src);
+        assert!(
+            html.contains(
+                r#"<a href="E:/cross-species-root/root-cap/results/rootcap_reviewed_analysis_20260831/rotated_pdf_20260921/original_microscopy_panels.pdf">original_microscopy_panels.pdf</a>"#
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<a href="E:/cross-species-root/root-cap/results/rootcap_reviewed_analysis_20260831/rotated_pdf_20260921/panel_index.csv">panel_index.csv</a>"#
+            ),
+            "{html}"
+        );
+        assert!(!html.contains("codex-file-citation"), "{html}");
+        assert!(!html.contains("purpose="), "{html}");
+
+        let html = md_to_html(
+            r#"see ::codex-file-citation{path='results/layout_audit.json' purpose="output"} later"#,
+        );
+        assert!(
+            html.contains(r#"<a href="results/layout_audit.json">layout_audit.json</a>"#),
+            "{html}"
+        );
+        assert!(html.contains("see "), "{html}");
+        assert!(html.contains(" later"), "{html}");
     }
 
     #[test]
