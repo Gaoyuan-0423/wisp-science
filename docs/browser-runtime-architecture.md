@@ -21,6 +21,14 @@ Agent tools
 Both can be connected at once. Omitting `session` always selects `shared`;
 workspace mode is used only when a tool explicitly passes `session=workspace`.
 
+Each session is also an independent Browser Task Lease. Two projects cannot
+drive the same session at once: the first browser tool holds that session's
+lease until its turn completes. A project using `shared` and another project
+using `workspace` can run browser tools in parallel because they target
+different profiles and connections. There is currently one global workspace
+profile, so this provides two parallel lanes rather than one workspace per
+project.
+
 ### Workspace mode needs a build that still loads unpacked extensions
 
 The workspace window is launched with `--load-extension` pointed at a copy
@@ -82,7 +90,8 @@ The extension never writes project directories and never returns large base64 fi
 ## What the Runtime does
 
 - Multiplexes two WebSocket listeners
-- Browser Task Lease with `shared` as the default and explicit `workspace` routing
+- Per-session Browser Task Leases with `shared` as the default and explicit
+  `workspace` routing
 - Copies staged files into the project and hashes SHA-256
 - Starts/stops the workspace browser window and verifies it connected
 - Per-turn ledger of tabs Wisp created (`web_open_tab` / tab-create), closed at turn end or confirmed in the UI

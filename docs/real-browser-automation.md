@@ -56,6 +56,13 @@ all selected by default; uncheck any to keep, then close the rest or keep all.
 If the extension is disconnected at the end of the turn, the pending list is
 kept until it reconnects.
 
+Browser occupancy is scoped to the selected session. Different projects are
+still serialized when they target the same `shared` or `workspace` session,
+preventing their tab actions from interleaving. When both sessions are
+connected, one project can use `shared` while another explicitly uses
+`workspace` at the same time. The workspace browser is currently one global
+isolated profile, not a separate profile for every project.
+
 The banner describes the answer on screen, not the session. It is derived from
 the browser tool results of the latest turn only, and a single successful
 `web_scan`, `web_open_tab`, `web_execute_js`, or `web_screenshot` clears it: the
