@@ -21,9 +21,9 @@ pub use agent::{
     agent_loop, agent_loop_continue, bound_tool_results_in_history, AgentLoopOutcome, GuidanceQueue,
 };
 pub use context::{
-    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, CompactionKind,
-    CompactionOutcome, ContextManager, ContextToolDetail, ContextUsage, ContextUsageDetails,
-    COMPACTION_SUMMARY_PREFIX, UNPAIRED_ON_LOAD_RESULT,
+    repair_unpaired_tool_calls, tool_call_pairing, unpaired_tool_call_ids, CompactIntent,
+    CompactionKind, CompactionOutcome, ContextManager, ContextToolDetail, ContextUsage,
+    ContextUsageDetails, COMPACTION_SUMMARY_PREFIX, UNPAIRED_ON_LOAD_RESULT,
 };
 pub use delegation::{
     degraded_delivery_marker, is_degraded_delivery, AgentArtifact, AgentAuthorizationSnapshot,
@@ -301,6 +301,16 @@ impl Agent {
         &mut self,
         custom_instruction: Option<&str>,
     ) -> Result<(usize, usize, PathBuf), String> {
+        self.compact_with_intent(custom_instruction, CompactIntent::Auto)
+            .await
+    }
+
+    /// Compact with an explicit prune-only or force-semantic intent.
+    pub async fn compact_with_intent(
+        &mut self,
+        custom_instruction: Option<&str>,
+        intent: CompactIntent,
+    ) -> Result<(usize, usize, PathBuf), String> {
         let archive_id = uuid::Uuid::new_v4().simple().to_string();
         let archive = self
             .root
@@ -312,12 +322,13 @@ impl Agent {
         let fixed_tokens = ContextManager::estimated_tool_tokens(&schemas);
         let (before, after) = self
             .ctx
-            .compact_with_reserve_reference_instruction(
+            .compact_with_intent(
                 self.provider.as_ref(),
                 &archive,
                 fixed_tokens,
                 &archive_reference,
                 custom_instruction,
+                intent,
             )
             .await?;
         Ok((before, after, archive))

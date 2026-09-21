@@ -144,19 +144,53 @@ pub(crate) async fn send_message(
     result
 }
 
-fn parse_manual_compact_command(message: &str) -> Option<Option<&str>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ManualCompactCommand {
+    intent: wisp_core::CompactIntent,
+    instruction: Option<String>,
+}
+
+fn parse_manual_compact_command(message: &str) -> Option<ManualCompactCommand> {
     let command = message.trim();
     let Some(rest) = command.strip_prefix("/compact") else {
         return None;
     };
     if rest.is_empty() {
-        return Some(None);
+        return Some(ManualCompactCommand {
+            intent: wisp_core::CompactIntent::PruneOnly,
+            instruction: None,
+        });
     }
-    if rest.chars().next().is_some_and(char::is_whitespace) {
-        let instruction = rest.trim();
-        return Some((!instruction.is_empty()).then_some(instruction));
+    if !rest.chars().next().is_some_and(char::is_whitespace) {
+        return None;
     }
-    None
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(ManualCompactCommand {
+            intent: wisp_core::CompactIntent::PruneOnly,
+            instruction: None,
+        });
+    }
+    if rest == "--semantic" {
+        return Some(ManualCompactCommand {
+            intent: wisp_core::CompactIntent::Semantic,
+            instruction: None,
+        });
+    }
+    if let Some(instruction) = rest.strip_prefix("--semantic") {
+        if instruction.chars().next().is_some_and(char::is_whitespace) {
+            let instruction = instruction.trim();
+            return Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::Semantic,
+                instruction: (!instruction.is_empty()).then(|| instruction.to_string()),
+            });
+        }
+        return None;
+    }
+    Some(ManualCompactCommand {
+        intent: wisp_core::CompactIntent::Semantic,
+        instruction: Some(rest.to_string()),
+    })
 }
 
 struct ReplacementReservation(Arc<SessionRuntime>);
@@ -1017,8 +1051,11 @@ pub(crate) async fn send_message_inner(
     // epoch (the previous rows and the visual transcript in session_ui_events
     // stay intact), and report via the existing Compaction event.
     if !resume {
-        if let Some(custom_instruction) = parse_manual_compact_command(&message) {
-            match agent.compact_with_instruction(custom_instruction).await {
+        if let Some(command) = parse_manual_compact_command(&message) {
+            match agent
+                .compact_with_intent(command.instruction.as_deref(), command.intent)
+                .await
+            {
                 Ok((before, after, _archive)) => {
                     let epoch = persist_compaction_epoch(
                         &state.store,
@@ -1930,13 +1967,45 @@ mod queue_tests {
 
     #[test]
     fn compact_command_accepts_an_optional_instruction_without_matching_longer_names() {
-        assert_eq!(parse_manual_compact_command("/compact"), Some(None));
+        assert_eq!(
+            parse_manual_compact_command("/compact"),
+            Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::PruneOnly,
+                instruction: None,
+            })
+        );
+        assert_eq!(
+            parse_manual_compact_command("  /compact   --semantic  "),
+            Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::Semantic,
+                instruction: None,
+            })
+        );
+        assert_eq!(
+            parse_manual_compact_command(
+                "  /compact   --semantic  preserve QC thresholds and blockers  "
+            ),
+            Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::Semantic,
+                instruction: Some("preserve QC thresholds and blockers".into()),
+            })
+        );
         assert_eq!(
             parse_manual_compact_command("  /compact   preserve QC thresholds and blockers  "),
-            Some(Some("preserve QC thresholds and blockers"))
+            Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::Semantic,
+                instruction: Some("preserve QC thresholds and blockers".into()),
+            })
         );
-        assert_eq!(parse_manual_compact_command("/compact   "), Some(None));
+        assert_eq!(
+            parse_manual_compact_command("/compact   "),
+            Some(ManualCompactCommand {
+                intent: wisp_core::CompactIntent::PruneOnly,
+                instruction: None,
+            })
+        );
         assert_eq!(parse_manual_compact_command("/compact2"), None);
+        assert_eq!(parse_manual_compact_command("/compact --semantic2"), None);
         assert_eq!(parse_manual_compact_command("send /compact now"), None);
     }
 

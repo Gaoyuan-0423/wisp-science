@@ -75,13 +75,24 @@ the epoch is saved, including automatic compaction at the end of a turn.
 Undo restores the actual parent epoch, which can itself be compacted. A later
 compact always receives a new epoch number, even after undo, rewind, or restart.
 
-Manual semantic compaction can be started with `/compact` or from the Compact
-button in the context-usage panel. `/compact` accepts an optional instruction,
-for example `/compact preserve the unresolved QC blockers and exact file paths`.
-The confirmation dialog lets the user edit that instruction. Once compaction
-starts, the dialog cannot be dismissed; after the archive and new epoch are
-durable it closes and switches to Model view so the resulting checkpoint and
-retained tail can be reviewed before continuing. The usage panel receives a
+Manual compaction is a two-mode dialog from `/compact` or the Compact button
+in the context-usage panel. **Regular compact** archives the transcript and
+replaces old tool results with stubs; user and assistant turns stay in place.
+**Semantic compact** always writes a `[context summary checkpoint]` plus a
+short retained tail, even when prune alone would fit the window. The optional
+summarization instruction appears only after you choose semantic compact.
+`/compact preserve the unresolved QC blockers and exact file paths` opens on
+the semantic path with that instruction filled in. Automatic compaction at 80%
+still prunes first and only summarizes if the window is still full.
+
+**Settings → Conversation** can also start a semantic compact after you switch
+this conversation's model, and can prompt when you reopen a conversation that
+has been idle for a configured number of hours (default 24; 0 disables the
+prompt). Switching models does not compact unless that setting is on.
+
+Once a compact starts, the dialog cannot be dismissed; after the archive and
+new epoch are durable it closes and switches to Model view so the resulting
+working set can be reviewed before continuing. The usage panel receives a
 fresh post-compaction context estimate and breakdown rather than retaining the
 pre-compaction conversation total.
 The percentage measures the current context against the model's window;

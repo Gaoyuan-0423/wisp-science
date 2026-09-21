@@ -2144,6 +2144,28 @@ pub(super) fn SettingsView(
                                 <span class="toggle-track" aria-hidden="true"></span>
                             </label>
                         </div>
+                        <div class="appearance-config-row">
+                            <div>
+                                <strong>{move || t(locale.get(), "settings.semantic_compact_on_model_switch")}</strong>
+                                <span>{move || t(locale.get(), "settings.semantic_compact_on_model_switch_hint")}</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" data-testid="semantic-compact-on-model-switch" aria-label=move || t(locale.get(), "settings.semantic_compact_on_model_switch")
+                                    prop:checked=move || settings.get().semantic_compact_on_model_switch
+                                    on:change=move |ev| settings.update(|current| current.semantic_compact_on_model_switch = event_target_checked(&ev)) />
+                                <span class="toggle-track" aria-hidden="true"></span>
+                            </label>
+                        </div>
+                        <label class="session-number-field"><span>{move || t(locale.get(), "settings.semantic_compact_idle_hours")}</span>
+                            <input data-testid="semantic-compact-idle-hours" type="number" min="0" step="1"
+                                on:input=move |ev| settings.update(|current| {
+                                    if let Ok(value) = event_target_input(&ev).value().parse() {
+                                        current.semantic_compact_idle_hours = value;
+                                    }
+                                })
+                                prop:value=move || settings.get().semantic_compact_idle_hours.to_string() />
+                            <span class="settings-field-hint">{move || t(locale.get(), "settings.semantic_compact_idle_hours_hint")}</span>
+                        </label>
                         </div>
                         <h3>{move || t(locale.get(), "settings.session.followup")}</h3>
                         <div class="session-fields">

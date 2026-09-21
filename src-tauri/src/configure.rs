@@ -104,6 +104,18 @@ const CATALOG: &[SettingSpec] = &[
         summary: "Automatically compact long conversations near the context limit.",
     },
     SettingSpec {
+        key: "semantic_compact_on_model_switch",
+        kind: ValueKind::Bool,
+        writable: true,
+        summary: "Run semantic compaction after switching the conversation model.",
+    },
+    SettingSpec {
+        key: "semantic_compact_idle_hours",
+        kind: ValueKind::Int,
+        writable: true,
+        summary: "Prompt for semantic compaction after this many idle hours. 0 disables. Default 24.",
+    },
+    SettingSpec {
         key: "auto_continue",
         kind: ValueKind::Bool,
         writable: true,
@@ -685,6 +697,17 @@ async fn current_values(store: &Store) -> Result<Map<String, Value>, String> {
         .map_err(|error| error.to_string())?
         .map(|value| value != "false")
         .unwrap_or(true);
+    let semantic_compact_on_model_switch = store
+        .get_setting("semantic_compact_on_model_switch")
+        .await
+        .map_err(|error| error.to_string())?
+        .is_some_and(|value| value == "true");
+    let semantic_compact_idle_hours = store
+        .get_setting("semantic_compact_idle_hours")
+        .await
+        .map_err(|error| error.to_string())?
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(24);
     let auto_continue = store
         .get_setting("auto_continue")
         .await
@@ -739,6 +762,14 @@ async fn current_values(store: &Store) -> Result<Map<String, Value>, String> {
     values.insert("locale".into(), json!(locale));
     values.insert("max_iter".into(), json!(max_iter));
     values.insert("auto_compact".into(), json!(auto_compact));
+    values.insert(
+        "semantic_compact_on_model_switch".into(),
+        json!(semantic_compact_on_model_switch),
+    );
+    values.insert(
+        "semantic_compact_idle_hours".into(),
+        json!(semantic_compact_idle_hours),
+    );
     values.insert("auto_continue".into(), json!(auto_continue));
     values.insert("auto_continue_limit".into(), json!(auto_continue_limit));
     values.insert("follow_up_questions".into(), json!(follow_up_questions));
@@ -955,6 +986,23 @@ async fn apply_one(
             Ok(next.to_string())
         }
         "auto_compact" => write_bool_setting(store, "auto_compact", incoming).await,
+        "semantic_compact_on_model_switch" => {
+            write_bool_setting(store, "semantic_compact_on_model_switch", incoming).await
+        }
+        "semantic_compact_idle_hours" => {
+            let current = store
+                .get_setting("semantic_compact_idle_hours")
+                .await
+                .map_err(|error| error.to_string())?
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(24);
+            let next = resolve_int(incoming, current, 0, 10_000)?;
+            store
+                .set_setting("semantic_compact_idle_hours", &next.to_string())
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(next.to_string())
+        }
         "auto_continue" => write_bool_setting(store, "auto_continue", incoming).await,
         "auto_continue_limit" => {
             let current = store

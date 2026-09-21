@@ -154,6 +154,19 @@ pub enum CompactionKind {
     Semantic,
 }
 
+/// What a compact request is allowed to do after the archive is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactIntent {
+    /// Automatic 80% path: prune, then summarize only if still over target.
+    Auto,
+    /// Manual regular compact: prune tool/media noise only, even if the
+    /// request remains above the warning threshold.
+    PruneOnly,
+    /// Manual semantic compact: always install a checkpoint plus a bounded
+    /// tail, even when prune alone would fit the window.
+    Semantic,
+}
+
 impl CompactionKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -1765,6 +1778,27 @@ impl ContextManager {
         archive_reference: &str,
         custom_instruction: Option<&str>,
     ) -> Result<(usize, usize), String> {
+        self.compact_with_intent(
+            provider,
+            archive_path,
+            fixed_tokens,
+            archive_reference,
+            custom_instruction,
+            CompactIntent::Auto,
+        )
+        .await
+    }
+
+    /// Compact with an explicit prune-only or force-semantic intent.
+    pub async fn compact_with_intent(
+        &mut self,
+        provider: &dyn Provider,
+        archive_path: &Path,
+        fixed_tokens: usize,
+        archive_reference: &str,
+        custom_instruction: Option<&str>,
+        intent: CompactIntent,
+    ) -> Result<(usize, usize), String> {
         if archive_reference.trim().is_empty() {
             return Err("compact archive reference cannot be empty".into());
         }
@@ -1807,7 +1841,13 @@ impl ContextManager {
         }
         let mut kind = CompactionKind::PruneOnly;
         let mut kept_from_index = None;
-        if self.request_tokens_with_reserve(fixed_tokens) > target {
+        let over_target = self.request_tokens_with_reserve(fixed_tokens) > target;
+        let run_semantic = match intent {
+            CompactIntent::Semantic => true,
+            CompactIntent::Auto => over_target,
+            CompactIntent::PruneOnly => false,
+        };
+        if run_semantic {
             let pruned_tokens = self.request_tokens_with_reserve(fixed_tokens);
             let summary = match self
                 .summarize_original_history(
@@ -1846,7 +1886,7 @@ impl ContextManager {
             }
         }
         let after = self.request_tokens_with_reserve(fixed_tokens);
-        if after >= self.warn_threshold {
+        if after >= self.warn_threshold && intent != CompactIntent::PruneOnly {
             self.messages = original_messages;
             return Err(format!(
                 "compaction could not bring the request below the warning threshold (estimated {after} tokens, threshold {})",
@@ -2670,6 +2710,67 @@ mod tests {
         assert!(outcome
             .archive_reference
             .ends_with("prune-only-outcome.json"));
+    }
+
+    #[tokio::test]
+    async fn forced_semantic_compaction_runs_when_prune_already_fits() {
+        let mut ctx = ContextManager::new(1_000_000);
+        ctx.append_system("sys");
+        seed_turns(&mut ctx, 12);
+        let provider = RecordingSummaryProvider::new(
+            "Objective\nKeep the earlier decisions while continuing the latest work.",
+        );
+        ctx.compact_with_intent(
+            &provider,
+            &archive_path("forced-semantic.json"),
+            0,
+            "wisp-history:forced",
+            Some("Preserve exact file paths."),
+            CompactIntent::Semantic,
+        )
+        .await
+        .unwrap();
+        let outcome = ctx.last_compaction().expect("outcome recorded");
+        assert_eq!(outcome.kind, CompactionKind::Semantic);
+        assert!(ctx
+            .messages
+            .iter()
+            .any(ContextManager::is_summary_checkpoint));
+        let requests = provider.requests.lock().unwrap();
+        assert!(requests.iter().any(|request| request.iter().any(|message| {
+            message
+                .content
+                .as_text()
+                .contains("Preserve exact file paths.")
+        })));
+    }
+
+    #[tokio::test]
+    async fn prune_only_intent_skips_semantic_even_when_over_target() {
+        let mut ctx = ContextManager::new(10_000);
+        for turn in 0..12 {
+            ctx.append_user(format!("question {turn} {}", "u".repeat(1_400)));
+            ctx.append_assistant(format!("answer {turn} {}", "a".repeat(1_400)), vec![], None);
+        }
+        let provider = StubProvider {
+            allow_summary: false,
+        };
+        ctx.compact_with_intent(
+            &provider,
+            &archive_path("prune-only-intent.json"),
+            0,
+            "wisp-history:prune-intent",
+            None,
+            CompactIntent::PruneOnly,
+        )
+        .await
+        .unwrap();
+        let outcome = ctx.last_compaction().expect("outcome recorded");
+        assert_eq!(outcome.kind, CompactionKind::PruneOnly);
+        assert!(ctx
+            .messages
+            .iter()
+            .all(|message| !ContextManager::is_summary_checkpoint(message)));
     }
 
     #[tokio::test]

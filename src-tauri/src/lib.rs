@@ -2159,6 +2159,12 @@ struct Settings {
     /// configured context budget. ACP agents own their remote context.
     #[serde(default = "default_auto_compact")]
     auto_compact: bool,
+    /// After a user switches the session model, run semantic compaction.
+    #[serde(default)]
+    semantic_compact_on_model_switch: bool,
+    /// Prompt for semantic compaction after this many idle hours. 0 disables.
+    #[serde(default = "default_semantic_compact_idle_hours")]
+    semantic_compact_idle_hours: u64,
     /// Retry native-model responses that stop at their output-token ceiling.
     #[serde(default)]
     auto_continue: bool,
@@ -2229,6 +2235,10 @@ const fn default_send_user_agent_setting() -> bool {
 
 const fn default_auto_compact() -> bool {
     true
+}
+
+const fn default_semantic_compact_idle_hours() -> u64 {
+    24
 }
 
 const fn default_auto_continue_limit() -> u64 {
@@ -4877,6 +4887,25 @@ async fn load_auto_compact_enabled(store: &Store) -> bool {
         .flatten()
         .map(|value| value != "false")
         .unwrap_or(true)
+}
+
+async fn load_semantic_compact_on_model_switch(store: &Store) -> bool {
+    store
+        .get_setting("semantic_compact_on_model_switch")
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|value| value == "true")
+}
+
+async fn load_semantic_compact_idle_hours(store: &Store) -> u64 {
+    store
+        .get_setting("semantic_compact_idle_hours")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default_semantic_compact_idle_hours())
 }
 
 async fn load_auto_continue_settings(store: &Store) -> (bool, usize) {
