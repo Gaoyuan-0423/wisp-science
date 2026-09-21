@@ -710,6 +710,12 @@ async fn auto_review_is_off_by_default_and_persists_changes() {
         .await
         .unwrap();
 
+    // The pre-#1293 global flag the composer used to write must not leak into
+    // new sessions as their default.
+    store
+        .set_setting("auto_review_enabled", "true")
+        .await
+        .unwrap();
     assert!(!super::load_auto_review_enabled(&store, "a").await);
     super::save_auto_review_enabled(&store, "a", true)
         .await
