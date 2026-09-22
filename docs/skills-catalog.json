@@ -25,6 +25,14 @@
   },
   {
     "group": "literature",
+    "id": "research-integrity-audit",
+    "title_zh": "学术诚信审查",
+    "title_en": "Research integrity audit",
+    "summary_zh": "筛查论文图像面板的重复或变换复用，以及源数据中的复制数据块、固定差值/比例、末位数字异常、GRIM/GRIMMER 不一致和与统计量不符的 p 值，并整理可复核的证据。",
+    "summary_en": "Screen figure panels for duplication or transformed reuse, and source data for copied value blocks, fixed differences or ratios, digit anomalies, GRIM/GRIMMER inconsistencies, and p-values that do not match their statistics."
+  },
+  {
+    "group": "literature",
     "id": "indication-dossier",
     "title_zh": "疾病研究档案",
     "title_en": "Indication dossiers",
@@ -78,14 +86,6 @@
     "title_en": "Multi-panel figures",
     "summary_zh": "围绕研究结论安排多个图面板，完成布局、拼图与视觉检查。",
     "summary_en": "Plan panels around a research claim, compose the layout, and inspect the final figure."
-  },
-  {
-    "group": "figures",
-    "id": "figure-duplicate-audit",
-    "title_zh": "图像重复检查",
-    "title_en": "Figure duplication review",
-    "summary_zh": "拆分论文图像面板，筛查重复或变换后的相似图像，并整理可复核的证据。",
-    "summary_en": "Inspect figure panels for duplication or transformed reuse and produce reviewable evidence."
   },
   {
     "group": "figures",
